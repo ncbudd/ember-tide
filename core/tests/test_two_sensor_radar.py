@@ -85,6 +85,15 @@ def _setup(c, ha, ctl, weight=0.9):
     for x in c.get("/api/sources").json()["sources"]:                 # the bed strip alone to begin with
         c.delete(f"/api/sources/{x['id']}", headers=H)
     ctl.driver.scripted = False
+    # two different sleepers: the simulator draws both sides' vitals from the same narrow range, and an exact match
+    # (one person showing on both pads) holds the second side as a copy, so "both in bed" settled only sometimes
+    import dataclasses
+    orig = ctl.driver._sensor
+
+    def sensor(name, ts, done):
+        f = orig(name, ts, done)
+        return dataclasses.replace(f, hr=f.hr + 9) if name == "right" and f.hr is not None else f
+    ctl.driver._sensor = sensor
     tune = {"weight": weight, "min_on_s": 0, "hold_s": 0}
     r = c.post("/api/sources/group", headers=H, json=pair(FP1E_L, FP1E_R, tuning=tune)).json()
     return {s["zone"]: s["id"] for s in r["sources"]}
@@ -102,8 +111,11 @@ def _strip(ctl, left, right):
     ctl.driver.set_presence("left", left)
     ctl.driver.set_presence("right", right)
     # start the strip's filter fresh: the simulator's scripted sleepers may have been "in bed" a moment ago (the test
-    # clock is the real time of day), and an occupied side only lets go after its hold time
-    ctl.presence.sides.clear()
+    # clock is the real time of day), and an occupied side only lets go after its hold time. A whole new filter, not
+    # just its sides: it also remembers when each pad came on, and a pad lit within 2 min after the other one that
+    # reads like it is held as that one's echo (the simulator gives both sides the same readings) — CI flaked on it
+    from embertide.engine.presence import PresenceFilter
+    ctl.presence = PresenceFilter()
     t = time.time()
     while time.time() - t < 10 and (ctl.presence.present("left"), ctl.presence.present("right")) != (left, right):
         time.sleep(0.05)
