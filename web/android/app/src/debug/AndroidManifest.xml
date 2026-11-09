@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: lets `adb shell am broadcast -a app.embertide.HC_TEST_DATA -n app.embertide/.HealthTestData`
+     write one fake night into Health Connect so the sync can be tested on an emulator. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.health.WRITE_HEART_RATE" />
+    <uses-permission android:name="android.permission.health.WRITE_SLEEP" />
+    <uses-permission android:name="android.permission.health.WRITE_SKIN_TEMPERATURE" />
+    <application>
+        <!-- DUMP: only adb (the shell) or the system can send it, never another app -->
+        <receiver android:name=".HealthTestData" android:exported="true" android:permission="android.permission.DUMP" />
+        <!-- FakeDial: pretend a bedside dial was heard (usage in FakeDial.kt) -->
+        <receiver android:name=".FakeDial" android:exported="true" android:permission="android.permission.DUMP" />
+        <!-- FakeWatchHr: pretend the watch sent a heart-rate batch (usage in FakeWatchHr.kt) -->
+        <receiver android:name=".FakeWatchHr" android:exported="true" android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

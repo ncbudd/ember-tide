@@ -1,0 +1,14 @@
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools" tools:ignore="UseAppTint"
+    android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="14dp" android:paddingEnd="8dp" android:background="@drawable/widget_bg">
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+        <TextView android:id="@+id/w_temp" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="–" android:textColor="#F2EADF" android:textSize="28sp" android:fontFamily="sans-serif-light" android:maxLines="1"/>
+        <TextView android:id="@+id/w_state_short" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="" android:textColor="#A39AA4" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"/>
+    </LinearLayout>
+    <ImageView android:id="@+id/w_hot" android:layout_width="48dp" android:layout_height="48dp"
+        android:background="@drawable/widget_btn" android:padding="12dp" android:src="@drawable/ic_stat_flash" android:tint="#5FB8B0"
+        android:contentDescription="Hot flash"/>
+</LinearLayout>

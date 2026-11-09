@@ -1,0 +1,39 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+*.egg-info/
+data/
+*.db
+*.db-wal
+*.db-shm
+node_modules/
+web/dist/
+.env
+secrets/
+# Firebase: the app's config and the server's service-account key never go in the repo
+google-services.json
+fcm-service-account.json
+vapid-private.pem
+oura-*.json
+*-firebase-adminsdk-*.json
+# Android build output and local SDK path
+web/android/**/build/
+web/android/local.properties
+web/android/.gradle/
+*.tsbuildinfo
+
+# Signing keys, env files, IDE and scratch
+*.jks
+*.keystore
+.env.*
+!.env.example
+*.pem
+.idea/
+.vscode/
+*.log
+scratch/
+tmp/
+.DS_Store
+web/android/app/release/
+web/android/wear/build/

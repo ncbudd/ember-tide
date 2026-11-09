@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Static launcher shortcuts. Minimal OS's command bar (and long-press on any launcher) lists these.
+     MainActivity hands the action to the web app, which runs it like the matching keyboard shortcut. -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="hot" android:enabled="true" android:icon="@drawable/ic_stat_flash"
+        android:shortcutShortLabel="@string/sc_hot_short" android:shortcutLongLabel="@string/sc_hot_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.embertide"
+            android:targetClass="app.embertide.ShortcutActivity">
+            <extra android:name="et_action" android:value="hot" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="cold" android:enabled="true" android:icon="@drawable/ic_sun"
+        android:shortcutShortLabel="@string/sc_cold_short" android:shortcutLongLabel="@string/sc_cold_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.embertide"
+            android:targetClass="app.embertide.ShortcutActivity">
+            <extra android:name="et_action" android:value="cold" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="off" android:enabled="true" android:icon="@drawable/ic_power"
+        android:shortcutShortLabel="@string/sc_off_short" android:shortcutLongLabel="@string/sc_off_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.embertide"
+            android:targetClass="app.embertide.ShortcutActivity">
+            <extra android:name="et_action" android:value="off" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="simple" android:enabled="true" android:icon="@drawable/ic_launcher_mono"
+        android:shortcutShortLabel="@string/sc_simple_short" android:shortcutLongLabel="@string/sc_simple_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="app.embertide"
+            android:targetClass="app.embertide.ShortcutActivity">
+            <extra android:name="et_action" android:value="simple" />
+        </intent>
+    </shortcut>
+</shortcuts>

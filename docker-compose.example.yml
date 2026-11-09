@@ -1,0 +1,27 @@
+# Copy to docker-compose.yml and pick ONE bed connection below.
+# Ember & Tide never updates itself: rebuild from a newer checkout when you choose to.
+services:
+  embertide:
+    build: .                          # builds from this checkout (a published image will be listed here once there is one)
+    restart: unless-stopped
+    ports:
+      - "8790:8790"
+    volumes:
+      - ./data:/data
+    environment:
+      TZ: America/New_York            # your time zone (schedules depend on it)
+      ET_TZ: America/New_York
+
+      # --- Option A: try it first with the simulator (default) ---
+      ET_BED: sim
+
+      # --- Option B: Orion cloud with a personal API key (easiest real setup) ---
+      # Create a key at https://app.orionsleep.com/api-keys
+      # ET_BED: orion-cloud
+      # ET_ORION_API_KEY: os_live_xxxxxxxx
+
+      # --- Option C: Orion fully local over MQTT (advanced, see docs/LOCAL.md) ---
+      # Needs your own MQTT broker and a router DNS record dev.orionbed.com -> broker IP.
+      # ET_BED: orion-mqtt
+      # ET_MQTT_URL: mqtt://192.168.1.10:1883
+      # ET_ORION_SERIAL: OSCT...       # optional; auto-detected from the first bed that reports

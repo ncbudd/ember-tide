@@ -1,0 +1,1145 @@
+########################################################################
+# Ember & Tide bedside dial · v5 · SHARED CONFIG
+# Included by each dial's own file via `packages:` (they hold only device_name, friendly_name, API key, OTA password).
+# Elecrow CrowPanel 2.1" (ESP32-S3, 480x480 round, ST7701S, CST826 touch, rotary encoder + press via PCF8574).
+# Hardware section copied unchanged from the working Orion dial config (2026-10-11).
+# Pages (swipe): Home · Flash · Tonight · Rhythm. The knob is the temperature; pressing it goes Home.
+# Waking: a clock if this side is off, the morning question if it's due, otherwise Home.
+########################################################################
+
+substitutions:
+  # Defaults for a fresh install. Each dial's own file overrides p0/p1 with its household's entity IDs;
+  # the names shown on screen come live from Ember & Tide (sensor.<side>_name), these are only the fallback.
+  p0_name: "Left"
+  p1_name: "Right"
+  p0_name_uc: "LEFT"
+  p1_name_uc: "RIGHT"
+  p0: embertide_left
+  p1: embertide_right
+  c_p0: "0x5FB8B0"
+  c_p1: "0xEE8A55"
+  t_min: "55"
+  t_max: "110"
+  # Which side this dial shows after it starts up: 0 = p0 (left), 1 = p1 (right)
+  home_side: "0"
+  # Bluetooth beacon the Ember & Tide phone app listens for at night: 1 = the left dial, 2 = the right dial
+  beacon_minor: "1"
+
+# A small, low-power Bluetooth beacon: at night, a phone that's charging next to this dial can tell Ember & Tide
+# "probably in bed on this side" (a weak vote that also tells the two sleepers apart). Advertising only; no pairing.
+esp32_ble_beacon:
+  type: iBeacon
+  uuid: 7c1f0e2a-5d3b-4e8a-9b6c-ed0a11e1de00
+  major: 1
+  minor: ${beacon_minor}
+  min_interval: 200ms               # fast enough for a phone with its screen off (Android listens in short slices)
+  max_interval: 300ms
+  measured_power: -59
+  tx_power: 3dBm
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  includes:
+    - et_dial.h
+  on_boot:
+    - priority: 800
+      then:
+        # Power-up / reset sequence for panel + touch, per Elecrow's example
+        - output.turn_on: lcd_power
+        - output.turn_on: display_reset
+        - delay: 100ms
+        - output.turn_off: display_reset
+        - delay: 100ms
+        - output.turn_on: tp_reset
+        - delay: 100ms
+        - output.turn_off: tp_reset
+        - delay: 120ms
+        - output.turn_on: tp_reset
+        - delay: 120ms
+        - output.turn_on: tp_intr
+    - priority: -100     # after everything (incl. time) is ready
+      then:
+        - script.execute: apply_palette
+        - script.execute: refresh_all
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240: y
+      CONFIG_ESP32S3_DATA_CACHE_64KB: y
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: y
+      CONFIG_SPIRAM_RODATA: y
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO   # set to DEBUG if you need to troubleshoot display/touch
+
+mdns:
+  disabled: false
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "12345678"
+
+captive_portal:
+
+# Wall-clock time from HA, used to count down the hot flash timer.
+time:
+  - platform: homeassistant
+    id: ha_time
+
+i2c:
+  sda: GPIO38
+  scl: GPIO39
+  id: bus_a
+  scan: true
+
+pcf8574:
+  - id: pcf
+    address: 0x21
+
+# PCF8574 pin map (per Elecrow schematic):
+#   P0: touch reset   P2: touch interrupt   P3: LCD power
+#   P4: LCD reset (inverted)   P5: knob-press button (input, active low)
+output:
+  - platform: ledc
+    pin: 6
+    id: bl_pwm
+    frequency: 19531Hz
+  - platform: gpio
+    id: lcd_power
+    pin: {pcf8574: pcf, number: 3, mode: {output: true}}
+  - platform: gpio
+    id: tp_reset
+    pin: {pcf8574: pcf, number: 0, mode: {output: true}}
+  - platform: gpio
+    id: display_reset
+    pin: {pcf8574: pcf, number: 4, mode: {output: true}, inverted: true}
+  - platform: gpio
+    id: tp_intr
+    pin: {pcf8574: pcf, number: 2, mode: {output: true}}
+
+light:
+  - platform: monochromatic
+    name: "Dial Backlight"
+    output: bl_pwm
+    id: display_backlight
+    default_transition_length: 0s
+    restore_mode: ALWAYS_ON
+
+spi:
+  clk_pin: 2
+  mosi_pin: 1
+
+touchscreen:
+  # NOTE: there is no `cst826` platform in ESPHome. The CST826 chip is
+  # driven by the `cst816` platform, which covers CST716/816D/816S/816T/
+  # 820/826/836. skip_probe is valid here and needed for variants that
+  # don't answer I2C until after a touch.
+  platform: cst816
+  id: my_touchscreen
+  i2c_id: bus_a
+  skip_probe: true
+  update_interval: 25ms
+  address: 0x15
+  # While paused LVGL ignores input, so this touch only wakes the screen —
+  # it can't also press whatever widget happens to be under the finger.
+  on_touch:
+    - if:
+        condition: lvgl.is_paused
+        then:
+          - script.execute: wake_display
+
+display:
+  - platform: st7701s
+    id: my_display
+    update_interval: 50ms
+    spi_mode: MODE3
+    color_order: RGB
+    invert_colors: false
+    dimensions:
+      width: 480
+      height: 480
+    cs_pin: 16
+    de_pin: 40
+    hsync_pin: 15
+    vsync_pin: 7
+    pclk_pin: 41
+    data_pins:
+      red: [46, 3, 8, 18, 17]
+      green: [14, 13, 12, 11, 10, 9]
+      blue: [5, 45, 48, 47, 21]
+    hsync_front_porch: 20
+    hsync_pulse_width: 10
+    hsync_back_porch: 10
+    vsync_front_porch: 8
+    vsync_pulse_width: 10
+    vsync_back_porch: 10
+    show_test_card: false
+    pclk_frequency: 18MHz
+    pclk_inverted: true
+    init_sequence:
+      - [0x01]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x10]
+      - [0xCC, 0x10]
+      - [0xCD, 0x08]
+      - [0xB0, 0x02, 0x13, 0x1B, 0x0D, 0x10, 0x05, 0x08, 0x07, 0x07, 0x24, 0x04, 0x11, 0x0E, 0x2C, 0x33, 0x1D]
+      - [0xB1, 0x05, 0x13, 0x1B, 0x0D, 0x11, 0x05, 0x08, 0x07, 0x07, 0x24, 0x04, 0x11, 0x0E, 0x2C, 0x33, 0x1D]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x11]
+      - [0xB0, 0x5D]
+      - [0xB1, 0x43]
+      - [0xB2, 0x81]
+      - [0xB3, 0x80]
+      - [0xB5, 0x43]
+      - [0xB7, 0x85]
+      - [0xB8, 0x20]
+      - [0xC1, 0x78]
+      - [0xC2, 0x78]
+      - [0xD0, 0x88]
+      - [0xE0, 0x00, 0x00, 0x02]
+      - [0xE1, 0x03, 0xA0, 0x00, 0x00, 0x04, 0xA0, 0x00, 0x00, 0x00, 0x20, 0x20]
+      - [0xE2, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+      - [0xE3, 0x00, 0x00, 0x11, 0x00]
+      - [0xE4, 0x22, 0x00]
+      - [0xE5, 0x05, 0xEC, 0xA0, 0xA0, 0x07, 0xEE, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+      - [0xE6, 0x00, 0x00, 0x11, 0x00]
+      - [0xE7, 0x22, 0x00]
+      - [0xE8, 0x06, 0xED, 0xA0, 0xA0, 0x08, 0xEF, 0xA0, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
+      - [0xEB, 0x00, 0x00, 0x40, 0x40, 0x00, 0x00, 0x00]
+      - [0xED, 0xFF, 0xFF, 0xFF, 0xBA, 0x0A, 0xBF, 0x45, 0xFF, 0xFF, 0x54, 0xFB, 0xA0, 0xAB, 0xFF, 0xFF, 0xFF]
+      - [0xEF, 0x10, 0x0D, 0x04, 0x08, 0x3F, 0x1F]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x13]
+      - [0xEF, 0x08]
+      - [0xFF, 0x77, 0x01, 0x00, 0x00, 0x00]
+      - [0x36, 0x00]
+      - [0x3A, 0x60]
+      - [0x11]
+      - delay 100ms
+      - [0x29]
+      - delay 50ms
+
+
+########################################################################
+# v4 layout (after testing v3 on the real panel): big targets, big text, the state in words, a real power button,
+# nothing overlapping. Layout ideas from chris023/orion-waveshare-rotary-dial, in Ember & Tide's colours and type.
+########################################################################
+font:
+  - file: "gfonts://Figtree@500"
+    id: f_hero
+    size: 140
+    bpp: 4
+    glyphs: "-0123456789"
+  - file: "gfonts://Figtree@500"
+    id: f_unit
+    size: 26
+    bpp: 4
+    glyphs: "°FCMIN"
+  - file: "gfonts://Figtree@600"
+    id: f_title
+    size: 21
+    bpp: 4
+    glyphs: " '·&ABCDEFGHIJKLMNOPQRSTUVWXYZ?0123456789:°"
+  - file: "gfonts://Figtree@500"
+    id: f_chip
+    size: 22
+    bpp: 4
+    glyphs: " !\"#%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°·–…"
+  - file: "gfonts://Figtree@500"
+    id: f_big
+    size: 28
+    bpp: 4
+    glyphs: " !\"#%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz°·–…"
+  - file: "gfonts://Figtree@500"
+    id: f_clock
+    size: 120
+    bpp: 4
+    glyphs: "0123456789:"
+  - file: "gfonts://Figtree@500"
+    id: f_name
+    size: 30
+    bpp: 4
+    glyphs: " !\"#%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz"
+  - file: "gfonts://Figtree@500"
+    id: f_huge
+    size: 52
+    bpp: 4
+    glyphs: " -'.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+  - file:
+      type: web
+      url: "https://github.com/Templarian/MaterialDesign-Webfont/raw/master/fonts/materialdesignicons-webfont.ttf"
+    id: f_icon
+    size: 46
+    bpp: 4
+    glyphs: ["\U000F0717", "\U000F05A8", "\U000F0425", "\U000F04DB", "\U000F0141", "\U000F0142", "\U000F0415"]   # snowflake, sun, power, stop, ‹, ›, plus
+
+########################################################################
+# State. [0] = ${p0_name} (left), [1] = ${p1_name} (right).
+########################################################################
+globals:
+  - {id: active_profile, type: int, restore_value: false, initial_value: '${home_side}'}
+  - {id: current_page, type: int, restore_value: false, initial_value: '0'}
+  - {id: pending_profile, type: int, restore_value: false, initial_value: '${home_side}'}
+  - {id: pending, type: bool, restore_value: false, initial_value: 'false'}
+  - {id: local_edit_valid, type: bool, restore_value: false, initial_value: 'false'}
+  - {id: last_local_edit, type: uint32_t, restore_value: false, initial_value: '0'}
+  - {id: confirm_off_until, type: uint32_t, restore_value: false, initial_value: '0'}
+  - {id: confirm_skip_until, type: uint32_t, restore_value: false, initial_value: '0'}
+  - {id: note_until, type: uint32_t, restore_value: false, initial_value: '0'}
+  - {id: feel_sel, type: int, restore_value: false, initial_value: '1'}
+  - {id: rh_sel, type: int, restore_value: false, initial_value: '2'}
+  - {id: rh_val, type: float, restore_value: false, initial_value: '0'}
+  - {id: rh_dirty, type: bool, restore_value: false, initial_value: 'false'}
+  - {id: night_mode, type: bool, restore_value: false, initial_value: 'false'}
+  - {id: power_action, type: int, restore_value: false, initial_value: '0'}
+  - {id: last_swipe, type: uint32_t, restore_value: false, initial_value: '0'}
+  - {id: morning, type: bool, restore_value: false, initial_value: 'false'}
+  - id: note
+    type: std::string
+    restore_value: false
+  - id: target
+    type: "float[2]"
+    restore_value: false
+    initial_value: '{70.0f, 70.0f}'
+
+########################################################################
+# Inputs: knob, knob press, Home Assistant
+########################################################################
+sensor:
+  - platform: rotary_encoder
+    id: knob
+    internal: true
+    resolution: 1
+    pin_a: {number: 4, mode: {input: true, pullup: true}}
+    pin_b: {number: 42, mode: {input: true, pullup: true}}
+    on_clockwise:
+      then:
+        - if:
+            condition: lvgl.is_paused
+            then: [{script.execute: wake_display}]
+            else:
+              - lambda: 'et::poke();'
+              - script.execute: {id: on_turn, dir: 1}
+    on_anticlockwise:
+      then:
+        - if:
+            condition: lvgl.is_paused
+            then: [{script.execute: wake_display}]
+            else:
+              - lambda: 'et::poke();'
+              - script.execute: {id: on_turn, dir: -1}
+
+  - {platform: homeassistant, id: p0_target, entity_id: "climate.${p0}", attribute: temperature, internal: true, on_value: [{script.execute: from_ha}]}
+  - {platform: homeassistant, id: p1_target, entity_id: "climate.${p1}", attribute: temperature, internal: true, on_value: [{script.execute: from_ha}]}
+  - {platform: homeassistant, id: p0_bed, entity_id: "climate.${p0}", attribute: current_temperature, internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p1_bed, entity_id: "climate.${p1}", attribute: current_temperature, internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p0_rh0, entity_id: "number.${p0}_wind_down_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p0_rh1, entity_id: "number.${p0}_fall_asleep_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p0_rh2, entity_id: "number.${p0}_deep_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p0_rh3, entity_id: "number.${p0}_late_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p0_rh4, entity_id: "number.${p0}_wake_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p1_rh0, entity_id: "number.${p1}_wind_down_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p1_rh1, entity_id: "number.${p1}_fall_asleep_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p1_rh2, entity_id: "number.${p1}_deep_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p1_rh3, entity_id: "number.${p1}_late_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+  - {platform: homeassistant, id: p1_rh4, entity_id: "number.${p1}_wake_temp", internal: true, on_value: [{script.execute: refresh_rhythm}]}
+
+text_sensor:
+  - {platform: homeassistant, id: p0_power, entity_id: "climate.${p0}", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p1_power, entity_id: "climate.${p1}", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p0_action, entity_id: "climate.${p0}", attribute: hvac_action, internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p1_action, entity_id: "climate.${p1}", attribute: hvac_action, internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p0_phase, entity_id: "sensor.${p0}_phase", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p1_phase, entity_id: "sensor.${p1}_phase", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p0_next, entity_id: "sensor.${p0}_next_change", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p1_next, entity_id: "sensor.${p1}_next_change", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p0_flash_end, entity_id: "sensor.${p0}_flash_end", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p1_flash_end, entity_id: "sensor.${p1}_flash_end", internal: true, on_value: [{script.execute: refresh_home}]}
+  - {platform: homeassistant, id: p0_tonight, entity_id: "sensor.${p0}_tonight", internal: true, on_value: [{script.execute: refresh_tonight}]}
+  - {platform: homeassistant, id: p1_tonight, entity_id: "sensor.${p1}_tonight", internal: true, on_value: [{script.execute: refresh_tonight}]}
+  - {platform: homeassistant, id: p0_sharing, entity_id: "sensor.${p0}_sharing", internal: true}
+  - {platform: homeassistant, id: p1_sharing, entity_id: "sensor.${p1}_sharing", internal: true}
+  # Guest mode (Ember & Tide lends a side to a guest): only temperature and on/off, no pages, no check-in
+  - {platform: homeassistant, id: p0_guest, entity_id: "sensor.${p0}_guest", internal: true, on_value: [{script.execute: go_home}]}
+  - {platform: homeassistant, id: p1_guest, entity_id: "sensor.${p1}_guest", internal: true, on_value: [{script.execute: go_home}]}
+  # Each person's colour, picked in the app (Settings → Your colour) as "#rrggbb"; c_p0/c_p1 are the fallback
+  - {platform: homeassistant, id: p0_color, entity_id: "sensor.${p0}_color", internal: true, on_value: [{script.execute: refresh_chrome}, {script.execute: refresh_home}, {script.execute: refresh_tonight}]}
+  - {platform: homeassistant, id: p1_color, entity_id: "sensor.${p1}_color", internal: true, on_value: [{script.execute: refresh_chrome}, {script.execute: refresh_home}, {script.execute: refresh_tonight}]}
+  - {platform: homeassistant, id: p0_name, entity_id: "sensor.${p0}_name", internal: true, on_value: [{script.execute: refresh_chrome}]}
+  - {platform: homeassistant, id: p1_name, entity_id: "sensor.${p1}_name", internal: true, on_value: [{script.execute: refresh_chrome}]}
+  - {platform: homeassistant, id: p0_checkin, entity_id: "sensor.${p0}_checkin", internal: true}
+  - {platform: homeassistant, id: p1_checkin, entity_id: "sensor.${p1}_checkin", internal: true}
+  # Tells Ember & Tide whose dial this is (the person it starts on), so Studio shows it by the right side of the bed
+  - platform: template
+    id: et_home_side
+    name: "Home side"
+    icon: mdi:bed
+    entity_category: diagnostic
+    update_interval: 6h
+    lambda: 'return std::string(${home_side} == 1 ? "${p1}" : "${p0}");'
+  # Which Bluetooth beacon number this dial sends, so Studio knows which beacon is which dial
+  - platform: template
+    id: et_beacon
+    name: "Beacon"
+    icon: mdi:bluetooth
+    entity_category: diagnostic
+    update_interval: 6h
+    lambda: 'return std::string("${beacon_minor}");'
+
+binary_sensor:
+  - platform: gpio
+    id: encoder_button
+    pin: {pcf8574: pcf, number: 5, mode: {input: true}, inverted: true}
+    on_click:
+      - min_length: 50ms
+        max_length: 600ms
+        then:
+          - if:
+              condition: lvgl.is_paused
+              then: [{script.execute: wake_display}]
+              else: [{script.execute: on_press}]
+
+interval:
+  - interval: 1s
+    then:
+      - if:
+          condition: lvgl.is_paused
+          then: []
+          else: [{script.execute: tick}]
+
+########################################################################
+# Scripts
+########################################################################
+script:
+  - id: wake_display
+    then:
+      - script.execute: apply_palette
+      - lambda: |-
+          int p = id(active_profile);
+          std::string power = p == 0 ? id(p0_power).state : id(p1_power).state;
+          std::string due = p == 0 ? id(p0_checkin).state : id(p1_checkin).state;
+          bool guest = (p == 0 ? id(p0_guest).state : id(p1_guest).state) == "on";
+          id(morning) = due == "due" && !guest;
+          id(current_page) = guest ? 0 : (id(morning) ? 10 : (power == "off" ? 11 : 0));
+      - if:
+          condition: {lambda: 'return id(current_page) == 10;'}
+          then: [{lvgl.page.show: feel_page}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 11;'}
+          then: [{lvgl.page.show: clock_page}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 0;'}
+          then: [{lvgl.page.show: home_page}]
+      - light.turn_on: display_backlight
+      - lvgl.resume:
+      - lvgl.widget.redraw:
+      - script.execute: refresh_all
+
+  - id: go_home
+    then:
+      - lambda: 'id(current_page) = 0; id(morning) = false;'
+      - lvgl.page.show: home_page
+      - script.execute: refresh_all
+
+  # a tap that was really the end of a swipe must not press anything
+  - id: swipe_guard
+    then:
+      - lambda: 'id(last_swipe) = millis();'
+
+  - id: refresh_clock
+    then:
+      - lambda: |-
+          auto t = id(ha_time).now();
+          char b[16];
+          if (t.is_valid()) { int h = t.hour % 12 == 0 ? 12 : t.hour % 12; snprintf(b, sizeof(b), "%d:%02d", h, t.minute); }
+          else snprintf(b, sizeof(b), "--:--");
+          et::text(id(lbl_clock), b);
+          int p = id(active_profile);
+          std::string nm = p == 0 ? id(p0_name).state : id(p1_name).state;
+          if (!et::usable(nm)) nm = p == 0 ? "${p0_name}" : "${p1_name}";
+          et::text(id(lbl_clock_sub), nm + " · off");
+
+  - id: refresh_all
+    then:
+      - script.execute: refresh_chrome
+      - script.execute: refresh_home
+      - script.execute: refresh_tonight
+      - script.execute: refresh_rhythm
+      - script.execute: refresh_feel
+
+  - id: from_ha
+    then:
+      - lambda: |-
+          bool fresh = id(local_edit_valid) && (millis() - id(last_local_edit) < 8000);
+          if (!fresh) {
+            if (!isnan(id(p0_target).state)) id(target)[0] = id(p0_target).state;
+            if (!isnan(id(p1_target).state)) id(target)[1] = id(p1_target).state;
+            id(local_edit_valid) = false;
+          }
+      - script.execute: refresh_home
+
+  # a short message in the status chip for a few seconds (nothing ever floats over the buttons)
+  - id: say
+    parameters: {msg: string}
+    then:
+      - lambda: 'id(note) = msg; id(note_until) = millis() + 3500;'
+      - script.execute: refresh_home
+
+  - id: pick_side
+    parameters: {p: int}
+    then:
+      - lambda: 'id(active_profile) = p; id(rh_dirty) = false; et::show(id(side_picker), false);'
+      - script.execute: refresh_all
+
+  - id: refresh_chrome
+    then:
+      - lambda: |-
+          int p = id(active_profile);
+          bool night = id(night_mode);
+          uint32_t c = night ? 0x7A3B31 : et::pcol(p, id(p0_color).state, id(p1_color).state, ${c_p0}, ${c_p1});
+          std::string n0 = et::usable(id(p0_name).state) ? id(p0_name).state : "${p0_name}";
+          std::string n1 = et::usable(id(p1_name).state) ? id(p1_name).state : "${p1_name}";
+          et::text(id(lbl_side), p == 0 ? n0 : n1);
+          et::color(id(lbl_side), night ? 0xB9584C : 0xF2EADF);
+          et::bg(id(side_dot), c);
+          et::text(id(lbl_pick0), n0);
+          et::text(id(lbl_pick1), n1);
+          et::color(id(lbl_pick0), et::hexcol(id(p0_color).state, ${c_p0}));
+          et::color(id(lbl_pick1), et::hexcol(id(p1_color).state, ${c_p1}));
+          lv_obj_t* dots[4] = {id(pd0), id(pd1), id(pd2), id(pd3)};
+          for (int i = 0; i < 4; i++) et::bg(dots[i], i == id(current_page) ? (night ? 0xB9584C : 0xF2EADF) : 0x3A353D);
+          bool show = id(current_page) <= 3 && (p == 0 ? id(p0_guest).state : id(p1_guest).state) != "on";
+          for (int i = 0; i < 4; i++) et::show(dots[i], show);
+
+  - id: apply_palette
+    then:
+      - lambda: |-
+          auto t = id(ha_time).now();
+          if (t.is_valid()) id(night_mode) = (t.hour >= 21 || t.hour < 7);
+
+  - id: refresh_home
+    then:
+      - lambda: |-
+          int p = id(active_profile);
+          bool night = id(night_mode);
+          uint32_t col = night ? 0xB9584C : et::pcol(p, id(p0_color).state, id(p1_color).state, ${c_p0}, ${c_p1});
+          uint32_t txt = night ? 0xB9584C : 0xF2EADF, mute = night ? 0x7A3B31 : 0xA39AA4, grey = night ? 0x4D2620 : 0x5A5560;
+          std::string power = p == 0 ? id(p0_power).state : id(p1_power).state;
+          std::string phase = p == 0 ? id(p0_phase).state : id(p1_phase).state;
+          std::string action = p == 0 ? id(p0_action).state : id(p1_action).state;
+          std::string nxt = p == 0 ? id(p0_next).state : id(p1_next).state;
+          std::string fend = p == 0 ? id(p0_flash_end).state : id(p1_flash_end).state;
+          float bed = p == 0 ? id(p0_bed).state : id(p1_bed).state;
+          float tv = id(target)[p];
+          auto now = id(ha_time).now();
+          long long fe = et::usable(fend) ? et::iso_epoch(fend) : -1;
+          long left = (fe > 0 && now.is_valid()) ? (long) (fe - (long long) now.timestamp) : -1;
+          bool flash = left > 0;
+          bool hot = phase.find("Hot") != std::string::npos;
+          bool on = power == "heat_cool" || flash;
+          uint32_t fcol = night ? 0xB9584C : (hot ? 0x5FB8B0 : 0xEE8A55);
+          char b[64];
+          if (flash) {
+            lv_arc_set_range(id(ring), 0, 900);
+            lv_arc_set_value(id(ring), left > 900 ? 900 : left);
+            lv_obj_set_style_arc_color(id(ring), lv_color_hex(fcol), LV_PART_INDICATOR);
+          } else {
+            lv_arc_set_range(id(ring), ${t_min}, ${t_max});
+            lv_arc_set_value(id(ring), (int) tv);
+            lv_obj_set_style_arc_color(id(ring), lv_color_hex(on ? col : grey), LV_PART_INDICATOR);
+          }
+          lv_obj_set_style_bg_color(id(ring), lv_color_hex(on ? 0xF2EADF : grey), LV_PART_KNOB);
+          bool guest = (p == 0 ? id(p0_guest).state : id(p1_guest).state) == "on";
+          if (guest) et::text(id(lbl_top), "Guest");
+          else if (!isnan(bed) && !flash) { snprintf(b, sizeof(b), "Bed %d°", (int) roundf(bed)); et::text(id(lbl_top), b); }
+          else et::text(id(lbl_top), "");
+          et::color(id(lbl_top), mute);
+          if (flash) { snprintf(b, sizeof(b), "%ld", (left + 59) / 60); et::text(id(lbl_unit), "MIN"); }
+          else { snprintf(b, sizeof(b), "%d", (int) tv); et::text(id(lbl_unit), "°F"); }
+          et::text(id(lbl_temp), b);
+          et::color(id(lbl_temp), on ? txt : grey);
+          et::color(id(lbl_unit), mute);
+          std::string word;
+          uint32_t wcol = mute;
+          if (id(note_until) && millis() < id(note_until)) { word = id(note); wcol = txt; }
+          else if (id(confirm_off_until) && millis() < id(confirm_off_until)) { word = "Tap again to turn off"; wcol = 0xEE8A55; }
+          else if (flash) { word = hot ? "Hot flash" : "Cold flash"; wcol = fcol; }
+          else if (!on) { word = "Off"; wcol = txt; }
+          else {
+            float diff = isnan(bed) ? 0 : tv - bed;
+            if (diff < -0.7f) word = "Cooling";
+            else if (diff > 0.7f) word = "Warming";
+            else word = "Holding";
+            wcol = col;
+          }
+          et::text(id(lbl_word), word);
+          et::color(id(lbl_word), wcol);
+          et::text(id(lbl_power), flash ? "\U000F04DB" : "\U000F0425");
+          et::color(id(lbl_power), flash ? fcol : (on ? col : grey));
+          et::border(id(btn_power), flash ? fcol : (on ? col : grey));
+          lv_obj_set_style_border_width(id(btn_power), on ? 4 : 2, LV_PART_MAIN);
+
+  - id: tick
+    then:
+      - lambda: |-
+          if (id(confirm_off_until) && millis() > id(confirm_off_until)) id(confirm_off_until) = 0;
+          if (id(note_until) && millis() > id(note_until)) id(note_until) = 0;
+          if (id(confirm_skip_until) && millis() > id(confirm_skip_until)) { id(confirm_skip_until) = 0; et::text(id(lbl_skip), "Off tonight"); }
+      - if:
+          condition: {lambda: 'return id(current_page) == 0;'}
+          then: [{script.execute: refresh_home}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 11;'}
+          then: [{script.execute: refresh_clock}]
+
+  # ---- the knob: always changes the main value of the page you're on ----
+  - id: on_turn
+    parameters: {dir: int}
+    then:
+      - if:
+          condition: {lambda: 'return id(current_page) != 0 && id(current_page) != 3;'}
+          then: [{script.execute: go_home}]
+      - lambda: |-
+          int pg = id(current_page), p = id(active_profile);
+          if (pg == 0) {
+            std::string power = p == 0 ? id(p0_power).state : id(p1_power).state;
+            std::string fend = p == 0 ? id(p0_flash_end).state : id(p1_flash_end).state;
+            auto now = id(ha_time).now();
+            long long fe = et::usable(fend) ? et::iso_epoch(fend) : -1;
+            if (fe > 0 && now.is_valid() && fe > (long long) now.timestamp) { id(note) = "Flash running · tap stop to end"; id(note_until) = millis() + 2500; return; }
+            if (power == "off") { id(note) = "Off · tap power first"; id(note_until) = millis() + 2500; return; }
+            // Only the other person's side can be locked: this dial's own side (home_side) always adjusts.
+            if (p != ${home_side}) { std::string sh = p == 0 ? id(p0_sharing).state : id(p1_sharing).state; if (et::usable(sh) && sh.find("adjust") == std::string::npos) { std::string nm = p == 0 ? id(p0_name).state : id(p1_name).state; if (!et::usable(nm)) nm = p == 0 ? "${p0_name}" : "${p1_name}"; id(note) = nm + "'s choice · not shared"; id(note_until) = millis() + 2500; return; } }
+            float v = id(target)[p] + dir;
+            if (v > ${t_max}) v = ${t_max};
+            if (v < ${t_min}) v = ${t_min};
+            id(target)[p] = v;
+            id(pending_profile) = p;
+            id(pending) = true;
+            id(last_local_edit) = millis();
+            id(local_edit_valid) = true;
+          } else if (pg == 3) {
+            id(rh_val) += dir;
+            if (id(rh_val) < 55) id(rh_val) = 55;
+            if (id(rh_val) > 95) id(rh_val) = 95;
+            id(rh_dirty) = true;
+          }
+      - if:
+          condition: {lambda: 'return id(current_page) == 0;'}
+          then:
+            - script.execute: refresh_home
+            - if:
+                condition: {lambda: 'return id(pending);'}
+                then: [{script.execute: push_target}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 3;'}
+          then: [{script.execute: refresh_rhythm}]
+
+  - id: push_target
+    mode: restart
+    then:
+      - delay: 900ms
+      - script.execute: send_target
+
+  - id: send_target
+    then:
+      - if:
+          condition: {lambda: 'return id(pending);'}
+          then:
+            - homeassistant.action:
+                action: climate.set_temperature
+                data:
+                  entity_id: !lambda 'return id(pending_profile) == 0 ? std::string("climate.${p0}") : std::string("climate.${p1}");'
+                  temperature: !lambda 'return std::to_string((int) id(target)[id(pending_profile)]);'
+            - lambda: 'id(pending) = false;'
+            - script.execute: refresh_home
+
+  - id: on_press
+    then:
+      - if:
+          condition: {lambda: 'return id(current_page) == 0 && id(pending);'}
+          then: [{script.stop: push_target}, {script.execute: send_target}]
+          else:
+            - if:
+                condition: {lambda: 'return id(current_page) == 3 && id(rh_dirty);'}
+                then: [{script.execute: save_rhythm}]
+                else: [{script.execute: go_home}]
+
+  # Power: off → on straight away. On → "Tap again to turn off" for 4 s → off for tonight. During a flash → stop.
+  - id: on_power
+    then:
+      - if:
+          condition: {lambda: 'return millis() - id(last_swipe) < 450;'}
+          then: [{script.stop: on_power}]
+      - lambda: |-
+          int p = id(active_profile);
+          std::string power = p == 0 ? id(p0_power).state : id(p1_power).state;
+          std::string fend = p == 0 ? id(p0_flash_end).state : id(p1_flash_end).state;
+          auto now = id(ha_time).now();
+          long long fe = et::usable(fend) ? et::iso_epoch(fend) : -1;
+          if (fe > 0 && now.is_valid() && fe > (long long) now.timestamp) id(power_action) = 3;
+          else if (power == "off") id(power_action) = 1;
+          else if (id(confirm_off_until) && millis() < id(confirm_off_until)) id(power_action) = 2;
+          else { id(power_action) = 0; id(confirm_off_until) = millis() + 4000; }
+      - if:
+          condition: {lambda: 'return id(power_action) == 1;'}
+          then:
+            - homeassistant.action:
+                action: climate.set_hvac_mode
+                data:
+                  entity_id: !lambda 'return id(active_profile) == 0 ? std::string("climate.${p0}") : std::string("climate.${p1}");'
+                  hvac_mode: heat_cool
+            - script.execute: go_home
+            - script.execute: {id: say, msg: "Turning on…"}
+      - if:
+          condition: {lambda: 'return id(power_action) == 2;'}
+          then:
+            - homeassistant.action:
+                action: climate.set_hvac_mode
+                data:
+                  entity_id: !lambda 'return id(active_profile) == 0 ? std::string("climate.${p0}") : std::string("climate.${p1}");'
+                  hvac_mode: "off"
+            - lambda: 'id(confirm_off_until) = 0;'
+            - script.execute: {id: say, msg: "Off for tonight"}
+      - if:
+          condition: {lambda: 'return id(power_action) == 3;'}
+          then:
+            - script.execute: {id: press_button, suffix: "stop_flash"}
+            - script.execute: {id: say, msg: "Easing back to the rhythm"}
+      - script.execute: refresh_home
+
+  - id: on_right
+    then:
+      - lambda: |-
+          int p = id(active_profile);
+          std::string fend = p == 0 ? id(p0_flash_end).state : id(p1_flash_end).state;
+          auto now = id(ha_time).now();
+          long long fe = et::usable(fend) ? et::iso_epoch(fend) : -1;
+          id(power_action) = (fe > 0 && now.is_valid() && fe > (long long) now.timestamp) ? 1 : 0;
+      - if:
+          condition: {lambda: 'return id(power_action) == 1;'}
+          then:
+            - script.execute: {id: press_button, suffix: "extend_flash"}
+            - script.execute: {id: say, msg: "+5 minutes"}
+          else:
+            - script.execute: {id: press_button, suffix: "cold_flash"}
+            - script.execute: {id: say, msg: "Cold flash started"}
+
+  - id: press_button
+    parameters: {suffix: string}
+    then:
+      - homeassistant.action:
+          action: button.press
+          data:
+            entity_id: !lambda 'return std::string("button.") + (id(active_profile) == 0 ? "${p0}" : "${p1}") + "_" + suffix;'
+
+  # ---- How does it feel ----
+  - id: send_feel
+    mode: restart
+    parameters: {which: int}
+    then:
+      - lambda: 'id(feel_sel) = which;'
+      - script.execute:
+          id: press_button
+          suffix: !lambda 'return which == 2 ? std::string("feel_too_cold") : which == 0 ? std::string("feel_too_hot") : std::string("feel_just_right");'
+      - lambda: 'et::text(id(lbl_feel_note), "Thanks");'
+      - script.execute: refresh_feel
+      - delay: 900ms
+      - script.execute: go_home
+
+  - id: refresh_feel
+    then:
+      - lambda: |-
+          lv_obj_t* b[3] = {id(feel_hot), id(feel_ok), id(feel_cold)};
+          uint32_t base[3] = {0x5FB8B0, 0x8FBF9A, 0xEE8A55};
+          for (int i = 0; i < 3; i++) {
+            bool sel = i == id(feel_sel);
+            et::border(b[i], sel ? base[i] : 0x3A353D);
+            lv_obj_set_style_border_width(b[i], sel ? 4 : 2, LV_PART_MAIN);
+          }
+
+  # ---- Tonight ----
+  - id: refresh_tonight
+    then:
+      - lambda: |-
+          int p = id(active_profile);
+          std::string s = p == 0 ? id(p0_tonight).state : id(p1_tonight).state;
+          lv_obj_t* T[3] = {id(tn_t0), id(tn_t1), id(tn_t2)};
+          lv_obj_t* N[3] = {id(tn_n0), id(tn_n1), id(tn_n2)};
+          lv_obj_t* V[3] = {id(tn_v0), id(tn_v1), id(tn_v2)};
+          bool ok = et::usable(s);
+          for (int i = 0; i < 3; i++) {
+            std::string t = ok ? et::tonight_field(s, i, 0) : "";
+            et::text(T[i], t);
+            et::text(N[i], ok ? et::tonight_field(s, i, 1) : (i == 0 ? "No rhythm tonight" : ""));
+            et::text(V[i], ok ? et::tonight_field(s, i, 2) : "");
+            et::color(T[i], t == "now" ? et::pcol(p, id(p0_color).state, id(p1_color).state, ${c_p0}, ${c_p1}) : 0xA39AA4);
+          }
+
+  # ---- Rhythm temperatures ----
+  - id: refresh_rhythm
+    then:
+      - lambda: |-
+          int p = id(active_profile), i = id(rh_sel);
+          const char* names[5] = {"Wind-down", "Fall asleep", "Deep", "Late night", "Warm wake"};
+          sensor::Sensor* s0[5] = {id(p0_rh0), id(p0_rh1), id(p0_rh2), id(p0_rh3), id(p0_rh4)};
+          sensor::Sensor* s1[5] = {id(p1_rh0), id(p1_rh1), id(p1_rh2), id(p1_rh3), id(p1_rh4)};
+          float v = (p == 0 ? s0[i] : s1[i])->state;
+          if (!id(rh_dirty)) id(rh_val) = isnan(v) ? 70 : v;
+          et::text(id(lbl_rh_phase), names[i]);
+          char b[16];
+          snprintf(b, sizeof(b), "%d", (int) id(rh_val));
+          et::text(id(lbl_rh_temp), b);
+          et::text(id(lbl_rh_hint), id(rh_dirty) ? "Press knob to save" : "Every night");
+          et::color(id(lbl_rh_hint), id(rh_dirty) ? 0xEE8A55 : 0xA39AA4);
+
+  - id: rhythm_step
+    parameters: {dir: int}
+    then:
+      - lambda: 'id(rh_sel) = (id(rh_sel) + dir + 5) % 5; id(rh_dirty) = false;'
+      - script.execute: refresh_rhythm
+
+  - id: save_rhythm
+    then:
+      - homeassistant.action:
+          action: number.set_value
+          data:
+            entity_id: !lambda |-
+              const char* ids[5] = {"wind_down", "fall_asleep", "deep", "late", "wake"};
+              return std::string("number.") + (id(active_profile) == 0 ? "${p0}" : "${p1}") + "_" + ids[id(rh_sel)] + "_temp";
+            value: !lambda 'return std::to_string((int) id(rh_val));'
+      - lambda: 'id(rh_dirty) = false; et::text(id(lbl_rh_hint), "Saved"); et::color(id(lbl_rh_hint), 0x8FBF9A);'
+
+  # ---- pages: Home · Flash · Tonight · Rhythm. One swipe = one page, and taps right after a swipe are ignored ----
+  - id: go_page
+    parameters: {dir: int}
+    then:
+      - lambda: |-
+          #if LVGL_VERSION_MAJOR >= 9
+            lv_indev_wait_release(lv_indev_active());
+          #else
+            lv_indev_wait_release(lv_indev_get_act());
+          #endif
+      - if:
+          condition: {lambda: 'return (id(active_profile) == 0 ? id(p0_guest).state : id(p1_guest).state) == "on";'}
+          then:
+            - script.execute: {id: say, msg: "Guest mode"}
+            - script.stop: go_page
+      - if:
+          condition: {lambda: 'return millis() - id(last_swipe) < 500;'}
+          then: [{script.stop: go_page}]
+      - lambda: 'id(last_swipe) = millis(); id(current_page) = (id(current_page) + dir + 4) % 4;'
+      - if:
+          condition: {lambda: 'return id(current_page) == 0;'}
+          then: [{lvgl.page.show: {id: home_page, animation: NONE}}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 1;'}
+          then: [{lvgl.page.show: {id: flash_page, animation: NONE}}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 2;'}
+          then: [{lvgl.page.show: {id: tonight_page, animation: NONE}}]
+      - if:
+          condition: {lambda: 'return id(current_page) == 3;'}
+          then: [{lvgl.page.show: {id: rhythm_page, animation: NONE}}]
+      - script.execute: refresh_all
+
+########################################################################
+# Screens (480 × 480 round). Touch targets ≥ 104 px, text ≥ 21 px.
+########################################################################
+lvgl:
+  displays: [my_display]
+  touchscreens: [my_touchscreen]
+  bg_color: 0x000000
+  default_font: f_chip
+  theme:
+    label:
+      text_color: 0xF2EADF
+    button:
+      bg_color: 0x0D0C0E
+      border_color: 0x3A353D
+      border_width: 2
+      radius: 999
+      shadow_width: 0
+      pressed:
+        bg_color: 0x252029
+
+  on_idle:
+    timeout: 12s
+    then:
+      - lambda: 'id(current_page) = 0; id(confirm_off_until) = 0; id(rh_dirty) = false; et::show(id(side_picker), false);'
+      - script.execute: refresh_all
+      - light.turn_off: display_backlight
+      - lvgl.pause:
+
+  top_layer:
+    widgets:
+      - obj: {id: pd0, align: BOTTOM_MID, x: -24, y: -12, width: 10, height: 10, radius: 5, border_width: 0, bg_color: 0xF2EADF}
+      - obj: {id: pd1, align: BOTTOM_MID, x: -8, y: -12, width: 10, height: 10, radius: 5, border_width: 0, bg_color: 0x3A353D}
+      - obj: {id: pd2, align: BOTTOM_MID, x: 8, y: -12, width: 10, height: 10, radius: 5, border_width: 0, bg_color: 0x3A353D}
+      - obj: {id: pd3, align: BOTTOM_MID, x: 24, y: -12, width: 10, height: 10, radius: 5, border_width: 0, bg_color: 0x3A353D}
+      - obj:
+          id: side_picker
+          align: CENTER
+          width: 480
+          height: 480
+          bg_color: 0x000000
+          border_width: 0
+          radius: 0
+          pad_all: 0
+          hidden: true
+          widgets:
+            - button:
+                align: LEFT_MID
+                width: 236
+                height: 480
+                radius: 0
+                border_width: 0
+                bg_color: 0x0D0C0E
+                widgets:
+                  - label: {id: lbl_pick0, align: CENTER, x: 14, text_font: f_huge, text_color: "${c_p0}", text: "${p0_name}"}
+                on_click: [{script.execute: {id: pick_side, p: 0}}]
+            - button:
+                align: RIGHT_MID
+                width: 236
+                height: 480
+                radius: 0
+                border_width: 0
+                bg_color: 0x0D0C0E
+                widgets:
+                  - label: {id: lbl_pick1, align: CENTER, x: -14, text_font: f_huge, text_color: "${c_p1}", text: "${p1_name}"}
+                on_click: [{script.execute: {id: pick_side, p: 1}}]
+
+  pages:
+    - id: home_page
+      bg_color: 0x000000
+      on_swipe_left: [{script.execute: {id: go_page, dir: 1}}]
+      on_swipe_right: [{script.execute: {id: go_page, dir: -1}}]
+      widgets:
+        - arc:
+            id: ring
+            align: CENTER
+            width: 456
+            height: 456
+            min_value: ${t_min}
+            max_value: ${t_max}
+            value: 70
+            start_angle: 135
+            end_angle: 45
+            arc_width: 22
+            arc_color: 0x221E25
+            arc_rounded: true
+            adjustable: false
+            indicator:
+              arc_width: 22
+              arc_color: "${c_p0}"
+              arc_rounded: true
+            knob:
+              bg_color: 0xF2EADF
+              pad_all: 6
+        - button:
+            id: btn_side
+            align: CENTER
+            y: -150
+            width: 220
+            height: 70
+            bg_opa: TRANSP
+            border_width: 0
+            gesture_bubble: true
+            widgets:
+              - obj: {id: side_dot, align: LEFT_MID, x: 44, width: 12, height: 12, radius: 6, border_width: 0, bg_color: "${c_p0}"}
+              - label: {id: lbl_side, align: CENTER, x: 10, text_font: f_name, text: "${p0_name}"}
+            on_click:
+              - if:
+                  condition: {lambda: 'return millis() - id(last_swipe) > 450;'}
+                  then: [{lambda: 'et::show(id(side_picker), true);'}]
+        - label: {id: lbl_top, align: CENTER, y: -100, text_font: f_chip, text_color: 0xA39AA4, text: ""}
+        - label: {id: lbl_temp, align: CENTER, y: -20, text_font: f_hero, text_color: 0xF2EADF, text: "--"}
+        - label: {id: lbl_unit, align: CENTER, x: 118, y: -64, text_font: f_unit, text_color: 0xA39AA4, text: "°F"}
+        - label: {id: lbl_word, align: CENTER, y: 66, text_font: f_big, text: ""}
+        - button:
+            id: btn_power
+            align: CENTER
+            y: 150
+            width: 116
+            height: 116
+            border_width: 3
+            gesture_bubble: true
+            widgets:
+              - label: {id: lbl_power, align: CENTER, text_font: f_icon, text: "\U000F0425"}
+            on_click: [{script.execute: on_power}]
+
+    - id: flash_page
+      bg_color: 0x000000
+      on_swipe_left: [{script.execute: {id: go_page, dir: 1}}]
+      on_swipe_right: [{script.execute: {id: go_page, dir: -1}}]
+      widgets:
+        - label: {align: CENTER, y: -150, text_font: f_title, text_color: 0xA39AA4, text: "FLASH"}
+        - button:
+            align: CENTER
+            y: -54
+            width: 300
+            height: 100
+            radius: 30
+            gesture_bubble: true
+            border_color: 0x2F5C58
+            border_width: 3
+            widgets:
+              - label: {align: LEFT_MID, x: 26, text_font: f_icon, text_color: 0x5FB8B0, text: "\U000F0717"}
+              - label: {align: LEFT_MID, x: 92, text_font: f_big, text: "Hot flash"}
+            on_click:
+              - if:
+                  condition: {lambda: 'return millis() - id(last_swipe) > 450;'}
+                  then:
+                    - script.execute: {id: press_button, suffix: "hot_flash"}
+                    - script.execute: go_home
+        - button:
+            align: CENTER
+            y: 76
+            width: 300
+            height: 100
+            radius: 30
+            gesture_bubble: true
+            border_color: 0x6B4029
+            border_width: 3
+            widgets:
+              - label: {align: LEFT_MID, x: 26, text_font: f_icon, text_color: 0xEE8A55, text: "\U000F05A8"}
+              - label: {align: LEFT_MID, x: 92, text_font: f_big, text: "Cold flash"}
+            on_click:
+              - if:
+                  condition: {lambda: 'return millis() - id(last_swipe) > 450;'}
+                  then:
+                    - script.execute: {id: press_button, suffix: "cold_flash"}
+                    - script.execute: go_home
+        - label: {align: CENTER, y: 160, text_font: f_chip, text_color: 0xA39AA4, text: "15 min, then back to normal"}
+
+    - id: feel_page
+      bg_color: 0x000000
+      widgets:
+        - label: {align: CENTER, y: -158, text_font: f_title, text_color: 0xA39AA4, text: "GOOD MORNING"}
+        - label: {id: lbl_feel_note, align: CENTER, y: -122, text_font: f_big, text: "How was the temperature?"}
+        - button:
+            id: feel_hot
+            align: CENTER
+            y: -46
+            width: 300
+            height: 84
+            radius: 28
+            widgets: [{label: {align: CENTER, text_font: f_big, text_color: 0x5FB8B0, text: "Too warm"}}]
+            on_click: [{script.execute: {id: send_feel, which: 0}}]
+        - button:
+            id: feel_ok
+            align: CENTER
+            y: 48
+            width: 300
+            height: 84
+            radius: 28
+            widgets: [{label: {align: CENTER, text_font: f_big, text: "Just right"}}]
+            on_click: [{script.execute: {id: send_feel, which: 1}}]
+        - button:
+            id: feel_cold
+            align: CENTER
+            y: 142
+            width: 260
+            height: 84
+            radius: 28
+            widgets: [{label: {align: CENTER, text_font: f_big, text_color: 0xEE8A55, text: "Too cold"}}]
+            on_click: [{script.execute: {id: send_feel, which: 2}}]
+        - label: {align: CENTER, y: 206, text_font: f_chip, text_color: 0x6F6772, text: "Press the knob to skip"}
+
+    # ---------------- Clock (shown on wake when this side is off) ----------------
+    - id: clock_page
+      bg_color: 0x000000
+      widgets:
+        - button:          # anywhere on the face: go to Home
+            align: CENTER
+            width: 480
+            height: 480
+            radius: 0
+            bg_opa: TRANSP
+            border_width: 0
+            on_click: [{script.execute: go_home}]
+        - label: {id: lbl_clock, align: CENTER, y: -46, text_font: f_clock, text: "--:--"}
+        - label: {id: lbl_clock_sub, align: CENTER, y: 36, text_font: f_chip, text_color: 0xA39AA4, text: ""}
+        - button:
+            align: CENTER
+            y: 138
+            width: 132
+            height: 132
+            border_width: 3
+            border_color: 0x5A5560
+            widgets:
+              - label: {align: CENTER, text_font: f_icon, text_color: 0xA39AA4, text: "\U000F0425"}
+            on_click: [{script.execute: on_power}]
+
+    - id: tonight_page
+      bg_color: 0x000000
+      on_swipe_left: [{script.execute: {id: go_page, dir: 1}}]
+      on_swipe_right: [{script.execute: {id: go_page, dir: -1}}]
+      widgets:
+        - label: {align: CENTER, y: -150, text_font: f_title, text_color: 0xA39AA4, text: "TONIGHT"}
+        - label: {id: tn_t0, align: CENTER, x: -136, y: -94, text_font: f_chip, text_color: 0xA39AA4, text: ""}
+        - label: {id: tn_n0, align: CENTER, x: -4, y: -94, text_font: f_big, text: ""}
+        - label: {id: tn_v0, align: CENTER, x: 134, y: -94, text_font: f_big, text: ""}
+        - label: {id: tn_t1, align: CENTER, x: -136, y: -40, text_font: f_chip, text_color: 0xA39AA4, text: ""}
+        - label: {id: tn_n1, align: CENTER, x: -4, y: -40, text_font: f_big, text: ""}
+        - label: {id: tn_v1, align: CENTER, x: 134, y: -40, text_font: f_big, text: ""}
+        - label: {id: tn_t2, align: CENTER, x: -136, y: 14, text_font: f_chip, text_color: 0xA39AA4, text: ""}
+        - label: {id: tn_n2, align: CENTER, x: -4, y: 14, text_font: f_big, text: ""}
+        - label: {id: tn_v2, align: CENTER, x: 134, y: 14, text_font: f_big, text: ""}
+        - button:
+            align: CENTER
+            y: 118
+            width: 280
+            height: 96
+            radius: 28
+            gesture_bubble: true
+            widgets: [{label: {id: lbl_skip, align: CENTER, text_font: f_big, text: "Off tonight"}}]
+            on_click:
+              - if:
+                  condition: {lambda: 'return id(confirm_skip_until) && millis() < id(confirm_skip_until) && millis() - id(last_swipe) > 450;'}
+                  then:
+                    - homeassistant.action:
+                        action: climate.set_hvac_mode
+                        data:
+                          entity_id: !lambda 'return id(active_profile) == 0 ? std::string("climate.${p0}") : std::string("climate.${p1}");'
+                          hvac_mode: "off"
+                    - lambda: 'id(confirm_skip_until) = 0; et::text(id(lbl_skip), "Off for tonight");'
+                  else:
+                    - lambda: 'if (millis() - id(last_swipe) > 450) { id(confirm_skip_until) = millis() + 4000; et::text(id(lbl_skip), "Tap again"); }'
+
+    - id: rhythm_page
+      bg_color: 0x000000
+      on_swipe_left: [{script.execute: {id: go_page, dir: 1}}]
+      on_swipe_right: [{script.execute: {id: go_page, dir: -1}}]
+      widgets:
+        - label: {align: CENTER, y: -150, text_font: f_title, text_color: 0xA39AA4, text: "RHYTHM"}
+        - label: {id: lbl_rh_phase, align: CENTER, y: -96, text_font: f_big, text: ""}
+        - label: {id: lbl_rh_temp, align: CENTER, y: -6, text_font: f_hero, text: "--"}
+        - button:
+            align: CENTER
+            x: -164
+            y: -6
+            width: 104
+            height: 104
+            widgets: [{label: {align: CENTER, text_font: f_icon, text: "\U000F0141"}}]
+            gesture_bubble: true
+            on_click: [{if: {condition: {lambda: 'return millis() - id(last_swipe) > 450;'}, then: [{script.execute: {id: rhythm_step, dir: -1}}]}}]
+        - button:
+            align: CENTER
+            x: 164
+            y: -6
+            width: 104
+            height: 104
+            widgets: [{label: {align: CENTER, text_font: f_icon, text: "\U000F0142"}}]
+            gesture_bubble: true
+            on_click: [{if: {condition: {lambda: 'return millis() - id(last_swipe) > 450;'}, then: [{script.execute: {id: rhythm_step, dir: 1}}]}}]
+        - label: {id: lbl_rh_hint, align: CENTER, y: 96, text_font: f_chip, text_color: 0xA39AA4, text: ""}
+        - label: {align: CENTER, y: 140, text_font: f_chip, text_color: 0x6F6772, text: "Turn the knob to change"}

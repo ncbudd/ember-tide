@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Ember &amp; Tide</string>
+    <string name="title_activity_main">Ember &amp; Tide</string>
+    <string name="widget_desc">Your side at a glance. Resize it for more: hot and cold flash, warmer and cooler, on and off</string>
+    <string name="do_command">Ember &amp; Tide</string>
+    <string name="sc_hot_short">Hot flash</string>
+    <string name="sc_hot_long">Hot flash: cool my side now</string>
+    <string name="sc_cold_short">Cold flash</string>
+    <string name="sc_cold_long">Cold flash: warm my side now</string>
+    <string name="sc_off_short">Off tonight</string>
+    <string name="sc_off_long">Turn my side off tonight</string>
+    <string name="sc_simple_short">Simple screen</string>
+    <string name="sc_simple_long">Open the simple night screen</string>
+</resources>

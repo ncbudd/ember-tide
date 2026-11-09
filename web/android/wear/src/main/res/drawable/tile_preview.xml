@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- the picture shown when adding the tile: a dark round face with the temperature arc -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape android:shape="oval"><solid android:color="#100E12"/><size android:width="192dp" android:height="192dp"/></shape></item>
+    <item android:drawable="@drawable/ic_launcher_fg" android:gravity="center" android:width="120dp" android:height="120dp"/>
+</layer-list>

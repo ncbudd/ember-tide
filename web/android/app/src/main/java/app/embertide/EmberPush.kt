@@ -1,0 +1,208 @@
+package app.embertide
+
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+import org.json.JSONObject
+import org.unifiedpush.android.connector.FailedReason
+import org.unifiedpush.android.connector.PushService
+import org.unifiedpush.android.connector.UnifiedPush
+import org.unifiedpush.android.connector.data.PushEndpoint
+import org.unifiedpush.android.connector.data.PushMessage
+
+/**
+ * App notifications over UnifiedPush: a distributor app (ntfy) keeps the one connection open; our server posts
+ * Web Push-encrypted messages to the address it gives us, and we show them as our own notifications with buttons
+ * that act straight away with the app's sign-in.
+ */
+object EmberPush {
+    const val CHANNEL = "alerts"
+    private const val P_ENDPOINT = "push_endpoint"
+    private const val P_KEY = "push_p256dh"
+    private const val P_AUTH = "push_auth"
+    private const val P_REG = "push_registered"      // the server has this endpoint
+    private const val P_ERR = "push_error"
+    private val ALLOWED = setOf("pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm")
+
+    fun distributors(c: Context): List<String> = UnifiedPush.getDistributors(c)
+    fun saved(c: Context): String? = UnifiedPush.getAckDistributor(c) ?: UnifiedPush.getSavedDistributor(c)
+
+    /** Google push works only when the app was built with the Firebase config and the phone has Play services. */
+    fun fcmAvailable(c: Context): Boolean = try {
+        com.google.firebase.FirebaseApp.getApps(c).isNotEmpty() || com.google.firebase.FirebaseApp.initializeApp(c) != null
+    } catch (_: Exception) { false }
+
+    fun method(c: Context): String? = Ember.prefs(c).getString("push_method", null)
+
+    /** Register this phone with our server for Google push (blocking: call off the main thread). */
+    fun syncFcm(c: Context): String? {
+        if (!Ember.ready(c)) return "not signed in"
+        val p = Ember.prefs(c)
+        return try {
+            val token = com.google.android.gms.tasks.Tasks.await(com.google.firebase.messaging.FirebaseMessaging.getInstance().token)
+            val k = EmberCrypto.keys(c)
+            val body = JSONObject().put("kind", "fcm").put("endpoint", token).put("p256dh", k.publicB64).put("auth", k.authB64)
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(60))
+            Ember.call(c, "POST", "/api/notify/me/push", body.toString())
+            p.edit().putString("push_method", "fcm").putString("fcm_token", token).putBoolean(P_REG, true).remove(P_ERR).apply()
+            null
+        } catch (e: Exception) {
+            val msg = e.message?.substringAfter("{\"detail\":\"")?.substringBefore("\"}") ?: "couldn't register"
+            p.edit().putString("push_method", "fcm").putBoolean(P_REG, false).putString(P_ERR, msg).apply()
+            msg
+        }
+    }
+
+    fun status(c: Context): JSONObject {
+        val p = Ember.prefs(c)
+        return JSONObject()
+            .put("fcm_available", fcmAvailable(c))
+            .put("allowed", c.getSystemService(NotificationManager::class.java).areNotificationsEnabled())
+            .put("method", method(c) ?: JSONObject.NULL)
+            .put("distributors", org.json.JSONArray(distributors(c)))
+            .put("distributor", saved(c) ?: JSONObject.NULL)
+            .put("endpoint", p.getString(P_ENDPOINT, null) != null)
+            .put("registered", p.getBoolean(P_REG, false))
+            .put("error", p.getString(P_ERR, null) ?: JSONObject.NULL)
+    }
+
+    fun register(c: Context) {
+        Ember.prefs(c).edit().remove(P_ERR).putString("push_method", "up").apply()
+        UnifiedPush.register(c, "default", "Ember & Tide", null)
+    }
+
+    /** Stop app notifications on this phone: tell our server first (needs the session), then the distributor. */
+    fun disable(c: Context) {
+        val p = Ember.prefs(c)
+        if (method(c) == "fcm") {
+            val tok = p.getString("fcm_token", null)
+            if (tok != null && Ember.ready(c)) {
+                try { Ember.call(c, "POST", "/api/notify/me/push/remove", JSONObject().put("endpoint", tok).toString()) } catch (_: Exception) {}
+            }
+            try { com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken() } catch (_: Exception) {}
+            p.edit().remove("fcm_token").remove(P_REG).remove("push_method").remove(P_ERR).apply()
+            return
+        }
+        val ep = p.getString(P_ENDPOINT, null)
+        if (ep != null && Ember.ready(c)) {
+            try { Ember.call(c, "POST", "/api/notify/me/push/remove", JSONObject().put("endpoint", ep).toString()) } catch (_: Exception) {}
+        }
+        try { UnifiedPush.unregister(c, "default") } catch (_: Exception) {}
+        p.edit().remove(P_ENDPOINT).remove(P_KEY).remove(P_AUTH).remove(P_REG).remove("push_method").apply()
+    }
+
+    /** Send our endpoint to the server (after sign-in, or when the distributor gives us a new one). */
+    fun sync(c: Context): String? {
+        val p = Ember.prefs(c)
+        val ep = p.getString(P_ENDPOINT, null) ?: return "no endpoint yet"
+        if (!Ember.ready(c)) return "not signed in"
+        return try {
+            val body = JSONObject().put("endpoint", ep).put("p256dh", p.getString(P_KEY, "")).put("auth", p.getString(P_AUTH, ""))
+                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(60))
+            Ember.call(c, "POST", "/api/notify/me/push", body.toString())
+            p.edit().putBoolean(P_REG, true).remove(P_ERR).apply()
+            null
+        } catch (e: Exception) {
+            val msg = e.message?.substringAfter("{\"detail\":\"")?.substringBefore("\"}") ?: "couldn't register"
+            p.edit().putBoolean(P_REG, false).putString(P_ERR, msg).apply()
+            msg
+        }
+    }
+
+    internal fun saveEndpoint(c: Context, e: PushEndpoint) {
+        val keys = e.pubKeySet
+        Ember.prefs(c).edit().putString(P_ENDPOINT, e.url).putString(P_KEY, keys?.pubKey ?: "").putString(P_AUTH, keys?.auth ?: "")
+            .putBoolean(P_REG, false).apply()
+    }
+
+    internal fun failed(c: Context, why: String) { Ember.prefs(c).edit().putString(P_ERR, why).putBoolean(P_REG, false).apply() }
+    internal fun forget(c: Context) { Ember.prefs(c).edit().remove(P_ENDPOINT).remove(P_KEY).remove(P_AUTH).remove(P_REG).apply() }
+
+    fun channel(c: Context) {
+        val ch = NotificationChannel(CHANNEL, "Alerts", NotificationManager.IMPORTANCE_HIGH)
+        ch.description = "Your side left on, pre-cool while you're away, the morning summary, bed problems"
+        c.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+    }
+
+    /** One notification per kind: a newer one replaces it, and clear(kind) can take it away. */
+    fun idFor(kind: String) = 5000 + (kind.hashCode() and 0x3ff)
+
+    /** Show one message from the server. Only messages encrypted for this phone are accepted. */
+    internal fun show(c: Context, m: JSONObject) {
+        channel(c)
+        val id = idFor(m.optString("kind"))
+        val open = PendingIntent.getActivity(c, id, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        val b = Notification.Builder(c, CHANNEL)
+            .setSmallIcon(R.drawable.ic_stat_flash)
+            .setContentTitle(m.optString("title").take(120))
+            .setContentText(m.optString("body").take(300))
+            .setStyle(Notification.BigTextStyle().bigText(m.optString("body").take(600)))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .setColor(0xFF5FB8B0.toInt())
+        val acts = m.optJSONArray("actions")
+        val person = m.optString("person").ifEmpty { Ember.person(c) }
+        if (acts != null) for (i in 0 until minOf(3, acts.length())) {
+            val a = acts.getJSONObject(i)
+            val act = a.optString("act")
+            if (act !in ALLOWED) continue                     // only things the app knows how to do
+            val intent = Intent(c, FlashNotifier.Receiver::class.java).setAction("app.embertide.NOTIF_ACT")
+                .putExtra("act", act).putExtra("minutes", a.optInt("minutes", 0)).putExtra("label", a.optString("label").take(40))
+                .putExtra("person", person).putExtra("nid", id)
+            val pi = PendingIntent.getBroadcast(c, id * 4 + i, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            b.addAction(Notification.Action.Builder(null, a.optString("label").take(40), pi).build())
+        }
+        c.getSystemService(NotificationManager::class.java).notify(id, b.build())
+    }
+
+    /** A notification button: do it, then turn the notification into a quiet "done". */
+    @JvmStatic fun act(c: Context, act: String, minutes: Int, label: String, person: String, nid: Int) {
+        val pid = person.ifEmpty { Ember.person(c) }
+        val ok = try {
+            if (act == "manual_off") Ember.call(c, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
+            else if (act.startsWith("feel_"))           // the morning check-in: how the temperature felt last night
+                Ember.call(c, "POST", "/api/people/$pid/feedback", JSONObject().put("temp", act.removePrefix("feel_")).toString())
+            else Ember.call(c, "POST", "/api/people/$pid/tonight",
+                JSONObject().put("action", act).put("source", "notification").apply { if (minutes > 0) put("minutes", minutes) }.toString())
+            true
+        } catch (_: Exception) { false }
+        channel(c)
+        val done = Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_stat_flash)
+            .setContentTitle(if (ok) "Done: $label" else "Couldn't reach Ember & Tide")
+            .setContentText(if (ok) "Open the app to change it" else "Try again from the app")
+            .setOnlyAlertOnce(true).setAutoCancel(true).setTimeoutAfter(if (ok) 6000 else 30000)
+        c.getSystemService(NotificationManager::class.java).notify(nid, done.build())
+        EmberWidget.refreshAll(c)
+    }
+}
+
+/** Receives what the distributor (ntfy) hands us. */
+class EmberPushService : PushService() {
+    override fun onNewEndpoint(endpoint: PushEndpoint, instance: String) {
+        EmberPush.saveEndpoint(this, endpoint)
+        Thread { EmberPush.sync(applicationContext) }.start()
+    }
+
+    override fun onMessage(message: PushMessage, instance: String) {
+        if (!message.decrypted) return                       // not encrypted for this phone: ignore it
+        try {
+            val m = JSONObject(String(message.content, Charsets.UTF_8))
+            if (m.optString("t") == "et") EmberPush.show(this, m)
+        } catch (_: Exception) {}
+    }
+
+    override fun onRegistrationFailed(reason: FailedReason, instance: String) {
+        EmberPush.failed(this, when (reason) {
+            FailedReason.NETWORK -> "ntfy couldn't reach its server"
+            FailedReason.ACTION_REQUIRED -> "open ntfy and finish setting it up"
+            else -> "ntfy couldn't register ($reason)"
+        })
+    }
+
+    override fun onUnregistered(instance: String) { EmberPush.forget(this) }
+}

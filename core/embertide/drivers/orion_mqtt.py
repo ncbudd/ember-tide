@@ -1,0 +1,261 @@
+"""Orion topper over its own local MQTT protocol.
+
+The bed connects to whatever `dev.orionbed.com` resolves to on port 1883. Point that name at your broker
+(router DNS record) and restart the bed. Telemetry arrives on `orion/<serial>/out` (~1–2 Hz) and commands go
+to `orion/<serial>/in`. Protocol knowledge comes from the community: tdickman's local integration
+(github.com/tdickman/orion-sleep-local-mqtt-home-assistant) and firmware notes shared on r/Orion_Sleep.
+Only commands verified on firmware 2.6.2 are allowed. Firmware/OTA/Wi-Fi commands are refused on purpose.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import math
+import re
+import time
+from urllib.parse import urlparse
+
+from .base import BedFrame, Cap, CommandError, SensorFrame, ZoneFrame
+
+log = logging.getLogger(__name__)
+SERIAL_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+SIDE = {"left": "LEFT", "right": "RIGHT"}
+BLOCKED = ("OTA", "ERASE", "IB UPDATE", "FILLVALVE", "AIRVALVE", "RPUMP", "LPUMP", "RTEC", "LTEC", "FAN PWM")
+
+
+def _num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) else None
+
+
+def _bool(v):
+    if isinstance(v, bool):
+        return v
+    if v in ("true", "false"):
+        return v == "true"
+    return None
+
+
+REALTIME = 0x13          # sensor array byte 3: a real-time report. Anything else is an empty/idle block.
+_NAN = re.compile(r'(?<=[:\[,])\s*-?(nan|inf)\b')
+# Firmware 2.6.2 sometimes writes raw garbage (including stray quotes) into the sensor version strings.
+_BAD_VERSION = re.compile(r'"(\w*Version)":".*?"(?=,"[A-Za-z_]\w*":)')
+
+
+def _loads_lenient(payload: bytes):
+    """The bed's JSON isn't always valid: `nan` for missing readings, and corrupted version strings.
+    Seen on real firmware 2.6.2 (roughly 7 in 10 messages). Repair those two things, nothing else."""
+    s = payload.decode("utf-8", errors="replace")
+    try:
+        return json.loads(s)
+    except ValueError:
+        pass
+    s = _BAD_VERSION.sub(r'"\1":""', _NAN.sub("null", s))
+    return json.loads(s)
+
+
+def parse_status(topic: str, payload: bytes, ts: float) -> tuple[str, BedFrame] | None:
+    parts = topic.split("/")
+    if len(parts) != 3 or parts[0] != "orion" or parts[2] != "out" or not SERIAL_RE.fullmatch(parts[1]):
+        return None
+    if len(payload) > 65536:
+        return None
+    try:
+        raw = _loads_lenient(payload)
+    except (ValueError, RecursionError):
+        return None
+    if not isinstance(raw, dict) or raw.get("type") != "status" or raw.get("serial") != parts[1]:
+        return None
+
+    def get(*path):
+        v = raw
+        for k in path:
+            if not isinstance(v, dict):
+                return None
+            v = v.get(k)
+        return v
+
+    zones = {}
+    for side, sensor in (("left", "sensor1"), ("right", "sensor2")):
+        arr = get("sensors", sensor)
+        sf = SensorFrame()
+        if (isinstance(arr, list) and len(arr) > 17 and arr[3] == REALTIME
+                and all(type(x) is int and 0 <= x <= 255 for x in arr[11:18])):
+            sf.status = arr[17]
+            sf.clock = tuple(arr[11:15])
+            hr, br = arr[15], arr[16]
+            sf.hr = hr if 0 < hr < 255 and sf.status not in (3, 5, 1, 255) else None
+            sf.br = br if 0 < br < 255 and sf.status not in (2, 5, 1, 255) else None
+        m = _num(get("temps", f"ib_{side}"))
+        zones[side] = ZoneFrame(on=_bool(get("tec", side, "control_enabled")), setpoint_c=_num(get("tec", side, "setpoint")),
+                                measured_c=m if m is not None and m > 1 else None,     # 0.00 while booting
+                                sensor=sf)
+    rgb = tuple(_num(get("led", f"idle_{c}")) for c in "rgb")
+    errors = get("errors")
+    frame = BedFrame(
+        ts=ts, zones=zones,
+        system_state=get("system_state") if isinstance(get("system_state"), str) else None,
+        firmware=get("fw", "version") if isinstance(get("fw", "version"), str) else None,
+        quiet_mode=_bool(get("fans", "quiet_mode")),
+        brightness=_num(get("led", "led_brightness")),
+        rgb=rgb if all(v is not None for v in rgb) else None,  # type: ignore[arg-type]
+        fault=any(bool(v) for v in errors.values()) if isinstance(errors, dict) and errors else None,
+    )
+    return parts[1], frame
+
+
+def validate(raw: str) -> str:
+    cmd = " ".join(raw.strip().upper().split())
+    if any(cmd.startswith(b) for b in BLOCKED):
+        raise CommandError("blocked: firmware, Wi-Fi and low-level hardware commands are not allowed")
+    p = cmd.split()
+    if cmd in {"SYSTEM ON", "REBOOT", "CLEAR LEFT", "CLEAR RIGHT", "CLEAR BOTH", "FAN QUIET ON", "FAN QUIET OFF"}:
+        return cmd
+    if p and p[0] == "SET" and len(p) in (3, 4) and p[1] in ("LEFT", "RIGHT", "BOTH"):
+        if len(p) == 4 and p[1] != "BOTH":
+            raise CommandError("two temperatures need BOTH")
+        temps = [float(v) for v in p[2:]]
+        if not all(10 <= t <= 45 for t in temps):
+            raise CommandError("temperature must be 10–45 °C")
+        return " ".join(p[:2] + [f"{t:.2f}".rstrip("0").rstrip(".") for t in temps])
+    if p[:2] == ["IB", "RGB"] and len(p) == 5 and all(v.isdigit() and int(v) <= 255 for v in p[2:]):
+        return cmd
+    if p[:2] == ["IB", "DIMMER"] and len(p) == 3 and p[2].isdigit() and int(p[2]) <= 100:
+        return cmd
+    raise CommandError("unsupported command")
+
+
+class OrionMqtt:
+    id = "orion-mqtt"
+    name = "Orion topper (local MQTT)"
+    capabilities = {Cap.ZONE_TEMP, Cap.ZONE_POWER, Cap.MEASURED_TEMP, Cap.OCCUPANCY, Cap.BIO_HR, Cap.BIO_BR,
+                    Cap.LED_DIM, Cap.LED_RGB, Cap.FAN_QUIET, Cap.REBOOT, Cap.RAW_CONSOLE}
+    zones = ["left", "right"]
+
+    def __init__(self, url: str, serial: str | None = None, username: str | None = None, password: str | None = None) -> None:
+        u = urlparse(url)
+        self.host, self.port = u.hostname or "localhost", u.port or 1883
+        self.username = username or u.username
+        self.password = password or u.password
+        self.serial = serial
+        self._frame: BedFrame | None = None
+        self._client = None
+        self._task: asyncio.Task | None = None
+        self._changed = asyncio.Event()
+        self._state = "starting"
+        self._lock = asyncio.Lock()
+        self._fails: dict[str, tuple[str, float, int]] = {}      # zone -> (command, don't resend before, attempts)
+
+    async def start(self) -> None:
+        self._task = asyncio.create_task(self._run())
+
+    async def stop(self) -> None:
+        if self._task:
+            self._task.cancel()
+
+    def latest(self) -> BedFrame | None:
+        f = self._frame
+        if f and time.time() - f.ts > 20:
+            f.online = False
+        return f
+
+    def status(self) -> dict:
+        f = self._frame
+        return {"driver": self.id, "name": self.name, "online": bool(f and f.online and time.time() - f.ts < 20),
+                "detail": self._state, "serial": self.serial, "broker": f"{self.host}:{self.port}",
+                "firmware": f.firmware if f else None, "age_s": round(time.time() - f.ts, 1) if f else None}
+
+    async def _run(self) -> None:
+        import aiomqtt
+        backoff = 1
+        while True:
+            try:
+                async with aiomqtt.Client(self.host, self.port, username=self.username, password=self.password,
+                                          identifier=f"embertide-{int(time.time())}") as client:
+                    self._client = client
+                    self._state = "connected"
+                    backoff = 1
+                    await client.subscribe(f"orion/{self.serial or '+'}/out")
+                    async for msg in client.messages:
+                        parsed = parse_status(str(msg.topic), bytes(msg.payload), time.time())
+                        if not parsed:
+                            continue
+                        serial, frame = parsed
+                        if self.serial is None:
+                            self.serial = serial
+                        if serial == self.serial:
+                            if self._frame is None or frame.ts - self._frame.ts > 20:
+                                self._fails.clear()      # back after a silence (power cut, reboot): no held-back retries
+                            self._frame = self._hold_sensors(frame)
+                            self._changed.set()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                self._client = None
+                self._state = f"reconnecting ({type(e).__name__})"
+                log.warning("mqtt: %s; retry in %ss", e, backoff)
+                await asyncio.sleep(backoff)
+                backoff = min(10, backoff * 2)        # local broker: get back quickly (the bed itself retries in ~15 s)
+
+    def _hold_sensors(self, frame: BedFrame) -> BedFrame:
+        """The bed interleaves empty sensor blocks between real reports. Keep the last real report for up to 10 s,
+        so presence doesn't flicker to "unknown"; after that the side really has gone quiet."""
+        held = getattr(self, "_last_sensor", {})
+        for side, z in frame.zones.items():
+            if z.sensor.status is not None:
+                held[side] = (frame.ts, z.sensor)
+            elif side in held and frame.ts - held[side][0] <= 10:
+                z.sensor = held[side][1]
+        self._last_sensor = held
+        return frame
+
+    async def _publish(self, cmd: str) -> None:
+        if not self._client or not self.serial:
+            raise CommandError("bed not connected")
+        await self._client.publish(f"orion/{self.serial}/in", cmd.encode(), qos=1, retain=False)
+
+    async def _wait_for(self, pred, timeout: float) -> bool:
+        end = time.time() + timeout
+        while time.time() < end:
+            self._changed.clear()
+            f = self._frame
+            if f and pred(f):
+                return True
+            try:
+                await asyncio.wait_for(self._changed.wait(), timeout=max(0.1, end - time.time()))
+            except TimeoutError:
+                break
+        return bool(self._frame and pred(self._frame))
+
+    async def set_zone(self, zone: str, *, on: bool, temp_c: float | None = None) -> bool:
+        if temp_c is None and on:
+            raise CommandError("temperature required")
+        cmd = f"CLEAR {SIDE[zone]}" if not on else validate(f"SET {SIDE[zone]} {round(min(45.0, max(10.0, temp_c)), 2)}")
+        # the same command the bed just ignored: wait before sending it again (15 s, 30 s, ... up to 5 min), so a bed
+        # that's rebooting or offline isn't flooded; a different command (someone pressed +) goes straight out
+        fail = self._fails.get(zone)
+        if fail and fail[0] == cmd and time.monotonic() < fail[1]:
+            return False
+        async with self._lock:
+            if not on:
+                await self._publish(cmd)
+                ok = await self._wait_for(lambda f: f.zones[zone].on is False, 15)
+            else:
+                t = round(min(45.0, max(10.0, temp_c)), 2)
+                await self._publish(cmd)
+                ok = await self._wait_for(lambda f: f.zones[zone].on is True and f.zones[zone].setpoint_c is not None
+                                          and abs(f.zones[zone].setpoint_c - t) <= 0.006, 15)
+                if ok and self._frame and self._frame.system_state not in ("SYSTEM_ON", None):
+                    await self._publish("SYSTEM ON")
+        if ok:
+            self._fails.pop(zone, None)
+        else:
+            n = (fail[2] + 1) if fail and fail[0] == cmd else 1
+            self._fails[zone] = (cmd, time.monotonic() + min(300.0, 15.0 * 2 ** (n - 1)), n)
+        return ok
+
+    async def command(self, raw: str) -> str:
+        cmd = validate(raw)
+        await self._publish(cmd)
+        return f"sent: {cmd}"

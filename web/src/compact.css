@@ -1,0 +1,168 @@
+/* Compact keyboard mode: a hardware keyboard (Minimal Phone 2 QWERTY, ~360x413 dp screen) or a short near-square
+   screen. Keys replace the bottom tab bar (1-4 / T R L M), a slim top strip shows where you are, and every screen
+   aims to fit without scrolling. Everything here is scoped to .app.compact so no other device changes. */
+
+.app.compact { --ctab-h: 30px; --hint-h: 22px; font-size: 14px; }
+.app.compact .tabs { display: none; }
+.app.compact .screen { padding: 8px 12px calc(var(--hint-h) + 6px); gap: 8px; }
+.app.compact .screen.fill { gap: 6px; }
+
+/* slim top tab strip (keys 1-4); still tappable */
+.app.compact .ctabs { display: flex; gap: 2px; height: var(--ctab-h); align-items: stretch; padding: 0 8px;
+  border-bottom: 1px solid var(--line); background: var(--bg); flex: none; font-size: 12.5px; }
+.app.compact .ctabs a { flex: 1; display: flex; align-items: center; justify-content: center; gap: 4px; color: var(--faint);
+  text-decoration: none; border-bottom: 2px solid transparent; }
+.app.compact .ctabs a.active { color: var(--text); border-bottom-color: var(--acc); }
+.app.compact .ctabs kbd { font: inherit; font-size: 10.5px; color: var(--faint); border: 1px solid var(--line2); border-radius: 4px; padding: 0 3px; line-height: 1.3; }
+.app:not(.compact) .ctabs { display: none; }
+
+/* one-line key hints, bottom */
+.keyhints { position: absolute; left: 0; right: 0; bottom: 0; height: var(--hint-h, 22px); display: flex; align-items: center; gap: 6px;
+  padding: 0 4px 0 10px; font-size: 11px; color: var(--mute); background: color-mix(in srgb, var(--bg) 92%, transparent);
+  border-top: 1px solid var(--line); z-index: 15; white-space: nowrap; }
+.keyhints span { flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.keyhints button { border: 0; background: none; color: var(--faint); font-size: 15px; width: 26px; height: 22px; cursor: pointer; padding: 0; }
+
+/* shortcut sheet (any device) */
+.keysheet { display: grid; gap: 10px; padding: 4px 0 6px; max-height: min(60vh, 520px); overflow-y: auto; }
+.keysheet h3 { font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 2px 0 4px; }
+.keysheet dl { margin: 0; display: grid; gap: 4px; }
+.keysheet dl > div { display: grid; grid-template-columns: 104px 1fr; gap: 10px; align-items: baseline; font-size: 13.5px; }
+.keysheet dt { margin: 0; }
+.keysheet dd { margin: 0; color: var(--mute); }
+.keysheet kbd { font-family: ui-monospace, Consolas, monospace; font-size: 12px; border: 1px solid var(--line2); border-bottom-width: 2px;
+  border-radius: 5px; padding: 1px 5px; background: var(--surf); color: var(--text); white-space: nowrap; }
+
+/* keyboard focus must be obvious on a keyboard phone */
+.app.compact :focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.app.compact [data-nav]:focus-within { background: color-mix(in srgb, var(--acc) 10%, transparent); border-radius: 10px; }
+
+/* ---- Tonight: big temperature, one-line status, short plan, controls that fit ---- */
+.app.compact .top { min-height: 24px; font-size: 12px; }
+.app.compact .top .icon-btn { padding: 3px 9px; font-size: 11.5px; }
+.app.compact .seg { font-size: 12px; padding: 2px; }
+.app.compact .seg button { padding: 4px 8px; }
+.app.compact .hero { gap: 1px; }
+.app.compact .hero .state { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.app.compact .hero .meta { font-size: 12px; gap: 10px; }
+.app.compact .chartkey { display: none; }
+.app.compact .planrow { padding: 5px 2px; font-size: 13px; grid-template-columns: 66px 1fr auto; gap: 8px; }
+.app.compact .planrow .tm { font-size: 12px; white-space: nowrap; }
+.app.compact .dock { gap: 6px; padding-top: 2px; }
+.app.compact .dockctl { gap: 6px; grid-template-columns: minmax(0, 1fr) minmax(64px, 80px); }
+.app.compact .dockctl .flashes, .app.compact .dockctl .steps { gap: 6px; }
+.app.compact .dockctl button { min-height: 40px; }
+.app.compact .dockctl .flashes button { font-size: 14px; }
+.app.compact .dockctl .steps button { font-size: 20px; }
+.app.compact .dockctl .steps small { display: none; }
+.app.compact .dock .sub { font-size: 12px; }
+.app.compact .turnon { padding: 6px 10px; gap: 4px; }
+.app.compact .turnon .seg button { padding: 3px 6px; }
+.app.compact .turnon .btn.go { padding: 8px 16px; font-size: 14px; }
+.app.compact .turnon small { display: none !important; }
+/* daytime: the turn-on card matters more than the empty plan chart on a 344 px-tall screen (a 640 px-tall phone has room for both) */
+@media (max-height: 559px) { .app.compact .tn-main:has(.turnon) .chart { display: none; } }
+/* a tablet or unfolded foldable with a keyboard shows the longer Today card, so it still needs the room under 700 px */
+@media (max-height: 699px) { .app.compact.tab .tn-main:has(.turnon) .chart { display: none; } }
+/* the keyboard replaces the navigation rail, so its column goes too (it was left as an empty strip on the right) */
+.app.tab.compact { grid-template-columns: minmax(0, 1fr); }
+.app.compact .dock .sub { min-height: 0; }
+.app.compact .dock .sub .icon-btn { padding: 2px 10px; }
+.app.compact .glance { display: none !important; }
+
+/* ---- Simple app ---- */
+.app.compact .sa-tabs { font-size: 12px; }
+.app.compact .sa-temp { font-size: 64px !important; }
+.app.compact .sa-line { font-size: 13px; }
+.app.compact .sa-controls button, .app.compact .sa-flashes button, .app.compact .sa-steps button { min-height: 44px !important; font-size: 15px; }
+.app.compact .sa-power { min-height: 40px !important; }
+
+/* ---- sheets fit the short screen ---- */
+.app.compact .sheet { max-height: calc(100% - 12px); overflow-y: auto; padding: 6px 14px 10px; gap: 2px; }
+.app.compact .sheet button.item { padding: 9px 2px; font-size: 14px; }
+
+/* ---- cards and lists ---- */
+.app.compact .card { padding: 10px 12px; gap: 6px; }
+.app.compact .list > .row, .app.compact .list > .item { padding: 8px 0; }
+
+/* the Simple app keeps its three tabs, as a slim strip (keys 1 2 3 also switch) */
+.app.compact .tabs.sa-tabs { display: flex; order: -1; height: var(--ctab-h); padding: 0 8px; font-size: 12.5px; min-height: 0;
+  border-top: 0; border-bottom: 1px solid var(--line); align-items: stretch; }
+.app.compact .tabs.sa-tabs a { min-height: 0; min-width: 0; flex: 1; flex-direction: row; justify-content: center; align-items: center; padding: 0; gap: 0;
+  border-bottom: 2px solid transparent; }
+.app.compact .tabs.sa-tabs a:before { display: none; }
+.app.compact .tabs.sa-tabs a.active { border-bottom-color: var(--acc); }
+.app.compact .sa-top { min-height: 0; padding: 0; }
+.app.compact .sa-hero { gap: 2px; }
+.app.compact .sa-temp { font-size: 56px !important; line-height: 1 !important; }
+.app.compact .sa-power .btn { min-height: 38px !important; padding: 6px 14px !important; font-size: 14px; }
+
+/* headings and centred screens: never clip the top on a short screen */
+.app.compact .screen h1 { font-size: 24px !important; line-height: 1.15; }
+.app.compact .screen h2 { font-size: 20px !important; }
+.app.compact .screen { justify-content: flex-start !important; }
+.app.compact .side { padding: 10px 14px !important; }
+.app.compact .side span { font-size: 19px !important; }
+
+/* welcome on a short screen: smaller type, the body scrolls, the buttons stay put */
+.app.compact .wl { gap: 6px; }
+.app.compact .wl-top { min-height: 26px; }
+.app.compact .wl-body { align-content: start; overflow-y: auto; }
+.app.compact .wl-step { gap: 8px; }
+.app.compact .wl-step h1 { font-size: 22px !important; }
+.app.compact .wl-lead { font-size: 14.5px; line-height: 1.45; }
+.app.compact .wl-mark span { width: 12px; height: 12px; }
+.app.compact .wl-list { gap: 8px; }
+.app.compact .wl-list li { font-size: 13.5px; grid-template-columns: 30px 1fr; gap: 8px; }
+.app.compact .wl-ico { width: 30px; height: 30px; }
+.app.compact .wl-card { grid-template-columns: 56px 1fr; padding: 8px 10px; }
+.app.compact .wl-prev { width: 56px; height: 46px; }
+.app.compact .wl-nav { padding-bottom: 2px; }
+.app.compact .wl-nav .btn { padding: 9px 18px !important; min-height: 0 !important; font-size: 15px; }
+
+/* Tonight on the short screen: whose-night strip (V cycles it) and the "Tonight ⋯" row (S opens it) are keys;
+   in the daytime the meta line goes too so the turn-on card and the controls fit */
+.app.compact .tn-upper > .seg { display: none; }
+.app.compact .dock .sub { display: none; }
+@media (max-height: 559px) { .app.compact .tn-main:has(.turnon) .hero .meta { display: none; } }
+.app.compact .dockctl button { min-height: 36px !important; }
+.app.compact .turnon .lens button, .app.compact .turnon .seg button { padding: 2px 6px; }
+.app.compact .turnon .num { font-size: 19px !important; }
+.app.compact .turnon .btn.go { padding: 6px 14px; }
+.app.compact .screen.fill { padding-bottom: calc(var(--hint-h) + 4px); }
+
+/* At night the plan list carries the story; on a ~314 px-tall content area there's no room for the chart too.
+   The big number is capped so the flash card, plan rows and controls stay on screen. */
+@media (max-height: 699px) {
+  .app.compact .tn-main:not(:has(.turnon)) .tn-upper .chart { display: none; }   /* daytime keeps it unless under 560 px (above) */
+  .app.compact .hero .big:not(.off) { font-size: 52px !important; line-height: 1; }
+}
+.app.compact .flashcard { padding: 6px 10px; gap: 6px; }
+.app.compact .flashcard .pill { padding: 4px 10px; }
+
+/* Large and XL phones with a keyboard (or compact switched on): the short-screen squeeze above isn't needed.
+   Keep the keyboard parts (no tab bar, key hints, top strip) but use the height: the plan chart comes back, the
+   big number is sized by the same fit logic as the normal layout, and the plan rows and controls get bigger. */
+@media (min-height: 700px) {
+  .app.compact .screen.fill { gap: 10px; }
+  .app.compact .top { min-height: 30px; font-size: 13px; }
+  .app.compact .hero .state { font-size: 15px; }
+  .app.compact .hero .meta { font-size: 13.5px; gap: 12px; }
+  .app.compact .planrow { padding: 9px 2px; font-size: 15px; grid-template-columns: 76px 1fr auto; }
+  .app.compact .planrow .tm { font-size: 13.5px; }
+  .app.compact .dock { gap: 10px; }
+  .app.compact .dockctl { gap: 10px; grid-template-columns: minmax(0, 1fr) minmax(76px, 96px); }
+  .app.compact .dockctl .flashes, .app.compact .dockctl .steps { gap: 10px; }
+  .app.compact .dockctl button { min-height: 56px !important; }
+  .app.compact .dockctl .flashes button { font-size: 16px; }
+  .app.compact .dockctl .steps button { font-size: 26px; }
+  .app.compact .flashcard { padding: 10px 14px; gap: 10px; }
+  .app.compact .flashcard .pill { padding: 8px 14px; }
+  .app.compact .turnon { padding: 10px 14px; gap: 8px; }
+  .app.compact .turnon .seg button { padding: 6px 10px; }
+  .app.compact .turnon .btn.go { padding: 10px 20px; font-size: 15px; }
+  .app.compact .turnon .num { font-size: 22px !important; }
+}
+/* tablet / unfolded foldable with a keyboard: the tablet layout's own bottom padding would let the controls run
+   under the key hints */
+.app.tab.compact > .screen.tn, .app.tab.compact > .screen.fill { padding-bottom: calc(var(--hint-h) + 6px); }

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only: sign the watch in from adb when there's no paired phone (emulators):
+     adb shell am broadcast -n app.embertide/.wear.DebugAuth -\-es server http://10.0.2.2:8797 -\-es token et_... -\-es person p1
+     and DebugHr pretends the phone switched night heart rate on (usage in DebugHr.kt). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- DUMP: only adb (the shell) or the system can send it, never another app -->
+        <receiver android:name=".DebugAuth" android:exported="true" android:permission="android.permission.DUMP" />
+        <receiver android:name=".DebugHr" android:exported="true" android:permission="android.permission.DUMP" />
+    </application>
+</manifest>

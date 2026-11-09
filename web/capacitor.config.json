@@ -1,0 +1,22 @@
+{
+  "appId": "app.embertide",
+  "appName": "Ember & Tide",
+  "webDir": "dist",
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "plugins": {
+    "StatusBar": {
+      "overlaysWebView": false,
+      "style": "DARK",
+      "backgroundColor": "#100e12"
+    },
+    "SystemBars": {
+      "style": "DARK"
+    }
+  }
+}
