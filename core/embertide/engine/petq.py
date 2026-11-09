@@ -17,7 +17,8 @@ import math
 import uuid
 from datetime import datetime, timedelta
 
-MIN_EPISODE_S = 10 * 60
+MIN_EPISODE_S = 10 * 60       # a stay this long is worth noting (added to a question that's already open: no new ping)
+ASK_AFTER_S = 30 * 60         # only a stay this long starts a new question: a quick hop on and off isn't worth a ping
 MAX_KEEP = 60
 SIG_MIN_N = 20                 # 30 s readings (10 min) before a pet's signature is used
 HR_BOUNDS = (30.0, 220.0)
@@ -225,6 +226,8 @@ def consider(controller, zone: str, ep: dict, now: float) -> dict | None:
             _link(controller, qs, q, now)
             _save(store, qs)
             return q
+    if dur < ASK_AFTER_S:
+        return None                                  # short, and nothing open to add it to: no question, no ping
     for q in qs:                                     # one question at a time: an older open one is set aside
         if q["person"] == person.id and q["status"] == "open":
             q["status"] = "skipped"
@@ -353,14 +356,16 @@ def view(q: dict, household, tz) -> dict:
     a, b = q["spans"][0]["start"], q["spans"][-1]["end"]
     when = f"{_clock(a, tz)}–{_clock(b, tz)}"
     who = names[0] if len(names) == 1 else "one of your pets"
-    side = "your side" if q["zone"] in ("left", "right") else "bed"   # asked of that side's sleeper
-    choices = ([{"answer": "yes", "pet": pets[i].id, "label": "Yes" if len(names) == 1 else f"Yes, {pets[i].name}"}
+    side = "your side of the bed" if q["zone"] in ("left", "right") else "the bed"   # asked of that side's sleeper
+    them = names[0] if len(names) == 1 else "your pets"
+    choices = ([{"answer": "yes", "pet": pets[i].id, "label": f"Yes, it was {pets[i].name}"}
                 for i in q["pets"] if i in pets]
                + [{"answer": "me", "label": "No, it was me"}, {"answer": "unsure", "label": "Not sure"}])
     return {"id": q["id"], "zone": q["zone"], "kind": q["kind"], "status": q["status"], "answer": q["answer"],
             "title": f"Was {who} on the bed around {when}?", "who": who, "when": when,     # (who / when: voice.py rewords it)
-            "detail": (f"Something lay on the {side} and it didn't look like you." if q["kind"] == "pet"
-                       else f"Something lay on the {side} while your night wasn't on."),
+            "detail": ((f"Something on {side} didn't seem like you." if q["kind"] == "pet"
+                        else f"Something was on {side} while it was off.")
+                       + f" Your answer helps tell you and {them} apart next time."),
             "start": a, "end": b, "spans": [{"start": s["start"], "end": s["end"], "evidence": s.get("evidence")} for s in q["spans"]],
             "choices": choices}
 

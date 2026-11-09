@@ -82,7 +82,8 @@ public final class FlashNotifier {
                         case "app.embertide.ADJ_DOWN": EmberWidget.adjust(app, -1); break;
                         case "app.embertide.NOTIF_ACT":
                             EmberPush.act(app, String.valueOf(intent.getStringExtra("act")), intent.getIntExtra("minutes", 0),
-                                    String.valueOf(intent.getStringExtra("label")), String.valueOf(intent.getStringExtra("person")), intent.getIntExtra("nid", 0));
+                                    String.valueOf(intent.getStringExtra("label")), String.valueOf(intent.getStringExtra("person")), intent.getIntExtra("nid", 0),
+                                    intent.getStringExtra("ref") == null ? "" : intent.getStringExtra("ref"));
                             return;
                         default: break;
                     }

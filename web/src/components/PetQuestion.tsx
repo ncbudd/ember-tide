@@ -52,7 +52,7 @@ export default function PetQuestion({ person, onAnswered, notifications = true }
     <div className="card petq" role="region" aria-label="A question about your pet">
       <div className="k">A quick question</div>
       <p style={{ fontSize: 16, margin: "4px 0 2px", fontWeight: 600 }}>{q.title}</p>
-      <p className="mute" style={{ fontSize: 13, margin: "0 0 10px" }}>{q.detail} Your answer helps tell you apart next time.</p>
+      <p className="mute" style={{ fontSize: 13, margin: "0 0 10px" }}>{q.detail}</p>
       <div style={{ display: "grid", gap: 8 }}>
         {q.choices.map(c => (
           <button key={c.answer + (c.pet ?? "")} className={c.answer === "yes" ? "btn pri" : "btn"} style={{ minHeight: 48 }}

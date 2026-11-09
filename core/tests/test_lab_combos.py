@@ -508,6 +508,18 @@ def test_calendar_value_timed_cases():
     assert _calendar_value({"state": "off", "attributes": {}}, now) == 0.0
 
 
+def test_ha_calendar_times_without_a_zone_are_the_households():
+    """HA writes start/end without a zone, in the home's time. The server machine (a container in UTC, CI) may be in
+    another zone: they must be read in the household's (2026-11-09: CI in UTC missed a 10 PM event)."""
+    from zoneinfo import ZoneInfo
+    ny, utc = ZoneInfo("America/New_York"), ZoneInfo("UTC")
+    now = datetime(2026, 11, 3, 21, 0, tzinfo=ny).timestamp()
+    end = datetime(2026, 11, 3, 23, 0, tzinfo=ny).timestamp()
+    assert _calendar_value(_ha_cal("off", "2026-11-03 22:00:00", "2026-11-03 23:00:00"), now, ny) == end
+    # read as UTC it would be 5 hours off (already over), which is exactly the bug
+    assert _calendar_value(_ha_cal("off", "2026-11-03 22:00:00", "2026-11-03 23:00:00"), now, utc) == 0.0
+
+
 async def test_event_ending_before_bedtime_doesnt_delay_anything(tmp_path):
     night = "2026-11-03"
     plan = {night: dict(WEEKNIGHT, events=[("18:00", "20:00")])}

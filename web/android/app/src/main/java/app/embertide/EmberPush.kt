@@ -26,7 +26,8 @@ object EmberPush {
     private const val P_AUTH = "push_auth"
     private const val P_REG = "push_registered"      // the server has this endpoint
     private const val P_ERR = "push_error"
-    private val ALLOWED = setOf("pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm")
+    private val ALLOWED = setOf("pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm",
+        "pet_yes", "pet_me", "pet_unsure")
 
     fun distributors(c: Context): List<String> = UnifiedPush.getDistributors(c)
     fun saved(c: Context): String? = UnifiedPush.getAckDistributor(c) ?: UnifiedPush.getSavedDistributor(c)
@@ -153,7 +154,7 @@ object EmberPush {
             if (act !in ALLOWED) continue                     // only things the app knows how to do
             val intent = Intent(c, FlashNotifier.Receiver::class.java).setAction("app.embertide.NOTIF_ACT")
                 .putExtra("act", act).putExtra("minutes", a.optInt("minutes", 0)).putExtra("label", a.optString("label").take(40))
-                .putExtra("person", person).putExtra("nid", id)
+                .putExtra("person", person).putExtra("nid", id).putExtra("ref", a.optString("ref").take(40))
             val pi = PendingIntent.getBroadcast(c, id * 4 + i, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             b.addAction(Notification.Action.Builder(null, a.optString("label").take(40), pi).build())
         }
@@ -161,12 +162,15 @@ object EmberPush {
     }
 
     /** A notification button: do it, then turn the notification into a quiet "done". */
-    @JvmStatic fun act(c: Context, act: String, minutes: Int, label: String, person: String, nid: Int) {
+    @JvmStatic fun act(c: Context, act: String, minutes: Int, label: String, person: String, nid: Int, ref: String = "") {
         val pid = person.ifEmpty { Ember.person(c) }
         val ok = try {
             if (act == "manual_off") Ember.call(c, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
             else if (act.startsWith("feel_"))           // the morning check-in: how the temperature felt last night
                 Ember.call(c, "POST", "/api/people/$pid/feedback", JSONObject().put("temp", act.removePrefix("feel_")).toString())
+            else if (act.startsWith("pet_") && ref.matches(Regex("[A-Za-z0-9]{1,40}")))   // "was that the dog?" answered from the notification
+                Ember.call(c, "POST", "/api/people/$pid/pet-question/$ref", JSONObject().put("answer", act.removePrefix("pet_")).toString())
+            else if (act.startsWith("pet_")) throw IllegalArgumentException("no question")
             else Ember.call(c, "POST", "/api/people/$pid/tonight",
                 JSONObject().put("action", act).put("source", "notification").apply { if (minutes > 0) put("minutes", minutes) }.toString())
             true

@@ -32,7 +32,7 @@ from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
 ACTION_TTL_S = 12 * 3600
-APP_ACTS = {"pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm"}   # the only things a notification button can do in the app
+APP_ACTS = {"pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm", "pet_yes", "pet_me", "pet_unsure"}   # the only things a notification button can do in the app
 MAX_DEVICES = 6
 OFFLINE_AFTER_S = 300
 STALE_AFTER_S = 600
@@ -82,8 +82,9 @@ def save_feel(c, pid: str, temp: str, now: float, source: str = "app", night: st
 @dataclass
 class Action:
     label: str
-    act: str                 # tonight action: pause | skip | start_now | resume
+    act: str                 # tonight action: pause | skip | start_now | resume; feel_*; pet_yes | pet_me | pet_unsure
     minutes: int | None = None
+    ref: str | None = None   # what it's about (the pet question's id)
 
 
 @dataclass
@@ -387,7 +388,14 @@ class Notifier:
         if not q or not self._once(f"petq:{q['id']}"):
             return None
         t, b = self._say("pet_question", self._pet_slots(q), person, now)
-        return Message("pet_question", t, b, person.id, priority=2, tags=["dog"])
+        # answer right from the notification (one pet: "Yes, it was Rex"; with several, which one is picked in the app)
+        acts = []
+        if len(q["pets"]) == 1:
+            v = petq.view(q, self.c.household, self.c.clock.tz)
+            yes = next(c for c in v["choices"] if c["answer"] == "yes")
+            acts = [Action(yes["label"][:40], "pet_yes", ref=q["id"]), Action("No, it was me", "pet_me", ref=q["id"]),
+                    Action("Not sure", "pet_unsure", ref=q["id"])]
+        return Message("pet_question", t, b, person.id, actions=acts, priority=2, tags=["dog"])
 
     def _morning(self, person, night: str, now: float) -> Message | None:
         """The morning summary: the night in a line, anything held overnight, an open pet question, and one action
@@ -420,7 +428,7 @@ class Notifier:
     def new_action(self, person: str, a: Action) -> str:
         code = secrets.token_urlsafe(16)
         acts = {k: v for k, v in self.store.get("notify_actions", {}).items() if v["expires"] > time.time()}
-        acts[_h(code)] = {"person": person, "act": a.act, "minutes": a.minutes, "label": a.label, "expires": time.time() + ACTION_TTL_S}
+        acts[_h(code)] = {"person": person, "act": a.act, "minutes": a.minutes, "label": a.label, "ref": a.ref, "expires": time.time() + ACTION_TTL_S}
         self.store.put("notify_actions", acts)
         return code
 
@@ -452,6 +460,12 @@ class Notifier:
                 e.clear_override(now)
         elif a["act"].startswith("feel_"):
             save_feel(self.c, a["person"], a["act"][5:], now, source="notification")
+        elif a["act"].startswith("pet_"):
+            from .engine import petq
+            try:                          # one pet answer; the question may already be answered in the app (then nothing)
+                petq.answer(self.c, a.get("ref") or "", a["person"], a["act"][4:], None, now)
+            except (KeyError, ValueError):
+                pass
         else:
             e.tonight(now, a["act"], a.get("minutes"))
         self.store.event(now, "notification_action", a["person"], "notification", act=a["act"], label=a["label"])
@@ -471,6 +485,8 @@ class Notifier:
             return f"Paused {name}'s side until {t}"
         if a["act"].startswith("feel_"):
             return {"feel_cold": "Noted: too cold", "feel_right": "Noted: just right", "feel_warm": "Noted: too warm"}[a["act"]]
+        if a["act"].startswith("pet_"):
+            return {"pet_yes": "Thanks: noted as the pet", "pet_me": "Thanks: noted as you", "pet_unsure": "No problem: nothing changed"}[a["act"]]
         return {"manual_off": f"{name}'s side is off", "skip": f"{name}'s side is off for tonight", "start_now": f"Started {name}'s night",
                 "resume": f"{name}'s side is back on"}.get(a["act"], f"Done: {a['label']}")
 
@@ -590,7 +606,8 @@ class Notifier:
         from . import webpush
         payload = {"t": "et", "v": 1, "kind": m.kind, "title": m.title, "body": m.body, "person": m.person,
                    "priority": m.priority, "ts": int(time.time()),
-                   "actions": [{"label": a.label, "act": a.act, "minutes": a.minutes} for a in m.actions[:3] if a.act in APP_ACTS]}
+                   "actions": [{"label": a.label, "act": a.act, "minutes": a.minutes, **({"ref": a.ref} if a.ref else {})}
+                               for a in m.actions[:3] if a.act in APP_ACTS]}
         try:
             body = webpush.encrypt(json.dumps(payload, separators=(",", ":")).encode(), d["p256dh"], d["auth"])
         except Exception as e:  # noqa: BLE001

@@ -49,7 +49,7 @@ export function SleepDataRows({ s, upd }: { s: PersonSettings; upd: (p: Partial<
         </div>
         <div className="row"><span>Wake with my phone's alarm<br /><span className="mute" style={{ fontSize: 12 }}>The warm wake lines up with your next alarm: earlier, or a little later if you set a second one to sleep in. Needs "next alarm" shared from your phone.</span></span>
           <input type="checkbox" className="toggle" aria-label="Wake with my phone's alarm" checked={s.wake_with_alarm ?? true} onChange={e => upd({ wake_with_alarm: e.target.checked })} /></div>
-        <div className="row"><span>Ask me about the pet<br /><span className="mute" style={{ fontSize: 12 }}>After something lay on your side that didn't look like you: "Was it the dog?" One question a night at most.</span></span>
+        <div className="row"><span>Ask me about the pet<br /><span className="mute" style={{ fontSize: 12 }}>When something stayed on your side for half an hour or more and didn't seem like you: "Was it the dog?" Answer right from the notification. One question a night at most.</span></span>
           <input type="checkbox" className="toggle" aria-label="Ask me about the pet" checked={s.pet_questions ?? true} onChange={e => upd({ pet_questions: e.target.checked })} /></div>
         {(s.pet_questions ?? true) && <div className="row"><span>Also as a notification<br /><span className="mute" style={{ fontSize: 12 }}>Only between 8 AM and 9 PM.</span></span>
           <input type="checkbox" className="toggle" aria-label="Pet questions as a notification" checked={s.notify?.pet_question ?? true} onChange={e => upd({ notify: { ...s.notify, pet_question: e.target.checked } })} /></div>}

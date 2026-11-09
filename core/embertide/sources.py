@@ -381,17 +381,21 @@ def ics_tonight(text: str, now: float, tz) -> tuple[float, float | None]:
     return float(end_tonight), early
 
 
-def _calendar_value(d: dict, now: float) -> float:
+def _calendar_value(d: dict, now: float, tz=None) -> float:
     """An HA calendar entity -> when tonight's event ends (epoch), or 0 when there's none. HA shows the current or
-    next event in the attributes; only events running now or starting within 6 hours count."""
+    next event in the attributes; only events running now or starting within 6 hours count. HA writes those times
+    without a zone, in the home's time: read them in the household's zone (`tz`), not the server machine's."""
     from datetime import datetime
     a = d.get("attributes", {}) or {}
 
     def ep(v):
         try:
-            return datetime.fromisoformat(str(v).replace("Z", "+00:00")).timestamp()
+            dt = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
         except (TypeError, ValueError):
             return None
+        if dt.tzinfo is None and tz is not None:
+            dt = dt.replace(tzinfo=tz)
+        return dt.timestamp()
     start, end = ep(a.get("start_time")), ep(a.get("end_time"))
     if end is None or end <= now:
         return 0.0
@@ -768,7 +772,7 @@ class SourceManager:
             raise ValueError("Home Assistant sent an unexpected reply")
         attrs = d.get("attributes") or {}
         if c.role == "calendar":
-            self._sample(c, _calendar_value(d, self.clock.now_ts()))
+            self._sample(c, _calendar_value(d, self.clock.now_ts(), self.clock.tz))
             return
         state = attrs.get(p["attribute"]) if p.get("attribute") else d.get("state")
         mapped = self.map_raw(c, state)

@@ -211,7 +211,8 @@ async def test_afternoon_nap_asks_and_learns_the_person(tmp_path):
     assert q and q["kind"] == "unexplained"
     v = petq.view(q, n.hh, n.clock.tz)
     assert v["title"].startswith("Was Biscuit on the bed around 2:00 PM")
-    assert [c["label"] for c in v["choices"]] == ["Yes", "No, it was me", "Not sure"]
+    assert [c["label"] for c in v["choices"]] == ["Yes, it was Biscuit", "No, it was me", "Not sure"]
+    assert v["detail"] == "Something was on your side of the bed while it was off. Your answer helps tell you and Biscuit apart next time."
     petq.answer(n.c, q["id"], "p2", "me", None, n.clock.now_ts())
     rng = petq.learned_range(n.store, "p2")
     assert rng["hr"][0] < rng["hr"][1] and petq.open_for(n.store, "p2", n.clock.now_ts()) is None
@@ -259,7 +260,7 @@ async def test_dog_episode_asks_and_yes_teaches_the_signature_used_next_time(tmp
 async def test_one_question_per_night_and_questions_can_be_turned_off(tmp_path):
     n = WatchNight(tmp_path, "2026-11-05T22:00", pets=[DOG], band=BAND)
     n.bed.scripted = False
-    for start, stop in (("22:00", "22:30"), ("22:35", "23:00")):
+    for start, stop in (("22:00", "22:35"), ("22:39", "23:00")):     # 35 min (asked), then 21 min (joins it, no new ping)
         n.bed.pets["right"] = 88
         await n.until(f"2026-11-05T{stop}")
         n.bed.pets.pop("right")
@@ -411,3 +412,29 @@ def test_a_pet_that_sleeps_like_a_person_is_never_matched_by_signature():
     assert petq.closer_to_pet(60, 13, None, like_a_person) is None            # no learned range: a sleeping adult's
     fast = {"cat": {"hr": [130.0, 10.0], "br": [26.0, 3.0]}}
     assert petq.closer_to_pet(128, 25, rng, fast) == "cat"
+
+
+async def test_a_quick_hop_on_the_bed_isnt_asked_about_a_long_stay_is(tmp_path):
+    """2026-11-09 (owner): don't ping for a quick visit; ask when the pet stayed a while. And answering from the
+    notification works without opening the app."""
+    n = WatchNight(tmp_path, "2026-11-06T13:00", pets=[DOG], band=BAND)
+    n.bed.scripted = False
+    n.present("right", True)                         # 16 min in the afternoon: no question
+    await n.until("2026-11-06T13:16")
+    n.present("right", False)
+    await n.until("2026-11-06T13:25")
+    assert petq.open_for(n.store, "p2", n.clock.now_ts()) is None
+    n.present("right", True)                         # 40 min: asked
+    await n.until("2026-11-06T14:20")
+    n.present("right", False)
+    await n.until("2026-11-06T14:25")
+    q = petq.open_for(n.store, "p2", n.clock.now_ts())
+    assert q and q["kind"] == "unexplained"
+    from embertide.notify import Notifier
+    n.c.notifier = Notifier(n.c, None)
+    m = n.c.notifier._pet_question(n.p2, n.clock.now_ts())
+    assert [a.act for a in m.actions] == ["pet_yes", "pet_me", "pet_unsure"] and m.actions[0].label == "Yes, it was Biscuit"
+    code = n.c.notifier.new_action("p2", m.actions[1])
+    used = n.c.notifier.use_action(code)
+    assert used["done"] == "Thanks: noted as you"
+    assert next(x for x in petq.questions(n.store) if x["id"] == q["id"])["answer"] == "me"
