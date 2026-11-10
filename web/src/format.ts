@@ -171,6 +171,8 @@ export function eventText(e: { kind: string; source?: string | null; [k: string]
     case "device_health": return `${typeof e.name === "string" ? e.name : "A device"}: ${e.status === "ok" ? "working normally again" : "acting oddly"}`;
     case "account_created": return "Account created";
     case "console": return "Bed console command";
+    case "care": return ({ done: "Care job marked done", snooze: "Care job put off", edit: "Care job changed", add: "Care job added", delete: "Care job removed" } as Record<string, string>)[String(e.action)] ?? "Care list changed";
+    case "hub_action": return ({ light: "Hub light changed", quiet_fan: "Hub fan setting changed", restart: "Hub restart requested", water_fill: "Hub fill mode started" } as Record<string, string>)[String(e.action)] ?? "Hub maintenance";
     default: return e.kind.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
   }
 }

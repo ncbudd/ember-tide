@@ -166,6 +166,8 @@ class NotifyPrefs(BaseModel):
     not_started: bool = True      # lying in bed a long while but the bed isn't sure it's you: offer to start the side
     morning: bool = True          # a short morning summary
     problems: bool = True         # bed or sensor trouble (household)
+    hub: bool = True            # the bed's hub needs a look: a fault, or the water (owner)
+    maintenance: bool = True    # a care job is due: purification tablets, a check (owners and sleepers, each their own switch; daytime only, at most one a day)
     pet_question: bool = True     # "was the pet on the bed?" (daytime only; the question also waits in the app)
     quiet_hours: bool = True      # hold anything non-urgent while you're in bed (bedtime to wake); it comes with the morning summary
 

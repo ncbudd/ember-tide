@@ -79,6 +79,17 @@ class HaBridge:
             out.append((f"{self.prefix}/sensor/embertide_{zone}_guest/config", {
                 **avail, "device": bed, "name": f"{zone.title()} side guest", "unique_id": f"embertide_{zone}_guest",
                 "object_id": f"embertide_{zone}_guest", "state_topic": f"{BASE}/bed/{zone}/guest", "icon": "mdi:account-clock-outline"}))
+        from . import care as carelib
+        for t in carelib.of(self.c).tasks():      # care jobs: days until due, and a button to mark one done
+            tid = t["id"]
+            out.append((f"{self.prefix}/sensor/embertide_care_{tid}_days/config", {
+                **avail, "device": bed, "name": f"Care: {t['title']} (days until due)", "unique_id": f"embertide_care_{tid}_days",
+                "object_id": f"embertide_care_{tid}_days", "state_topic": f"{BASE}/care/{tid}/days", "unit_of_measurement": "d",
+                "icon": "mdi:wrench-clock"}))
+            out.append((f"{self.prefix}/button/embertide_care_{tid}_done/config", {
+                **avail, "device": bed, "name": f"Care: {t['title']} done", "unique_id": f"embertide_care_{tid}_done",
+                "object_id": f"embertide_care_{tid}_done", "command_topic": f"{BASE}/care/set/{tid}", "payload_press": "done",
+                "icon": "mdi:check-circle-outline"}))
         for p in self.c.household.people:
             o = self.oid(p)
             f = p.settings.units == "F"
@@ -168,6 +179,10 @@ class HaBridge:
         out: dict[str, str] = {}
         for zone in ("left", "right"):
             out[f"{BASE}/bed/{zone}/guest"] = "on" if zone in self.c.household.guest else "off"
+        from . import care as carelib
+        for t in carelib.of(self.c).tasks():
+            # days until due (negative = overdue); a water job has no schedule: 0 while the hub says it needs water
+            out[f"{BASE}/care/{t['id']}/days"] = str(t["days_until"]) if t["days_until"] is not None else ("0" if t["due"] else "None")
         for pv in snap.get("people", []):
             try:
                 p = self.c.person(pv["id"])
@@ -246,6 +261,16 @@ class HaBridge:
         parts = topic.split("/")
         if len(parts) < 4 or parts[0] != BASE or parts[2] != "set" or len(payload) > 200:
             return None
+        if parts[1] == "care":                       # a care job's "done" button: embertide/care/set/<task id>
+            if len(parts) != 4 or payload.strip() != "done":
+                return None
+            from . import care as carelib
+            try:
+                carelib.of(self.c).done(parts[3])
+            except (KeyError, carelib.CareError):
+                return None
+            self.handled += 1
+            return f"care {parts[3]} done"
         try:
             p = self.c.person(parts[1])
         except KeyError:

@@ -24,7 +24,7 @@ screens/SettingsSleep.tsx) so the two always use the same words and limits.
 | `appearance`, `light_from`, `dark_from` | Phone (Appearance), Me (App); Simple app → Me (Automatic/Light/Dark only) | Person |
 | `hot_flash`, `cold_flash`: target or "cooler/warmer by" (`relative`, `delta_c`), lasts, ease back, extra press, never longer than (`max_total_min`) | Phone (Flash relief), Me (Hot and cold flashes) | Person |
 | `partner_can_flash`, `partner_can_adjust` | Phone (Sharing), Me (Sharing) | Person |
-| `notify.morning / away_precool / empty_side / left_on / not_started / pet_question / problems / quiet_hours` | Phone (Notifications), Me (Notifications), both via components/NotifyPrefs.tsx; Setup (some); docs/notifications.md | Person |
+| `notify.morning / away_precool / empty_side / left_on / not_started / pet_question / problems / hub / maintenance / quiet_hours` | Phone (Notifications), Me (Notifications), both via components/NotifyPrefs.tsx; Setup (some); docs/notifications.md | Person |
 | `tone` (calm / friendly / cheeky wording, voice.py) | Phone (Notifications), Me (Notifications), with a preview | Person |
 | `pet_questions` (ask at all) | Phone (Sleep data), Me (Sleep data and Autopilot) | Person |
 | `work_days` | Phone (Work days), Me (Your week), Setup | Person |

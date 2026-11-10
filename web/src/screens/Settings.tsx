@@ -10,6 +10,8 @@ import BedSidePicker, { BedOrientation, peopleHalves, type Side, SideCheck, side
 import Fold from "../components/Fold";
 import { NOTIFY_TYPES, NotifyToggles, notifyOnCount, TonePicker } from "../components/NotifyPrefs";
 import SettingsSleep from "./SettingsSleep";
+import { HubCard } from "../components/HubControls";
+import { CareFold } from "../components/Care";
 import Tip from "../components/Tip";
 import PetsEditor from "../components/PetsEditor";
 import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, TempUnits, WeightUnits } from "../components/PersonPrefs";
@@ -213,6 +215,13 @@ export default function Settings() {
         <p className="faint" style={{ fontSize: 12, padding: "8px 0 2px" }}>{isApp() ? "Without the app (or as a backup), they can also go to ntfy or the Home Assistant app" : "Where they're sent is set up"} in <Link to="/studio/notifications">Studio → Notifications</Link>.</p>
       </div>
       </Fold>
+
+      {(snap.system.hub || auth.isOwner) && <Fold id="settings.hub" title="Bed hub" summary={snap.system.hub?.line ?? "Light and fan"}>
+        <HubCard snap={snap} owner={auth.isOwner} />
+        {auth.isOwner && <p className="faint" style={{ fontSize: 12, padding: "6px 2px 0" }}>Restart, adding water and more detail are in <Link to="/studio/hub">Studio → Bed hub</Link>.</p>}
+      </Fold>}
+
+      <CareFold owner={auth.isOwner} />
 
       {auth.isOwner && <Fold id="settings.guest" title="Guest mode" summary={guests.length ? `On · ${guests.join(", ")}` : "Off"}>
         <div className="card">

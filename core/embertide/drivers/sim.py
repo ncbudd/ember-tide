@@ -8,7 +8,8 @@ import random
 from datetime import datetime, timedelta
 
 from ..clock import Clock
-from .base import BedFrame, Cap, CommandError, SensorFrame, ZoneFrame
+from . import profiles
+from .base import BedFrame, Cap, CommandError, SensorFrame, HubHealth, ZoneFrame
 
 
 class SimZone:
@@ -27,7 +28,10 @@ class SimBed:
     id = "sim"
     name = "Simulated topper"
     capabilities = {Cap.ZONE_TEMP, Cap.ZONE_POWER, Cap.MEASURED_TEMP, Cap.OCCUPANCY, Cap.BIO_HR, Cap.BIO_BR,
-                    Cap.LED_DIM, Cap.LED_RGB, Cap.FAN_QUIET, Cap.REBOOT, Cap.RAW_CONSOLE}
+                    Cap.LED_DIM, Cap.LED_RGB, Cap.FAN_QUIET, Cap.REBOOT, Cap.RAW_CONSOLE, Cap.HUB_HEALTH, Cap.WATER_STATUS,
+                    Cap.FAULTS, Cap.WATER_FILL}
+    untried = {Cap.WATER_FILL}
+    profile = profiles.GENERIC      # care tasks and the hub light guide (drivers/profiles.py)
     zones = ["left", "right"]
 
     def __init__(self, clock: Clock, room_c: float = 21.5, seed: int = 7) -> None:
@@ -45,6 +49,14 @@ class SimBed:
         self.rgb = (226, 168, 120)
         self.system_on = True
         self.firmware = "sim-2.6.2"
+        # control-unit health (the simulator API / tests can inject a fault or low water)
+        self.faults: list[tuple[str, str | None]] = []
+        self.low_water = False
+        self.filling = False
+        self.boot_until: float | None = None       # after a restart: silent until then, then both sides off at the unit's default
+        self.boot_s = 60
+        self.last_command: str | None = None
+        self.started_ts = clock.now_ts()
         self._rand = random.Random(seed)
         self._last_ts = clock.now_ts()
         self._frame: BedFrame | None = None
@@ -67,14 +79,52 @@ class SimBed:
             self._tick()
 
     def latest(self) -> BedFrame | None:
-        return self._frame
+        f = self._frame
+        if f is not None and self.booting():
+            f.online = False
+        return f
 
     def status(self) -> dict:
         return {"driver": self.id, "name": self.name, "online": True, "detail": "simulator",
                 "echo": self.echo, "blips": self.blips, "scripted": self.scripted}
 
     # ---------- control ----------
+    def booting(self) -> bool:
+        return self.boot_until is not None and self.clock.now_ts() < self.boot_until
+
+    def restart_now(self) -> None:
+        """A restart: the unit goes quiet for `boot_s`, then is back with both sides off at its own default."""
+        self.boot_until = self.clock.now_ts() + self.boot_s
+        self.started_ts = self.boot_until
+        for z in self.z.values():
+            z.on, z.setpoint = False, 27.0
+
+    def inject_fault(self, code: str, zone: str | None = None) -> None:
+        if (code, zone) not in self.faults:
+            self.faults.append((code, zone))
+
+    def clear_faults(self) -> None:
+        self.faults = []
+
+    async def set_light(self, *, brightness: int | None = None, rgb: tuple[int, int, int] | None = None) -> str:
+        if rgb is not None:
+            await self.command("IB RGB " + " ".join(str(int(v)) for v in rgb))
+        if brightness is not None:
+            await self.command(f"IB DIMMER {int(brightness)}")
+        return "ok"
+
+    async def set_quiet_fan(self, on: bool) -> str:
+        return await self.command("FAN QUIET ON" if on else "FAN QUIET OFF")
+
+    async def restart(self) -> str:
+        return await self.command("REBOOT")
+
+    async def start_water_fill(self) -> str:
+        return await self.command("FILL START")
+
     async def set_zone(self, zone: str, *, on: bool, temp_c: float | None = None) -> bool:
+        if self.booting():
+            return False
         z = self.z[zone]
         z.on = on
         if temp_c is not None:
@@ -87,6 +137,7 @@ class SimBed:
     async def command(self, raw: str) -> str:
         from .orion_mqtt import validate
         raw = validate(raw)          # identical allowlist and messages to the real local driver
+        self.last_command = raw
         p = raw.strip().upper().split()
         if not p:
             raise CommandError("empty command")
@@ -113,6 +164,10 @@ class SimBed:
             self.rgb = tuple(max(0, min(255, int(v))) for v in p[2:])  # type: ignore[assignment]
             return "ok"
         if p == ["REBOOT"]:
+            self.restart_now()
+            return "ok (simulated)"
+        if p == ["FILL", "START"]:
+            self.filling = True
             return "ok (simulated)"
         raise CommandError(f"unsupported command: {raw}")
 
@@ -194,7 +249,16 @@ class SimBed:
                                  sensor=sensors[name]) for name, z in self.z.items()}
         self._frame = BedFrame(ts=ts, zones=zones, system_state="SYSTEM_ON" if self.system_on else "SYSTEM_OFF",
                                firmware=self.firmware, quiet_mode=self.quiet, brightness=self.brightness, rgb=self.rgb,
-                               fault=False, online=True)
+                               fault=bool(self.faults), online=not self.booting(), hub=self._hub(ts))
+
+    def _hub(self, ts: float) -> HubHealth:
+        return HubHealth(
+            water_ok=not self.low_water, water_raw={"reservoir": 0 if self.low_water else 1},
+            faults=list(self.faults), safety_ok=not any(c in ("hub_hot", "power") for c, _ in self.faults),
+            wifi_dbm=-52, wifi_name="Home network", wifi_address="192.0.2.10",
+            uptime_s=int(max(0.0, ts - self.started_ts)), fw_version=self.firmware, fw_build="sim build", fw_panel="sim-1",
+            last_command=self.last_command, fan_rpm={"left": 1800, "right": 1790}, fan_pwm=40 if self.quiet else 100,
+            humidity=42.0, room_c=None, free_memory_kb=57)
 
     def _drive(self, z: SimZone) -> tuple[float, float]:
         """Where the pad is heading and how slowly (time constant, minutes). Tests override it (a cold room)."""

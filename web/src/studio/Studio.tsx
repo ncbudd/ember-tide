@@ -23,6 +23,7 @@ import Help from "./Help";
 import Integrations from "./Integrations";
 import Notifications from "./Notifications";
 import RhythmEditor from "./RhythmEditor";
+import Hub from "./Hub";
 
 /** One Studio page breaking keeps the menu working; moving to another page clears it. */
 function PageBoundary({ children }: { children: React.ReactNode }) {
@@ -58,6 +59,7 @@ export default function Studio() {
         <NavLink to="/studio/notifications">Notifications</NavLink>
         <NavLink to="/studio/access">People &amp; access</NavLink>
         <span className="navh">Tools</span>
+        {auth.isOwner && <NavLink to="/studio/hub">Bed hub</NavLink>}
         {auth.isOwner && <NavLink to="/studio/console">Bed console</NavLink>}
         {auth.isOwner && <NavLink to="/studio/sim">Simulator</NavLink>}
         <NavLink to="/studio/data">Data export</NavLink>
@@ -84,6 +86,7 @@ export default function Studio() {
           <Route path="notifications" element={<Notifications />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="rhythm" element={<RhythmEditor />} />
+          <Route path="hub" element={<Hub />} />
           <Route path="console" element={<Console />} />
           <Route path="sim" element={<Simulator />} />
           <Route path="data" element={<Data />} />
@@ -99,6 +102,7 @@ export default function Studio() {
 
 function Overview() {
   const { snap, me } = useApp();
+  const auth = useAuth();
   const [events, setEvents] = useState<EventRow[]>([]);
   useEffect(() => { const f = () => api.get<EventRow[]>("/api/events?limit=30").then(setEvents).catch(() => {}); f(); const t = setInterval(f, 5000); return () => clearInterval(t); }, []);
   if (!snap) return null;
@@ -145,6 +149,7 @@ function Overview() {
             <tr><td>Bed state</td><td title={snap.system.system_state ?? undefined}>{bedState(snap.system.system_state)}</td></tr>
             <tr><td>Quiet fan</td><td>{snap.system.quiet ? "On" : "Off"}</td></tr>
             <tr><td>Bed light</td><td>{snap.system.brightness == null ? "—" : snap.system.brightness === 0 ? "Off" : `${snap.system.brightness}% bright`}</td></tr>
+            {snap.system.hub && <tr><td>Hub</td><td>{snap.system.hub.line}{auth.isOwner && <> · <NavLink to="/studio/hub">details</NavLink></>}</td></tr>}
           </tbody></table></div>
       </div>
     </>
@@ -178,7 +183,7 @@ function Console() {
         </table></div>
       </div>
       <div className="box">
-        <span className="k">Send a command · allowlisted: SET, CLEAR, SYSTEM ON, FAN QUIET, IB DIMMER, IB RGB, REBOOT · firmware/Wi-Fi commands are blocked</span>
+        <span className="k">Send a command · allowlisted: SET, CLEAR, SYSTEM ON, FAN QUIET, IB DIMMER, IB RGB, FILL START, REBOOT · firmware/Wi-Fi commands are blocked</span>
         <div className="row"><input type="text" value={cmd} placeholder="SET LEFT 18.5" style={{ flex: 1 }} onChange={e => setCmd(e.target.value)} onKeyDown={e => e.key === "Enter" && send()} />
           <button className="btn pri" onClick={send}>Send</button></div>
         <div className="code">{log.length ? log.map((l, i) => <span key={i}>{l}</span>) : <span>No commands yet. The engine will re-apply the rhythm on its next change.</span>}</div>

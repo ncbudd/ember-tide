@@ -33,7 +33,7 @@ from urllib.parse import urlsplit
 log = logging.getLogger(__name__)
 ACTION_TTL_S = 12 * 3600
 APP_ACTS = {"pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm", "pet_yes", "pet_me", "pet_unsure",
-            "away_away", "away_night", "away_home", "away_back", "away_still"}   # the only things a notification button can do in the app
+            "away_away", "away_night", "away_home", "away_back", "away_still", "care_done", "care_later"}   # the only things a notification button can do in the app
 MAX_DEVICES = 6
 OFFLINE_AFTER_S = 300
 STALE_AFTER_S = 600
@@ -42,7 +42,7 @@ LEFT_ON_AFTER_S = 20 * 60     # on by hand, nobody in it this long → ask to tu
 # and all capped kinds together per person per day. EXEMPT: things the person asked for themselves.
 IGNORED_AFTER_S = 20 * 60          # a side ignoring commands this long gets a "not taking changes" alert
 TICK_FAIL_AFTER = 120              # a person's update failing this many ticks in a row (~2 min) gets a "not updating" alert
-CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "not_started": 1, "left_on": 2, "problem": 3}
+CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "not_started": 1, "left_on": 2, "problem": 3, "hub": 3, "maintenance": 1}
 DAILY_MAX = 4
 DEDUP_S = 6 * 3600            # the same message (person, kind, title) again within this is dropped
 EXEMPT = {"test", "action_done"}
@@ -51,8 +51,12 @@ EXEMPT = {"test", "action_done"}
 AWAKE_KINDS = {"away_precool", "empty_side", "left_on"}
 # not_started follows its own time rule instead (see _observe_person): any time except the last hour before wake. Quiet hours
 # don't hold it: it's about getting into bed, and holding it for the morning summary would make it useless
-OWN_TIMING_KINDS = {"not_started"}
+OWN_TIMING_KINDS = {"not_started", "maintenance"}      # maintenance: _care() keeps to daytime and out of anyone's night itself
 NOT_STARTED_QUIET_BEFORE_WAKE_S = 3600
+# maintenance reminders (care.py): only in the day, local time, 9 AM up to (not including) 7 PM
+CARE_FROM_HOUR, CARE_TO_HOUR = 9, 19
+CARE_CHECK_EVERY_S = 300
+CARE_DONE_LABEL, CARE_LATER_LABEL = "It's done", "Remind me next week"      # the same on every channel (app, ntfy, Home Assistant, web page)
 RUNNING = ("rhythm", "out_of_bed_hold")
 
 
@@ -103,6 +107,7 @@ class Message:
     priority: int = 3                  # 1..5, ntfy scale
     tags: list[str] = field(default_factory=list)
     app: bool = True                   # False: ntfy / Home Assistant only (the app shows its own "done" after a button)
+    urgent: bool = False               # goes out even in quiet hours (still deduplicated and capped)
 
 
 def _h(code: str) -> str:
@@ -127,6 +132,8 @@ class Notifier:
         self._snap: dict | None = None               # the last snapshot seen (quiet hours, morning timing)
         self._tasks: set[asyncio.Task] = set()
         self.ha_listeners: dict[str, HaActionListener] = {}      # by HA url
+        self.owner_persons = None        # () -> ids of people with an owner account (set by the app); hub messages go only to them
+        self.care_persons = None         # () -> ids of people with an owner or sleeper account (set by the app); care reminders go to them
 
     # ---------- delivery log (kept in the store, on the household clock, so it survives restarts and the simulator) ----------
     @property
@@ -268,7 +275,7 @@ class Notifier:
         elif m.kind in AWAKE_KINDS:
             if any(self._small_hours(pid, now) for pid in pids):
                 return "held"
-        elif any(self.quiet(pid, now) for pid in pids):
+        elif not m.urgent and any(self.quiet(pid, now) for pid in pids):
             return "held"
         kind_n, all_n = self._count(m.person or "household", m.kind, now)
         if kind_n >= CAPS.get(m.kind, 2) or (m.person and all_n >= DAILY_MAX):
@@ -347,8 +354,92 @@ class Notifier:
             side = pv["zone"].title()
             out.append(Message("problem", f"The bed isn't taking changes on the {side.lower()} side",
                                f"It has ignored the last few temperature changes for {round((now - since) / 60)} minutes, so that "
-                               "side may not be following the plan. Turning the bed's power off and on usually clears it.",
+                               "side may not be following the plan. Turning the bed's power off and on usually clears it."
+                               + self._ack_note(),
                                None, priority=4, tags=["warning"]))
+
+    def _ack_note(self) -> str:
+        """Whether the hub said it received the last command we sent (its own acknowledgement), for the "not taking
+        changes" alert: it tells a lost message from a refused one. Empty when the driver can't say."""
+        got = ((self._snap or {}).get("system", {}).get("hub") or {}).get("command_received")
+        if got is False:
+            return " The bed hasn't confirmed receiving the last change either."
+        if got is True:
+            return " The bed did report receiving the last change, so the connection is working."
+        return ""
+
+    def _hub(self, snap: dict, now: float, out: list) -> None:
+        """The bed's hub needs a look (system.hub): a fault appears, or the water needs checking. Once per problem per
+        day. Quiet hours hold it for the morning like other non-urgent messages, except when the hub's safety check
+        is failing while a side's night is running (then it goes out at once)."""
+        from . import hub as tw
+        t = (snap.get("system") or {}).get("hub")
+        if not t or not snap.get("system", {}).get("online", True):
+            return
+        day = self._day(now).isoformat()
+        problems: list[tuple[str, str, str]] = []                    # (key, what, advice)
+        for f in t.get("faults") or []:
+            what = f["name"] + (f" ({f['zone']} side)" if f.get("zone") else "")
+            problems.append((f"{f['code']}:{f.get('zone')}", what, tw.fault_advice(f["code"])))
+        if t.get("water_ok") is False:
+            problems.append(("water", tw.STATUS_WATER, "The hub's water may be low. Have a look when you can, and follow the maker's instructions for adding water."))
+        if t.get("safety_ok") is False:
+            problems.append(("safety", "The hub's safety check isn't passing", "It protects itself. Restarting the hub may clear it; if it comes back, contact the maker."))
+        running = any((pv.get("night") or {}).get("state") in RUNNING for pv in snap.get("people", []))
+        for key, what, advice in problems:
+            if self._once(f"hub:{key}:{day}"):
+                title, body = self._say("problem_hub", {"what": what, "advice": advice}, None, now)
+                out.append(Message("hub", title, body, None, priority=3, tags=["warning"],
+                                   urgent=t.get("safety_ok") is False and running))
+
+    def _care(self, snap: dict, now: float, out: list) -> None:
+        """A care job is due (care.py): one calm message to each owner or sleeper who has the switch on (not view-only
+        accounts, not anyone marked away), with It's done and Remind me next week buttons. Daytime only (9 AM to 7 PM), never while anyone's night is running or inside anyone's quiet hours, at most one
+        maintenance message a day (a second due job waits for tomorrow), one follow-up a week later if still not done,
+        then silence until it is marked done or turned back on. Low water is not here: the hub message covers it."""
+        from . import care as carelib
+        last = self.__dict__.get("_care_at", 0)
+        if last <= now < last + CARE_CHECK_EVERY_S:
+            return
+        self.__dict__["_care_at"] = now
+        if not CARE_FROM_HOUR <= datetime.fromtimestamp(now, self.c.clock.tz).hour < CARE_TO_HOUR:
+            return
+        if any((pv.get("night") or {}).get("state") in RUNNING for pv in snap.get("people", [])):
+            return
+        if any(self.quiet(p.id, now) for p in self.c.household.people):
+            return
+        from .engine.away import is_away
+        who = self.care_persons() if self.care_persons else set()      # owner and sleeper accounts; none linked = everyone
+        pids = [p.id for p in self.c.household.people
+                if p.settings.notify.maintenance and (not who or p.id in who) and not is_away(self.store, p.id, now)]
+        if not pids:
+            return
+        care = carelib.of(self.c)
+        todo = care.notices(self._day(now))
+        if not todo:
+            return
+        task, kind = todo[0]
+        what = task.get("reminder") or f"{task['title']} is due"
+        if kind == "follow":
+            what = what[:1].lower() + what[1:]
+        more = len(todo) - 1
+        extra = f" {more} other job{'s are' if more != 1 else ' is'} due too." if more else ""
+        why = task.get("why") or "It's time for a bit of care for the bed."
+        if not why.endswith((".", "!", "?")):
+            why += "."
+        msgs = []
+        for pid in pids:
+            t, b = self._say("care_again" if kind == "follow" else "care_due", {"what": what, "why": why, "more": extra},
+                             self.c.person(pid), now)
+            m = Message("maintenance", t, b.strip(), pid,
+                        [Action(CARE_DONE_LABEL, "care_done", ref=task["id"]), Action(CARE_LATER_LABEL, "care_later", ref=task["id"])],
+                        priority=2, tags=["broom"])
+            if self._allowed(m, now) is None:             # a person at their cap (or a repeat) is skipped; the others still hear
+                msgs.append(m)
+        if not msgs:
+            return                                        # nobody could be told: nothing is marked as told
+        out.extend(msgs)
+        care.mark_told(task["id"], kind, self._day(now))
 
     def observe(self, now: float, snap: dict) -> list[Message]:
         """Called every tick with the live snapshot. Returns whatever became due (sent now, or held for the morning)."""
@@ -367,6 +458,14 @@ class Notifier:
             except Exception:  # noqa: BLE001  (one person's trouble never stops the other's messages)
                 log.exception("notifications failed for %s", person.id)
         self._tick_errors(snap, now, out)
+        try:
+            self._hub(snap, now, out)
+        except Exception:  # noqa: BLE001
+            log.exception("hub notifications failed")
+        try:
+            self._care(snap, now, out)
+        except Exception:  # noqa: BLE001
+            log.exception("care notifications failed")
         if not online:
             self._offline_since = self._offline_since or now
             if now - self._offline_since >= OFFLINE_AFTER_S and self._once(f"offline:{int(self._offline_since)}"):
@@ -535,6 +634,15 @@ class Notifier:
         if a["act"] == "manual_off":
             if e.s.override and e.s.override.manual:
                 e.clear_override(now)
+        elif a["act"].startswith("care_"):
+            from . import care as carelib
+            try:                          # the job may already be done (or gone) in the app: then nothing
+                if a["act"] == "care_done":
+                    carelib.of(self.c).done(a.get("ref") or "")
+                else:
+                    carelib.of(self.c).snooze(a.get("ref") or "")
+            except (KeyError, carelib.CareError):
+                pass
         elif a["act"].startswith("feel_"):
             save_feel(self.c, a["person"], a["act"][5:], now, source="notification")
         elif a["act"].startswith("away_"):
@@ -568,6 +676,13 @@ class Notifier:
             return f"Paused {name}'s side until {t}"
         if a["act"].startswith("feel_"):
             return {"feel_cold": "Noted: too cold", "feel_right": "Noted: just right", "feel_warm": "Noted: too warm"}[a["act"]]
+        if a["act"].startswith("care_"):
+            from . import care as carelib
+            try:
+                t = carelib.of(self.c).get(a.get("ref") or "")
+                return t["after_done" if a["act"] == "care_done" else "after_snooze"]
+            except KeyError:
+                return carelib.after_text(a["act"] == "care_done", None)
         if a["act"].startswith("away_"):
             return {"away_away": "Marked away: your side is off until you're back", "away_night": "Noted: that night is left out",
                     "away_home": "Noted: you were home", "away_back": "Welcome back: your side runs again tonight",
@@ -645,6 +760,9 @@ class Notifier:
     def push_targets(self, m: Message) -> list[tuple[str, dict]]:
         if m.person:
             pids = [m.person]
+        elif m.kind == "hub":      # the owner's: people who want hub messages and have an owner account (anyone, if none is linked)
+            owners = self.owner_persons() if self.owner_persons else set()
+            pids = [p.id for p in self.c.household.people if p.settings.notify.hub and (not owners or p.id in owners)]
         else:              # household problems: only the phones of people who want them (NotifyPrefs.problems)
             pids = [p.id for p in self.c.household.people if p.settings.notify.problems]
         return [(pid, d) for pid in pids for d in self.devices(pid)]

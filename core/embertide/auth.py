@@ -453,7 +453,8 @@ OWNER_ONLY = [
     re.compile(r"^/api/integrations"), re.compile(r"^/api/pets"), re.compile(r"^/api/ha(/|$)"), re.compile(r"^/api/client-errors$"),
     re.compile(r"^/api/guest/(left|right|both)/(start|stop)$"), re.compile(r"^/api/bed-orientation$"),
     re.compile(r"^/api/dials(/|$)"), re.compile(r"^/api/notify/log$"),   # dial setup asks HA with the owner's token; the log is everyone's messages
-    re.compile(r"^/api/dial-beacons$"),                                   # Studio's dial map; the phone app never reads it
+    re.compile(r"^/api/hub(/|$)"),                                      # the control unit's detail (network name, address) and maintenance
+    re.compile(r"^/api/dial-beacons$"),                                  # Studio's dial map; the phone app never reads it
 ]
 # no sign-in, the address itself is the key: OAuth redirects (single-use state) and owner-made webhooks (secret URL)
 PUBLIC_PATTERNS = [("GET", re.compile(r"^/api/cloud/[a-z]{2,20}/callback$")), ("POST", re.compile(r"^/api/hooks/[A-Za-z0-9_]{2,20}/[A-Za-z0-9_\-]{16,64}$"))]
@@ -480,9 +481,14 @@ DEVICE_READS = frozenset({("GET", "/api/snapshot")})
 DEVICE_PET_ANSWER = re.compile(r"^/pet-question/[A-Za-z0-9]{1,40}$")      # phone: "was that the pet?" from a notification
 
 
+DEVICE_CARE = re.compile(r"^/api/care/[A-Za-z0-9_-]{1,40}/(done|snooze)$")   # phone: "It's done" / "Remind me next week" from a care reminder
+
+
 def device_allowed(p: Principal, method: str, path: str) -> bool:
     if (method, path) in DEVICE_READS:
         return True
+    if p.scope == "phone" and method == "POST" and DEVICE_CARE.match(path):
+        return True                       # the account's own role still applies after this (authorize): a view-only key can't
     own = DEVICE_SCOPES.get(p.scope or "")
     m = PERSON_PATH.match(path)
     if own is None or not m or not p.person or m.group(1) != p.person:
@@ -521,6 +527,8 @@ def authorize(p: Principal, method: str, path: str, partner_shares) -> str | Non
         return "This account can only look."
     if path == "/api/household/swap-sides":
         return None
+    if re.match(r"^/api/care/[A-Za-z0-9_-]{1,40}/(done|snooze)$", path):
+        return None                                       # care list: a sleeper can mark a job done or put it off (the rest is the owner's)
     if re.match(r"^/api/guest/(left|right|both)/set$", path):
         return None                                       # anyone who can control the bed can work a guest's side
     if path.startswith(("/api/auth/me", "/api/notify/me", "/api/oura/me", "/api/cloud/me/")) or path == "/api/ai/ask":

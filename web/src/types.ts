@@ -16,7 +16,7 @@ export interface PersonSettings {
   units: "F" | "C"; weight_units?: "auto" | "lb" | "kg"; color: ColorKey; app_mode?: "full" | "simple"; welcomed?: boolean; default_view: View; simple_default: boolean; simple_at_night: boolean; simple_red: boolean;
   appearance: "system" | "dark" | "light" | "schedule"; light_from: string; dark_from: string;
   hot_flash: FlashSettings; cold_flash: FlashSettings; autopilot: AutopilotPolicy; partner_can_flash: boolean; partner_can_adjust: boolean;
-  notify: { away_precool: boolean; empty_side: boolean; left_on?: boolean; not_started?: boolean; morning: boolean; problems: boolean; pet_question?: boolean; quiet_hours?: boolean };
+  notify: { away_precool: boolean; empty_side: boolean; left_on?: boolean; not_started?: boolean; morning: boolean; problems: boolean; hub?: boolean; maintenance?: boolean; pet_question?: boolean; quiet_hours?: boolean };
   tone?: "calm" | "friendly" | "cheeky";
   work_days?: number[]; wearable?: string; setup_steps?: string[];
   pet_questions?: boolean; wake_with_alarm?: boolean; in_bed_after_min?: number | null; up_after_min?: number | null;
@@ -45,9 +45,39 @@ export interface PersonView {
   rhythm_curve?: [number, number][] | null;   // the rhythm without tonight's change, when there is one
   actual: [number, number][];
 }
+/** The bed's hub in brief: rides in every snapshot, for everyone. No network name or address. */
+export interface HubSummary {
+  line: string | null; ok: boolean; water_ok: boolean | null; safety_ok: boolean | null; command_received?: boolean | null;
+  faults: { code: string; name: string; zone: string | null }[];
+}
+/** The owner's detail (GET /api/hub). */
+export interface HubDetail extends Partial<HubSummary> {
+  available: boolean; capabilities: string[]; untried?: string[];
+  faults?: { code: string; name: string; advice: string; zone: string | null }[];
+  water_raw?: Record<string, number>;
+  wifi?: { dbm: number | null; words: string | null; name: string | null; address: string | null };
+  uptime_s?: number | null;
+  firmware?: { version: string | null; build: string | null; panel: string | null };
+  last_command?: string | null;
+  fan?: { rpm: Record<string, number>; pwm: number | null };
+  humidity?: number | null; room_c?: number | null;
+}
+/** One job on the care list (GET /api/care). */
+export interface CareTask {
+  id: string; title: string; why: string; steps: string[]; supplies: string | null; note: string | null;
+  interval_days: number | null; default_interval_days: number | null;
+  source: "maker" | "default" | "custom"; source_label: string; url: string | null; custom: boolean;
+  trigger: "interval" | "hub_water"; enabled: boolean;
+  last_done: string | null; counting_from: string; due_date: string | null; days_until: number | null;
+  status: "ok" | "soon" | "due" | "overdue" | "water" | "off"; status_text: string;
+  due: boolean; due_now: boolean; snoozed_until: string | null;
+}
+/** The hardware profile's guide to the hub's light colours (the maker's own words). */
+export interface HubGuide { title: string; source: string; items: [string, string][]; note: string }
+export interface CareData { tasks: CareTask[]; today: string; since: string; hub_guide: HubGuide | null; can_add: boolean }
 export interface Snapshot {
   now: number; tz: string; speed: number;
-  system: { driver: string; name: string; online: boolean; detail: string; capabilities: string[]; firmware: string | null; quiet: boolean | null; brightness: number | null; rgb: number[] | null; system_state: string | null; serial?: string | null; age_s?: number | null };
+  system: { driver: string; name: string; online: boolean; detail: string; capabilities: string[]; firmware: string | null; quiet: boolean | null; brightness: number | null; rgb: number[] | null; system_state: string | null; serial?: string | null; age_s?: number | null; hub?: HubSummary | null };
   household: { user_min_c: number; user_max_c: number };
   guest?: Partial<Record<"left" | "right", GuestSide>>;
   zones?: Record<"left" | "right", { present: boolean | null; bed_present: boolean | null }>;

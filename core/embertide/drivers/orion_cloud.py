@@ -12,6 +12,7 @@ import time
 
 import httpx
 
+from . import profiles
 from .base import BedFrame, Cap, CommandError, SensorFrame, ZoneFrame
 
 log = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ class OrionCloud:
     name = "Orion topper (cloud API key)"
     capabilities = {Cap.ZONE_TEMP, Cap.ZONE_POWER, Cap.MEASURED_TEMP, Cap.OCCUPANCY, Cap.BIO_HR, Cap.BIO_BR, Cap.LED_DIM, Cap.FAN_QUIET}
     zones = ["left", "right"]
+    profile = profiles.ORION      # care tasks and the hub light guide (drivers/profiles.py)
 
     def __init__(self, api_key: str, serial: str | None = None, zone_map: dict[str, str] | None = None, poll_s: float = 10) -> None:
         self.serial = serial

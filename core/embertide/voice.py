@@ -181,6 +181,18 @@ PHRASES: dict[str, dict[str, list[Variant]]] = {
                  ("{side} bed sensor is stuck", "No new readings for 10 minutes. The rhythm keeps running on the clock."),
                  ("{side} bed sensor went quiet", "Its readings haven't changed for 10 minutes. The rhythm keeps running on the clock.")],
     },
+    "problem_hub": {   # the bed's hub reported a fault, or the water needs a look (owner)
+        "calm": [("Hub: {what}", "{advice}"),
+                 ("The hub needs a look: {what}", "{advice}"),
+                 ("{what}", "The hub reported this. {advice}")],
+    },
+    "care_due": {      # a maintenance job is due (owner; daytime only)
+        "calm": [("{what}", "{why}{more}"), ("{what}", "{why} Whenever suits you.{more}"), ("{what}", "A small job for today. {why}{more}")],
+    },
+    "care_again": {    # the one follow-up, a week later
+        "calm": [("A gentle reminder: {what}", "{why}{more}"), ("Still to do: {what}", "{why}{more}"),
+                 ("A friendly nudge: {what}", "{why}{more}")],
+    },
     "digest": {      # problems held overnight, told once in the morning
         "calm": [("While you slept", "{lines}"), ("Overnight", "{lines}"), ("From last night", "{lines}")],
     },
@@ -199,7 +211,7 @@ PHRASES: dict[str, dict[str, list[Variant]]] = {
                    "Behold, a suggestion. Apply it, or don't; I'll cope."],
     },
 }
-ALERTS = frozenset({"problem_offline", "problem_stale", "digest", "overnight"})
+ALERTS = frozenset({"problem_offline", "problem_stale", "problem_hub", "care_due", "care_again", "digest", "overnight"})
 for _k in ALERTS:                                   # alerts read the same in every tone
     for _t in TONES:
         PHRASES[_k].setdefault(_t, PHRASES[_k]["calm"])

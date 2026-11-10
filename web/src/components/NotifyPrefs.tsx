@@ -17,6 +17,8 @@ export const NOTIFY_TYPES: readonly (readonly [NotifyKey, string, string])[] = [
   ["not_started", "Ask to start my side if the bed isn't sure it's me", "after about 40 min lying down, with a Start now button"],
   ["pet_question", "Was the pet on the bed?", "daytime only; a question from the night comes with the morning summary"],
   ["problems", "Bed or sensor trouble", "the bed can't be reached or a sensor stops updating"],
+  ["hub", "Bed hub needs a look", "a fault, or the water needs checking (owner only); once a day per problem"],
+  ["maintenance", "Care reminders", "a job like purification tablets is due; daytime only, at most one a day, with It's done and Remind me next week buttons"],
 ];
 const QUIET: readonly [NotifyKey, string, string] = ["quiet_hours", "Quiet while I sleep",
   "nothing between bedtime and wake; anything that comes up waits for the morning summary"];

@@ -100,6 +100,36 @@ docs/                     LOCAL.md (running the topper locally), this file
 Dockerfile                web build stage + Python image; serves web from the core on one port
 ```
 
+## The bed hub (control unit health and maintenance)
+
+A driver that can read the control unit fills `BedFrame.hub` (`drivers/base.py` `HubHealth`) and lists the matching
+capabilities (`hub_health`, `water_status`, `faults`, plus the existing `led_dim`, `led_rgb`, `fan_quiet`, `reboot`,
+`water_fill`). Vendor flags are translated inside the driver into generic fault codes; `hub.py` holds the plain-language
+names and one-line advice (never "open the unit"). Optional driver methods: `set_light`, `set_quiet_fan`, `restart`,
+`start_water_fill`; a driver may mark capabilities it offers but has never run on a real unit in `untried` (the UI says so).
+
+- Everyone signed in sees `system.hub` in the snapshot: status line, water ok, faults (names only). No network name or address.
+- `GET /api/hub` (owner only) adds advice, Wi-Fi signal and network details, restart time, firmware, last command and
+  whether the unit confirmed it, fan speed, humidity. Studio → Bed hub shows it; the phone's Settings → Bed hub has the
+  status line for everyone and light, colour and quiet fan for the owner.
+- Owner-only actions: `PUT /api/hub/light` `{brightness?, rgb?}`, `PUT /api/hub/fan` `{quiet}`, `POST /api/hub/restart`
+  and `POST /api/hub/fill` `{confirm: true, force?}`. Restart and fill refuse while a night is running unless `force`; a
+  restart can be asked for once every 5 minutes. After a restart the controller drops its retry back-offs, so the current
+  targets are re-sent as soon as the unit reports again (the unit forgets its setpoints).
+- Water: only the value seen on a healthy unit counts as OK; any other value is "Check the water" (its meaning is unconfirmed).
+- Notifications: kind `hub` (`NotifyPrefs.hub`), once per problem per day, owner phones only, held by quiet hours unless the
+  safety check fails while a night runs. The simulator can raise a fault or low water (`POST /api/sim` `fault`, `low_water`).
+
+## Care and maintenance reminders
+
+Generic list of jobs with intervals, kept in the store (kv `care`); the hardware profile (`drivers/profiles.py`, a driver's
+`profile`) supplies the default jobs and the hub light-colour guide. `care.py` (model, dates), `care_api.py` (`/api/care`),
+`notify.py` `_care` (kind `maintenance`), `ha_bridge.py` (sensor and button per job), `web/src/components/Care.tsx`
+(Studio cards, phone list, Tonight line, light guide). Full description, permissions, default jobs and their sources:
+docs/care.md. Owner-only edits, sleepers may mark done or snooze (auth.py `authorize`). The reminder goes to every owner or
+sleeper with their own switch on (`care_persons` hook in app.py); Android push buttons call the two care routes with the
+phone device key (auth.py `DEVICE_CARE`; EmberPush.kt `care_*`).
+
 ## Running locally
 
 ```bash

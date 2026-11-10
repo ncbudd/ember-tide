@@ -27,7 +27,8 @@ object EmberPush {
     private const val P_REG = "push_registered"      // the server has this endpoint
     private const val P_ERR = "push_error"
     private val ALLOWED = setOf("pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm",
-        "pet_yes", "pet_me", "pet_unsure", "away_away", "away_night", "away_home", "away_back", "away_still")
+        "pet_yes", "pet_me", "pet_unsure", "away_away", "away_night", "away_home", "away_back", "away_still",
+        "care_done", "care_later")
 
     fun distributors(c: Context): List<String> = UnifiedPush.getDistributors(c)
     fun saved(c: Context): String? = UnifiedPush.getAckDistributor(c) ?: UnifiedPush.getSavedDistributor(c)
@@ -144,7 +145,7 @@ object EmberPush {
 
     /** One notification per kind: a newer one replaces it, and clear(kind) can take it away. */
     private val KIND_IDS = listOf("action_done", "away_check", "away_precool", "digest", "empty_side", "left_on", "morning",
-        "pet_question", "problem", "test")
+        "pet_question", "problem", "test", "maintenance")
     fun idFor(kind: String): Int {
         val i = KIND_IDS.indexOf(kind)
         return if (i >= 0) 5000 + i else 5100 + (kind.hashCode() and 0x3ff)   // known kinds never collide; others hash above them
@@ -186,8 +187,16 @@ object EmberPush {
         // take the buttons away at once, so a second tap can't send it again while the call runs
         c.getSystemService(NotificationManager::class.java).notify(nid, Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_stat_flash)
             .setContentTitle("Working…").setContentText(label).setOnlyAlertOnce(true).setTimeoutAfter(30000).build())
+        var confirm: String? = null          // the server's own words for what a care button did
         val ok = try {
-            if (act == "manual_off") Ember.sideCall(c, pid, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
+            if (act.startsWith("care_") && ref.matches(Regex("[A-Za-z0-9_-]{1,40}"))) {    // a care reminder: it's done / remind me next week
+                val done = act == "care_done"
+                val r = Ember.sideCall(c, pid, "POST", "/api/care/$ref/" + (if (done) "done" else "snooze"), "{}")
+                confirm = try { JSONObject(r).optString(if (done) "after_done" else "after_snooze").take(120).ifEmpty { null } } catch (_: Exception) { null }
+                    ?: (if (done) "Marked done." else "I'll remind you next week.")
+            }
+            else if (act.startsWith("care_")) throw IllegalArgumentException("no job")
+            else if (act == "manual_off") Ember.sideCall(c, pid, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
             else if (act.startsWith("feel_"))           // the morning check-in: how the temperature felt last night
                 Ember.sideCall(c, pid, "POST", "/api/people/$pid/feedback", JSONObject().put("temp", act.removePrefix("feel_")).toString())
             else if (act.startsWith("pet_") && ref.matches(Regex("[A-Za-z0-9]{1,40}")))   // "was that the dog?" answered from the notification
@@ -202,8 +211,8 @@ object EmberPush {
         } catch (_: Exception) { false }
         channel(c)
         val done = Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_stat_flash)
-            .setContentTitle(if (ok) "Done: $label" else "Couldn't reach Ember & Tide")
-            .setContentText(if (ok) "Open the app to change it" else "Try again from the app")
+            .setContentTitle(if (ok) (confirm ?: "Done: $label") else "Couldn't reach Ember & Tide")
+            .setContentText(if (ok) (if (confirm != null) "" else "Open the app to change it") else "Try again from the app")
             .setOnlyAlertOnce(true).setAutoCancel(true).setTimeoutAfter(if (ok) 6000 else 30000)
         c.getSystemService(NotificationManager::class.java).notify(nid, done.build())
         EmberWidget.refreshAll(c)

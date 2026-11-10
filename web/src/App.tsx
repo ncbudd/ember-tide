@@ -96,6 +96,9 @@ function PhoneApp() {
       )}
       {lostServer && <div className="banner">Reconnecting to your server…</div>}
       {!snap.system.online && <div className="banner">The bed isn't reporting right now. What you see may be out of date.</div>}
+      {snap.system.online && snap.system.hub && !snap.system.hub.ok && (easy || simpleOn || loc.pathname === "/") && <div className="banner" role="status">
+        {snap.system.hub.line === "Check the water" ? "The bed hub's water needs a look." : `The bed hub reports: ${snap.system.hub.line ?? "a problem"}.`}
+        {auth.isOwner && " Details are in Settings."}</div>}
       <ErrorBoundary full name="phone" resetKey={`${loc.pathname}|${easy}|${simpleOn}`}>
       {me && !welcomeDone && needsWelcome(me, auth.state.enabled, auth.me?.person) ? <Welcome me={me} onDone={() => { setWelcomeDone(true); setArrive(true); }} /> :
        !me ? <WhoAmI /> : easy ? <SimpleApp /> : (

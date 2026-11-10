@@ -12,7 +12,9 @@ from embertide.voice import ALERTS, PHRASES, TONES, pick, say, slots_of
 
 SAMPLE = {"name": "Alex", "minutes": 23, "summary": "7 h 50 min in bed · settled in 12 min", "who": "Biscuit",
           "when": "2:40 AM–3:10 AM", "side": "left side", "phase": "Deep", "deg": "2°F", "source": "the phone",
-          "n": 3, "look": 7, "step": "1 °F", "detail": "no answer", "lines": "2:06 AM: Can't reach the bed."}
+          "n": 3, "look": 7, "step": "1 °F", "detail": "no answer", "lines": "2:06 AM: Can't reach the bed.",
+          "what": "Fan speed out of range", "advice": "Check the hub's vents aren't blocked.",
+          "why": "Keeps the water clean.", "more": " 2 other jobs are due too."}
 
 
 class P:

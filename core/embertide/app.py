@@ -121,6 +121,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         state.auth = Auth(store, enabled=cfg.auth)
         state.controller.notifier = state.notifier = Notifier(state.controller, cfg.public_url)
         app.state.notifier = state.notifier
+        state.notifier.owner_persons = lambda: {u["person"] for u in state.auth.users() if u["role"] == "owner" and u["person"]}
+        state.notifier.care_persons = lambda: {u["person"] for u in state.auth.users() if u["role"] in ("owner", "sleeper") and u["person"]}
         state.notifier.sync_ha_listeners()
         from .ha_bridge import HaBridge
         saved_ha = store.get("ha_bridge", {}) or {}
@@ -213,7 +215,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     app.include_router(build_phone_router(state))
     from .bed_api import build_bed_router                     # which way the bed names its sides (display only)
     app.include_router(build_bed_router(state))
-    from .identity_api import build_identity_router           # watch heart rate, pet questions, night corrections
+    from .hub_api import build_hub_router                 # the control unit: health and maintenance (owner)
+    app.include_router(build_hub_router(state))
+    from .care_api import build_care_router               # maintenance reminders: purification tablets, water, checks
+    app.include_router(build_care_router(state))
+    from .identity_api import build_identity_router          # watch heart rate, pet questions, night corrections
     app.include_router(build_identity_router(state))
     from .oura_api import build_oura_router                   # Oura ring via its cloud (OAuth per person)
     app.include_router(build_oura_router(state))

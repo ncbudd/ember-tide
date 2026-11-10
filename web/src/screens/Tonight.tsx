@@ -14,6 +14,7 @@ import { clock, contextText, deltaText, isNight, mins, mmss, personaColor, STATE
 import type { PersonView, View } from "../types";
 import Simple from "./Simple";
 import AwayNote from "../components/AwayNote";
+import { CareTonight } from "../components/Care";
 import PetQuestion from "../components/PetQuestion";
 import { useHardwareKeyboard } from "../keyboard";
 
@@ -261,6 +262,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
       <div className="tn-lower">
 
       <AwayNote person={target} me={me} isOwner={isOwner} tz={snap.tz} />
+      <CareTonight running={snap.people.some(p => p.night.state === "rhythm" || p.night.state === "out_of_bed_hold")} />
       {n.flash && snap.now < n.flash.end ? (
         <div className="flashcard" style={{ borderColor: n.flash.kind === "hot" ? "var(--cool)" : "var(--warm)" }}>
           <span><span style={{ display: "inline-flex", alignItems: "center", gap: 6, verticalAlign: "-3px" }}><Icon name={n.flash.kind === "hot" ? "snow" : "sun"} size={17} />{n.flash.kind === "hot" ? "Hot flash" : "Cold flash"}</span>{target.id !== me.id ? ` · ${target.name}` : ""}<br />

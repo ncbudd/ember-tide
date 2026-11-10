@@ -392,10 +392,12 @@ class Autopilot:
                   if n.get("has_data") and not n.get("in_progress") and (n.get("in_bed_min") or 0) >= 180
                   and (n.get("in_bed_at") or 0) >= since]
             # nights they weren't in their side of the bed (the morning check, or away for a while: engine/away.py)
-            from .away import away_periods, excluded_nights
+            from .away import away_periods, away_share, excluded_nights
             gone, periods = excluded_nights(self.c.store, p.id), away_periods(self.c.store, p.id, now)
+            # in bed when they were marked away, or most of the night fell while they were away (it began just before)
             ns = [n for n in ns if n.get("date") not in gone
-                  and not any(x <= (n.get("in_bed_at") or 0) <= y for x, y in periods)]
+                  and not any(x <= (n.get("in_bed_at") or 0) <= y for x, y in periods)
+                  and away_share(periods, n.get("in_bed_at"), n.get("out_at")) < 0.5]
             ns = self._usual_hours(ns)
             # a night the ring says ran a degree or more warmer than normal (illness, alcohol) teaches nothing
             from .ring import unusual

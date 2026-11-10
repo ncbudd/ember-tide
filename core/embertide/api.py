@@ -79,6 +79,10 @@ class SimBody(BaseModel):
     echo: bool | None = None
     blips: bool | None = None
     room_c: float | None = Field(None, ge=0, le=45)
+    fault: str | None = Field(None, max_length=40)       # raise a control-unit fault (a code from hub.FAULTS)
+    fault_zone: Literal["left", "right"] | None = None
+    clear_faults: bool | None = None
+    low_water: bool | None = None
 
 
 class ConsoleBody(BaseModel):
@@ -587,7 +591,8 @@ def build_router(app_state) -> APIRouter:
         if getattr(d, "id", "") != "sim":
             raise HTTPException(404, "not running the simulator")
         return {"speed": ctl().clock.speed, "now": ctl().clock.now().isoformat(), "scripted": d.scripted, "echo": d.echo,
-                "blips": d.blips, "room_c": d.room_c, "presence": {k: v.occupied for k, v in d.z.items()}}
+                "blips": d.blips, "room_c": d.room_c, "low_water": d.low_water,
+                "faults": [c for c, _ in d.faults], "presence": {k: v.occupied for k, v in d.z.items()}}
 
     @r.post("/sim")
     async def sim_post(b: SimBody):
@@ -623,6 +628,16 @@ def build_router(app_state) -> APIRouter:
             d.blips = b.blips
         if b.room_c is not None:
             d.room_c = b.room_c
+        if b.clear_faults:
+            d.clear_faults()
+        if b.fault:
+            from .hub import FAULTS
+            if b.fault not in FAULTS:
+                raise HTTPException(422, "Unknown fault. Known: " + ", ".join(sorted(FAULTS)))
+            d.inject_fault(b.fault, b.fault_zone)
+        if b.low_water is not None:
+            d.low_water = b.low_water
+        d._tick()
         await refresh()
         return await sim_get()
 

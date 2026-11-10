@@ -277,3 +277,18 @@ async def test_a_pet_stay_the_radar_sees_is_held_through_fuse(tmp_path):
     await n.step(6)                                                # the stay ends
     spans = n.store.get("away_spans:p2") or []
     assert len(spans) == 1 and spans[0]["zone"] == "right"
+
+
+def test_a_night_mostly_inside_an_away_period_counts_as_an_away_night():
+    """Something was on their side seven minutes before they were marked away: the night "began" before the away
+    period, but nearly all of it happened while they were gone, so it is not their night."""
+    from embertide.engine.away import away_share
+    marked = 1_000_000.0
+    periods = [(marked, marked + 15 * 3600)]
+    assert away_share(periods, marked - 420, marked + 12 * 3600) > 0.9          # began just before, ran through it
+    assert away_share(periods, marked - 9 * 3600, marked + 300) < 0.05          # marked away as they got up: their night
+    assert away_share(periods, marked + 3600, marked + 8 * 3600) == 1.0         # wholly inside
+    assert away_share(periods, marked - 9 * 3600, marked - 3600) == 0.0         # wholly before
+    assert away_share([], marked, marked + 3600) == 0.0
+    assert away_share(periods, marked + 60, None) == 1.0 and away_share(periods, marked - 60, None) == 0.0
+    assert away_share(periods, None, marked) == 0.0

@@ -358,3 +358,14 @@ def away_periods(store, pid: str, now: float) -> list[tuple[float, float]]:
     if isinstance(rec, dict) and rec.get("since"):
         out.append((rec["since"], now))
     return out
+
+
+def away_share(periods: list[tuple[float, float]], start: float | None, end: float | None) -> float:
+    """How much of a night (start..end) fell inside away periods, 0..1. A night that began just before they were
+    marked away (something on their side at the time) is still an away night: most of it happened while they were gone."""
+    if not start:
+        return 0.0
+    if not end or end <= start:
+        return 1.0 if any(x <= start <= y for x, y in periods) else 0.0
+    covered = sum(max(0.0, min(end, y) - max(start, x)) for x, y in periods)
+    return min(1.0, covered / (end - start))

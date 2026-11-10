@@ -1179,3 +1179,36 @@ button.bedpick-half:focus-visible,.bedpick-whole:focus-visible{outline:2px solid
 .stale-note{display:block;font-size:12.5px;color:var(--mute);text-align:center}
 .sr-close{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .sr-close:focus{position:static;width:auto;height:auto;clip:auto}
+
+/* Bed hub: a fault with its advice, and the light colour swatches (Off + six presets) */
+.hub-fault{display:grid;gap:2px;padding:10px 12px;border-radius:var(--r-md);background:var(--raise);border-left:3px solid var(--warn);font-size:14px}
+.hub-swatches{max-width:420px}
+.hub-swatches button{min-width:44px;min-height:44px}
+/* Care and maintenance: job cards (Studio), the compact phone list, the Tonight line, the light-colour guide */
+.care-list{display:grid;gap:12px}
+.care-card{display:grid;gap:8px;padding:14px;border-radius:var(--r-md,12px);background:var(--raise);border-left:3px solid var(--line2)}
+.care-card.soon{border-left-color:var(--warn)}
+.care-card.warn{border-left-color:var(--bad)}
+.care-card.off{opacity:.7}
+.care-status{font-size:13.5px;font-weight:600;color:var(--mute);white-space:nowrap}
+.care-status.soon{color:var(--warn)}
+.care-status.warn{color:var(--bad)}
+.care-actions{display:flex;gap:10px;flex-wrap:wrap}
+.care-actions .btn,.care-edit .btn,.care-done{min-height:44px}
+.care-edit{display:grid;gap:10px;padding-top:8px;border-top:1px solid var(--line)}
+.care-field{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.care-field.col{display:grid;gap:4px}
+.care-field input[type=number]{width:96px;min-height:44px}
+.care-field input[type=date],.care-field input[type=text],.care-field textarea{min-height:44px;max-width:100%}
+.care-toggle{min-height:44px}
+.care-steps{margin:2px 0 6px;padding-left:22px;display:grid;gap:6px;font-size:14.5px}
+.care-supplies{margin:0 0 6px;font-size:14px}
+.care-name{display:grid;gap:2px;text-align:left;background:none;border:0;color:var(--text);font-size:15px;padding:6px 0;min-height:44px;cursor:pointer;flex:1}
+.care-compact .care-done{min-width:76px}
+.planrow.care-tonight{display:flex;align-items:center;justify-content:space-between;gap:10px;color:var(--text)}
+.planrow.care-tonight .chip{min-height:44px;padding:8px 16px;font-size:14px}
+.light-guide{display:grid;gap:8px;margin:0}
+.light-row{display:grid;grid-template-columns:minmax(110px,auto) 1fr;gap:10px;font-size:14px}
+.light-row dt{font-weight:600;display:flex;align-items:center;gap:8px}
+.light-row dd{margin:0;color:var(--mute)}
+.light-dot{width:12px;height:12px;border-radius:50%;display:inline-block;border:1px solid var(--line2);flex:none}

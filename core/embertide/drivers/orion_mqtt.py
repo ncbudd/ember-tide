@@ -17,7 +17,8 @@ import re
 import time
 from urllib.parse import urlparse
 
-from .base import BedFrame, Cap, CommandError, SensorFrame, ZoneFrame
+from . import profiles
+from .base import BedFrame, Cap, CommandError, SensorFrame, HubHealth, ZoneFrame
 
 log = logging.getLogger(__name__)
 SERIAL_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
@@ -101,8 +102,78 @@ def parse_status(topic: str, payload: bytes, ts: float) -> tuple[str, BedFrame] 
         brightness=_num(get("led", "led_brightness")),
         rgb=rgb if all(v is not None for v in rgb) else None,  # type: ignore[arg-type]
         fault=any(bool(v) for v in errors.values()) if isinstance(errors, dict) and errors else None,
+        hub=parse_hub(raw),
     )
     return parts[1], frame
+
+
+# the unit's own fault flags -> generic fault codes (hub.FAULTS has the wording)
+FAULT_CODES = {
+    "PUMP_OFF_TEC_ON": "water_flow", "FAN_OFF_TEC_ON": "fan_stopped", "PUMP_CURRENT": "pump",
+    "FAN_RPM_OUT_OF_RANGE": "fan_speed", "NTC_MIN_TEMP_CUTOFF": "pad_cold_limit", "NTC_MAX_TEMP_CUTOFF": "pad_hot_limit",
+    "CB_MAX_TEMP_CUTOFF": "hub_hot", "ANGLE_Z_OUT_OF_RANGE": "not_level", "NO_IB_VERSION": "panel_link",
+    "IB_COMM_NOT_OK": "panel_link", "FLASH_NOT_OK": "memory", "ACCEL_NOT_OK": "tilt_sensor", "ADC_NOT_OK": "temp_readings",
+    "AMBIENT_SENSOR_NOT_OK": "room_sensor", "MANUAL_ERROR_COMMAND": "manual_error", "PTC_FAULT_DETECTED": "power",
+}
+ZONE_FAULTS = {"RTEC_FAULT_DETECTED": "right", "LTEC_FAULT_DETECTED": "left"}
+# The only water value seen on a healthy unit is 1. What other values mean is NOT confirmed (0 is presumably "low",
+# but that has never been observed), so anything other than 1 is reported as "check the water", never as a specific fault.
+WATER_NORMAL = 1
+
+
+def parse_hub(raw: dict) -> HubHealth:
+    def get(*path):
+        v = raw
+        for k in path:
+            if not isinstance(v, dict):
+                return None
+            v = v.get(k)
+        return v
+
+    def txt(v, n=64):
+        return v[:n] if isinstance(v, str) and v else None
+
+    t = HubHealth()
+    water = get("water")
+    if isinstance(water, dict):
+        vals = {k: _num(v) for k, v in water.items()}
+        t.water_raw = {k: v for k, v in vals.items() if v is not None}
+        if t.water_raw:
+            t.water_ok = all(v == WATER_NORMAL for v in t.water_raw.values())
+    errors = get("errors")
+    if isinstance(errors, dict):
+        for name, v in errors.items():
+            if not v:
+                continue
+            if name in FAULT_CODES:
+                t.faults.append((FAULT_CODES[name], None))
+            elif name in ZONE_FAULTS:
+                t.faults.append(("zone_fault", ZONE_FAULTS[name]))
+            else:
+                t.faults.append(("unknown", None))
+    for key, code, zone in (("ptc_ok", "power", None), ("rtec_ok", "zone_fault", "right"), ("ltec_ok", "zone_fault", "left")):
+        if _bool(raw.get(key)) is False and (code, zone) not in t.faults:
+            t.faults.append((code, zone))
+    sf = raw.get("safetyOk")
+    t.safety_ok = sf if isinstance(sf, bool) else _bool(sf)
+    rssi = _num(get("wifi", "rssi"))
+    t.wifi_dbm = int(rssi) if rssi is not None and rssi < 0 else None
+    t.wifi_name, t.wifi_address = txt(get("wifi", "ssid")), txt(get("wifi", "ip"))
+    up = _num(raw.get("uptime_ms"))
+    t.uptime_s = int(up // 1000) if up is not None and up >= 0 else None
+    t.fw_version, t.fw_build, t.fw_panel = txt(get("fw", "version")), txt(get("fw", "build")), txt(get("fw", "ib_version"))
+    heap = _num(get("fw", "free_heap"))
+    t.free_memory_kb = int(heap // 1024) if heap is not None else None
+    t.last_command = txt(raw.get("previous_command_received"), 80)
+    for side in ("left", "right"):
+        rpm = _num(get("fans", f"{side}_rpm"))
+        if rpm is not None:
+            t.fan_rpm[side] = int(rpm)
+    pwm = _num(get("fans", "pwm"))
+    t.fan_pwm = int(pwm) if pwm is not None else None
+    hum = _num(get("ambient", "humidity_filtered"))
+    t.humidity = round(hum, 1) if hum is not None else None
+    return t
 
 
 def validate(raw: str) -> str:
@@ -110,7 +181,8 @@ def validate(raw: str) -> str:
     if any(cmd.startswith(b) for b in BLOCKED):
         raise CommandError("blocked: firmware, Wi-Fi and low-level hardware commands are not allowed")
     p = cmd.split()
-    if cmd in {"SYSTEM ON", "REBOOT", "CLEAR LEFT", "CLEAR RIGHT", "CLEAR BOTH", "FAN QUIET ON", "FAN QUIET OFF"}:
+    if cmd in {"SYSTEM ON", "REBOOT", "CLEAR LEFT", "CLEAR RIGHT", "CLEAR BOTH", "FAN QUIET ON", "FAN QUIET OFF",
+               "FILL START"}:      # FILL START: listed by the community, never run on this setup
         return cmd
     if p and p[0] == "SET" and len(p) in (3, 4) and p[1] in ("LEFT", "RIGHT", "BOTH"):
         if len(p) == 4 and p[1] != "BOTH":
@@ -130,7 +202,10 @@ class OrionMqtt:
     id = "orion-mqtt"
     name = "Orion topper (local MQTT)"
     capabilities = {Cap.ZONE_TEMP, Cap.ZONE_POWER, Cap.MEASURED_TEMP, Cap.OCCUPANCY, Cap.BIO_HR, Cap.BIO_BR,
-                    Cap.LED_DIM, Cap.LED_RGB, Cap.FAN_QUIET, Cap.REBOOT, Cap.RAW_CONSOLE}
+                    Cap.LED_DIM, Cap.LED_RGB, Cap.FAN_QUIET, Cap.REBOOT, Cap.RAW_CONSOLE, Cap.HUB_HEALTH, Cap.WATER_STATUS,
+                    Cap.FAULTS, Cap.WATER_FILL}
+    untried = {Cap.WATER_FILL}      # offered, but never run on a real unit here
+    profile = profiles.ORION      # care tasks and the hub light guide (drivers/profiles.py)
     zones = ["left", "right"]
 
     def __init__(self, url: str, serial: str | None = None, username: str | None = None, password: str | None = None) -> None:
@@ -146,6 +221,8 @@ class OrionMqtt:
         self._state = "starting"
         self._lock = asyncio.Lock()
         self._fails: dict[str, tuple[str, float, int]] = {}      # zone -> (command, don't resend before, attempts)
+        self.sent: tuple[str, float] | None = None               # last command we published, and when
+        self.acked: bool | None = None                           # did the unit report receiving it (None = no command yet)
 
     async def start(self) -> None:
         self._task = asyncio.create_task(self._run())
@@ -188,6 +265,7 @@ class OrionMqtt:
                             if self._frame is None or frame.ts - self._frame.ts > 20:
                                 self._fails.clear()      # back after a silence (power cut, reboot): no held-back retries
                             self._frame = self._hold_sensors(frame)
+                            self._check_ack(frame)
                             self._changed.set()
             except asyncio.CancelledError:
                 raise
@@ -197,6 +275,12 @@ class OrionMqtt:
                 log.warning("mqtt: %s; retry in %ss", e, backoff)
                 await asyncio.sleep(backoff)
                 backoff = min(10, backoff * 2)        # local broker: get back quickly (the bed itself retries in ~15 s)
+
+    def _check_ack(self, frame: BedFrame) -> None:
+        """The unit repeats the last command it received in every report: that confirms delivery (not that it took effect)."""
+        from ..hub import same_command
+        if self.sent and frame.hub and same_command(frame.hub.last_command, self.sent[0]):
+            self.acked = True
 
     def _hold_sensors(self, frame: BedFrame) -> BedFrame:
         """The bed interleaves empty sensor blocks between real reports. Keep the last real report for up to 10 s,
@@ -214,6 +298,7 @@ class OrionMqtt:
         if not self._client or not self.serial:
             raise CommandError("bed not connected")
         await self._client.publish(f"orion/{self.serial}/in", cmd.encode(), qos=1, retain=False)
+        self.sent, self.acked = (cmd, time.time()), False
 
     async def _wait_for(self, pred, timeout: float) -> bool:
         end = time.time() + timeout
@@ -259,3 +344,20 @@ class OrionMqtt:
         cmd = validate(raw)
         await self._publish(cmd)
         return f"sent: {cmd}"
+
+    async def set_light(self, *, brightness: int | None = None, rgb: tuple[int, int, int] | None = None) -> str:
+        out = []
+        if rgb is not None:
+            out.append(await self.command("IB RGB " + " ".join(str(int(v)) for v in rgb)))
+        if brightness is not None:
+            out.append(await self.command(f"IB DIMMER {int(brightness)}"))
+        return "; ".join(out)
+
+    async def set_quiet_fan(self, on: bool) -> str:
+        return await self.command("FAN QUIET ON" if on else "FAN QUIET OFF")
+
+    async def restart(self) -> str:
+        return await self.command("REBOOT")
+
+    async def start_water_fill(self) -> str:
+        return await self.command("FILL START")

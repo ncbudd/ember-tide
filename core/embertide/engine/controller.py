@@ -916,6 +916,38 @@ class Controller:
                 log.exception("set_zone failed")
         self._inflight[p.zone] = asyncio.create_task(send())
 
+    # ---------- the control unit ("hub") ----------
+    def hub_summary(self, frame=None) -> dict | None:
+        from .. import hub
+        frame = frame or self.driver.latest()
+        s = hub.summary(frame.hub if frame else None)
+        if s is not None:
+            s["command_received"] = getattr(self.driver, "acked", None)      # did the unit say it got our last command
+        return s
+
+    def hub_detail(self) -> dict | None:
+        """The owner's view: includes the unit's network name and address. Never log or send this to anyone else."""
+        from .. import hub
+        frame = self.driver.latest()
+        d = hub.detail(frame.hub if frame else None,
+                         untried=sorted(c.value for c in getattr(self.driver, "untried", set())))
+        if d is not None:
+            d["command_received"] = getattr(self.driver, "acked", None)
+        return d
+
+    def running_sides(self) -> list[str]:
+        """Zones whose night is running (a restart or water fill would interrupt them)."""
+        zones = [p.zone for p in self.household.people
+                 if self.engines[p.id].s.started and self.engines[p.id].s.state in ("rhythm", "out_of_bed_hold")]
+        return zones + [z for z in self.household.guest if z not in zones]      # a guest's side is running too
+
+    def note_restart(self) -> None:
+        """The unit was told to restart: it forgets its setpoints. Drop the retry back-offs so that, the moment it is
+        reporting again, every side's current target goes out at once (tick compares targets with what the unit reports)."""
+        self.__dict__.pop("_unconfirmed", None)
+        self._last_cmd.clear()
+        self.__dict__["_was_ready"] = False
+
     # ---------- view ----------
     def snapshot(self) -> dict:
         now = self.clock.now_ts()
@@ -986,6 +1018,8 @@ class Controller:
                        "firmware": frame.firmware if frame else None, "quiet": frame.quiet_mode if frame else None,
                        "brightness": frame.brightness if frame else None, "rgb": frame.rgb if frame else None,
                        "system_state": frame.system_state if frame else None,
+                       # control-unit health in brief (no network name or address; the owner's page has the detail)
+                       "hub": self.hub_summary(frame),
                        # ticks in a row a person's update has failed (0 / absent = fine; notify.py says so after a while)
                        "tick_errors": dict(self._person_errors)},
             "household": {"user_min_c": self.household.user_min_c, "user_max_c": self.household.user_max_c},

@@ -20,6 +20,9 @@ class Cap(str, Enum):
     WATER_FILL = "water_fill"
     REBOOT = "reboot"
     RAW_CONSOLE = "raw_console"
+    HUB_HEALTH = "hub_health"      # reports water, faults, signal, uptime and versions of the control unit
+    WATER_STATUS = "water_status"      # ... including whether the water needs attention
+    FAULTS = "faults"                  # ... including which fault flags are raised
 
 
 @dataclass
@@ -39,6 +42,29 @@ class ZoneFrame:
 
 
 @dataclass
+class HubHealth:
+    """How the control unit ("hub") is doing. Driver-neutral: a driver translates its own flags into these.
+    `faults` holds generic codes (see hub.FAULTS) with an optional zone; the wording lives in hub.py."""
+    water_ok: bool | None = None            # True only for the value a driver knows to be normal; None = not reported
+    water_raw: dict[str, float] = field(default_factory=dict)   # the raw readings, shown to the owner only
+    faults: list[tuple[str, str | None]] = field(default_factory=list)   # (generic fault code, zone or None)
+    safety_ok: bool | None = None
+    wifi_dbm: int | None = None
+    wifi_name: str | None = None            # owner-only, never logged
+    wifi_address: str | None = None         # owner-only, never logged
+    uptime_s: int | None = None
+    fw_version: str | None = None
+    fw_build: str | None = None
+    fw_panel: str | None = None             # the light/button panel's own version
+    last_command: str | None = None         # the last command the unit says it received
+    fan_rpm: dict[str, int] = field(default_factory=dict)
+    fan_pwm: int | None = None
+    humidity: float | None = None           # the unit's own room humidity reading (%)
+    room_c: float | None = None
+    free_memory_kb: int | None = None
+
+
+@dataclass
 class BedFrame:
     ts: float
     zones: dict[str, ZoneFrame]
@@ -49,6 +75,7 @@ class BedFrame:
     rgb: tuple[int, int, int] | None = None
     fault: bool | None = None
     online: bool = True
+    hub: HubHealth | None = None
 
 
 class CommandError(Exception):
@@ -68,4 +95,10 @@ class BedDriver(Protocol):
         """Returns True once telemetry confirms the change (or the driver cannot confirm)."""
         ...
     async def command(self, raw: str) -> str: ...
+    # Optional control-unit operations; a driver offers one only if it lists the matching capability
+    # (LED_DIM/LED_RGB, FAN_QUIET, REBOOT, WATER_FILL). They raise CommandError when refused.
+    async def set_light(self, *, brightness: int | None = None, rgb: tuple[int, int, int] | None = None) -> str: ...
+    async def set_quiet_fan(self, on: bool) -> str: ...
+    async def restart(self) -> str: ...
+    async def start_water_fill(self) -> str: ...
     def status(self) -> dict: ...
