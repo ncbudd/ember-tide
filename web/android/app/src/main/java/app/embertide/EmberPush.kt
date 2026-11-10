@@ -27,7 +27,7 @@ object EmberPush {
     private const val P_REG = "push_registered"      // the server has this endpoint
     private const val P_ERR = "push_error"
     private val ALLOWED = setOf("pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm",
-        "pet_yes", "pet_me", "pet_unsure")
+        "pet_yes", "pet_me", "pet_unsure", "away_away", "away_night", "away_home", "away_back", "away_still")
 
     fun distributors(c: Context): List<String> = UnifiedPush.getDistributors(c)
     fun saved(c: Context): String? = UnifiedPush.getAckDistributor(c) ?: UnifiedPush.getSavedDistributor(c)
@@ -52,10 +52,23 @@ object EmberPush {
             p.edit().putString("push_method", "fcm").putString("fcm_token", token).putBoolean(P_REG, true).remove(P_ERR).apply()
             null
         } catch (e: Exception) {
-            val msg = e.message?.substringAfter("{\"detail\":\"")?.substringBefore("\"}") ?: "couldn't register"
+            val msg = errorText(e.message) ?: "couldn't register"
             p.edit().putString("push_method", "fcm").putBoolean(P_REG, false).putString(P_ERR, msg).apply()
             msg
         }
+    }
+
+    /** The server's reason from an "HTTP 4xx {json}" error: FastAPI's detail is a string, or a list of {msg} items. */
+    internal fun errorText(raw: String?): String? {
+        val body = raw?.substringAfter('{', "")?.takeIf { it.isNotEmpty() } ?: return null
+        return try {
+            when (val d = JSONObject("{$body").opt("detail")) {
+                is String -> d
+                is org.json.JSONArray -> (0 until d.length())
+                    .mapNotNull { d.optJSONObject(it)?.optString("msg")?.takeIf { m -> m.isNotEmpty() } }.joinToString("; ")
+                else -> null
+            }?.take(160)?.ifEmpty { null }
+        } catch (_: Exception) { null }
     }
 
     fun status(c: Context): JSONObject {
@@ -108,7 +121,7 @@ object EmberPush {
             p.edit().putBoolean(P_REG, true).remove(P_ERR).apply()
             null
         } catch (e: Exception) {
-            val msg = e.message?.substringAfter("{\"detail\":\"")?.substringBefore("\"}") ?: "couldn't register"
+            val msg = errorText(e.message) ?: "couldn't register"
             p.edit().putBoolean(P_REG, false).putString(P_ERR, msg).apply()
             msg
         }
@@ -130,7 +143,12 @@ object EmberPush {
     }
 
     /** One notification per kind: a newer one replaces it, and clear(kind) can take it away. */
-    fun idFor(kind: String) = 5000 + (kind.hashCode() and 0x3ff)
+    private val KIND_IDS = listOf("action_done", "away_check", "away_precool", "digest", "empty_side", "left_on", "morning",
+        "pet_question", "problem", "test")
+    fun idFor(kind: String): Int {
+        val i = KIND_IDS.indexOf(kind)
+        return if (i >= 0) 5000 + i else 5100 + (kind.hashCode() and 0x3ff)   // known kinds never collide; others hash above them
+    }
 
     /** Show one message from the server. Only messages encrypted for this phone are accepted. */
     internal fun show(c: Context, m: JSONObject) {
@@ -164,6 +182,10 @@ object EmberPush {
     /** A notification button: do it, then turn the notification into a quiet "done". */
     @JvmStatic fun act(c: Context, act: String, minutes: Int, label: String, person: String, nid: Int, ref: String = "") {
         val pid = person.ifEmpty { Ember.person(c) }
+        channel(c)
+        // take the buttons away at once, so a second tap can't send it again while the call runs
+        c.getSystemService(NotificationManager::class.java).notify(nid, Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_stat_flash)
+            .setContentTitle("Working…").setContentText(label).setOnlyAlertOnce(true).setTimeoutAfter(30000).build())
         val ok = try {
             if (act == "manual_off") Ember.call(c, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
             else if (act.startsWith("feel_"))           // the morning check-in: how the temperature felt last night
@@ -171,6 +193,9 @@ object EmberPush {
             else if (act.startsWith("pet_") && ref.matches(Regex("[A-Za-z0-9]{1,40}")))   // "was that the dog?" answered from the notification
                 Ember.call(c, "POST", "/api/people/$pid/pet-question/$ref", JSONObject().put("answer", act.removePrefix("pet_")).toString())
             else if (act.startsWith("pet_")) throw IllegalArgumentException("no question")
+            else if (act.startsWith("away_") && ref.matches(Regex("\\d{4}-\\d{2}-\\d{2}")))   // "were you away last night?"
+                Ember.call(c, "POST", "/api/people/$pid/away-check", JSONObject().put("night", ref).put("answer", act.removePrefix("away_")).toString())
+            else if (act.startsWith("away_")) throw IllegalArgumentException("no question")
             else Ember.call(c, "POST", "/api/people/$pid/tonight",
                 JSONObject().put("action", act).put("source", "notification").apply { if (minutes > 0) put("minutes", minutes) }.toString())
             true

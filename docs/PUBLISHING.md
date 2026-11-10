@@ -11,7 +11,8 @@ python scripts/publish_check.py --history
 
 It scans tracked files for secret patterns and for the private words listed in
 `../ember-tide-private/publish-denylist.txt` (override with `PUBLISH_DENYLIST=path`). `--history` also checks every
-commit message. It must exit 0. Also run the Python tests, `npx tsc --noEmit -p .` and `npm run build`.
+commit message and every line any commit ever added (words since edited out or deleted included; `--all-refs` for
+every branch). It must exit 0. Also run the Python tests, `npx tsc --noEmit -p .` and `npm run build`.
 
 ## 2. Publish from a fresh, single-commit history
 

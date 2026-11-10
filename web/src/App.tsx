@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import type { PersonSettings } from "./types";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { useApp } from "./ctx";
+import { Toast, useApp } from "./ctx";
 import { nativeBars } from "./native";
 import BedSidePicker, { peopleHalves, type Side, useBedFromFoot } from "./components/BedSidePicker";
 import { layoutProps, useLayout } from "./components/layout";
@@ -71,7 +71,7 @@ function useSustained(flag: boolean, ms: number): boolean {
 }
 
 function PhoneApp() {
-  const { snap, me, connected, toast } = useApp();
+  const { snap, me, connected } = useApp();
   const loc = useLocation();
   const lostServer = useSustained(!connected, 5000);
   const [simpleOn, setSimpleOn] = useState(false);
@@ -92,7 +92,7 @@ function PhoneApp() {
         </nav>
       )}
       {lostServer && <div className="banner">Reconnecting to your server…</div>}
-      {!snap.system.online && <div className="banner">The bed isn't reporting right now ({snap.system.detail}).</div>}
+      {!snap.system.online && <div className="banner">The bed isn't reporting right now. What you see may be out of date.</div>}
       <ErrorBoundary full name="phone" resetKey={`${loc.pathname}|${easy}|${simpleOn}`}>
       {me && !welcomeDone && needsWelcome(me, auth.state.enabled, auth.me?.person) ? <Welcome me={me} onDone={() => setWelcomeDone(true)} /> :
        !me ? <WhoAmI /> : easy ? <SimpleApp /> : (
@@ -112,7 +112,7 @@ function PhoneApp() {
       )}
       {me && <ErrorBoundary silent name="keys"><KeyLayer compact={compact} easy={easy} setSimpleOn={setSimpleOn}
         welcome={!welcomeDone && needsWelcome(me, auth.state.enabled, auth.me?.person)} /></ErrorBoundary>}
-      {toast && <div className="toast" role="status">{toast}</div>}
+      <Toast />
       <p className="desk-note">This is the phone view, sized like a phone on purpose. Add it to your home screen on your phone. The full tools are in <a href="/studio">Studio</a>.</p>
     </div>
   );
@@ -121,9 +121,9 @@ function PhoneApp() {
 export default function App() {
   const loc = useLocation();
   useBedFromFoot();                                    // load the bed orientation once; left/right labels follow it everywhere
-  const { toast, me, snap } = useApp();
+  const { me, snap } = useApp();
   // Studio follows the signed-in person's appearance; with sign-in off (no one signed in) the first person's
   const theme = useTheme(me?.settings ?? snap?.people[0]?.settings);
-  if (loc.pathname.startsWith("/studio")) return <div className={theme === "light" ? "light" : ""} style={{ minHeight: "100%", background: "var(--bg)", color: "var(--text)" }}><ErrorBoundary full name="studio" resetKey={loc.pathname}><Suspense fallback={<p className="mute" style={{ padding: 24 }}>Opening Studio…</p>}><Routes><Route path="/studio/*" element={<Studio />} /></Routes></Suspense></ErrorBoundary>{toast && <div className="toast" role="status">{toast}</div>}</div>;
+  if (loc.pathname.startsWith("/studio")) return <div className={theme === "light" ? "light" : ""} style={{ minHeight: "100%", background: "var(--bg)", color: "var(--text)" }}><ErrorBoundary full name="studio" resetKey={loc.pathname}><Suspense fallback={<p className="mute" style={{ padding: 24 }}>Opening Studio…</p>}><Routes><Route path="/studio/*" element={<Studio />} /></Routes></Suspense></ErrorBoundary><Toast /></div>;
   return <PhoneApp />;
 }

@@ -38,6 +38,7 @@ class PersonContext:
     early_start: float | None = None  # first event early tomorrow morning (from a calendar feed)
     # from the person's own phone (Android app, "From this phone"): see engine/phone_context.py
     next_alarm: float | None = None
+    alarm_reported: bool = False      # the phone sent its next alarm lately ("none" included): see NightEngine.follow_alarm
     charging: bool | None = None
     bedtime_mode: bool | None = None
     watch_connected: bool | None = None

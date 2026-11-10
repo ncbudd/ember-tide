@@ -201,6 +201,12 @@ def consider(controller, zone: str, ep: dict, now: float) -> dict | None:
     dur = ep["last_on"] - ep["since"]
     if dur < MIN_EPISODE_S:
         return None
+    from . import away
+    if away.is_away(controller.store, person.id, now):
+        # they're away: whatever lay there wasn't them. Keep it to teach as the pet later, ask nobody
+        if len(pets) == 1 and not ep.get("with_person") and not ep.get("active"):
+            away.hold(controller, person.id, zone, ep, pets[0].id)
+        return None
     pet_ticks, ticks, in_bed = ep.get("pet_ticks", 0), max(1, ep.get("ticks", 0)), ep.get("in_bed_ticks", 0)
     if ep.get("with_person"):
         return None                                  # the pet joined you: nothing to learn about either of you

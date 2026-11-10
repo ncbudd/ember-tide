@@ -54,7 +54,19 @@ public final class FlashNotifier {
                 .addAction(new Notification.Action.Builder(null, "+5 min", action(c, "app.embertide.FLASH_EXTEND", 2)).build())
                 .addAction(new Notification.Action.Builder(null, "Stop", action(c, "app.embertide.FLASH_STOP", 3)).build());
         if (Build.VERSION.SDK_INT >= 24) b.setChronometerCountDown(true);
+        long left = endMillis - System.currentTimeMillis();
+        if (Build.VERSION.SDK_INT >= 26 && left > 0) b.setTimeoutAfter(left);   // don't sit at 0:00 if nothing else clears it
         if (Build.VERSION.SDK_INT >= 31) b.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
+        c.getSystemService(NotificationManager.class).notify(ID, b.build());
+    }
+
+    /** Replace the flash notification with a button-less "Working…" until the call finishes and the real state is shown. */
+    static void working(Context c) {
+        channel(c);
+        Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CHANNEL) : new Notification.Builder(c);
+        b.setSmallIcon(R.drawable.ic_stat_flash).setContentTitle("Working…").setOnlyAlertOnce(true)
+                .setVisibility(Notification.VISIBILITY_PUBLIC);
+        if (Build.VERSION.SDK_INT >= 26) b.setTimeoutAfter(20000);
         c.getSystemService(NotificationManager.class).notify(ID, b.build());
     }
 
@@ -69,6 +81,7 @@ public final class FlashNotifier {
             final String act = intent.getAction() == null ? "" : intent.getAction();
             final Context app = c.getApplicationContext();
             final PendingResult pending = goAsync();
+            if (act.equals("app.embertide.FLASH_EXTEND") || act.equals("app.embertide.FLASH_STOP")) working(app);   // no second tap while the call runs
             new Thread(() -> {
                 try {
                     String pid = Ember.person(app);
@@ -90,6 +103,7 @@ public final class FlashNotifier {
                     EmberWidget.refreshAll(app);
                 } catch (Exception e) {
                     android.util.Log.w("EmberTide", "action " + act + " failed: " + e.getMessage());
+                    try { EmberWidget.refreshAll(app); } catch (Exception ignored) {}   // puts the real notification back after "Working…"
                 } finally {
                     pending.finish();
                 }

@@ -65,6 +65,22 @@ async def _hashing(fn, *args):
         return await asyncio.to_thread(fn, *args)
 
 
+# headers a reverse proxy or tunnel adds: their presence means the peer address is the proxy's, not the visitor's
+PROXY_HEADERS = ("cf-connecting-ip", "cf-ray", "x-forwarded-for", "x-real-ip", "forwarded")
+
+
+def _forwarded_for(v: str) -> str | None:
+    """The first `for=` of an RFC 7239 Forwarded header (quotes, [brackets] and :port removed)."""
+    for part in v.split(",")[0].split(";"):
+        k, _, val = part.strip().partition("=")
+        if k.lower() == "for" and val:
+            val = val.strip('"')
+            if val.startswith("["):
+                return val[1:].split("]")[0]
+            return val.rsplit(":", 1)[0] if val.count(":") == 1 else val
+    return None
+
+
 def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) -> str:
     if trust_proxy:
         for h in ("cf-connecting-ip", "x-real-ip"):
@@ -72,6 +88,8 @@ def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) 
                 return req_headers[h]
         if req_headers.get("x-forwarded-for"):
             return req_headers["x-forwarded-for"].split(",")[0].strip()
+        if req_headers.get("forwarded") and (f := _forwarded_for(req_headers["forwarded"])):
+            return f
     return peer or "?"
 
 
@@ -82,6 +100,41 @@ def _is_home(addr: str) -> bool:
     except ValueError:
         return addr in ("testclient", "?")          # test client / unknown peer in tests
     return a.is_private or a.is_loopback or a.is_link_local
+
+
+def via_untrusted_proxy(req_headers: dict[str, str], trust_proxy: bool) -> bool:
+    """Came through a tunnel / reverse proxy that ET_TRUST_PROXY doesn't vouch for: the peer address is the proxy's
+    (often a private one on the same machine or Docker network) and says nothing about where the visitor is."""
+    return not trust_proxy and any(req_headers.get(h) for h in PROXY_HEADERS)
+
+
+def from_home(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) -> bool:
+    """Is this request from the home network? Never for one relayed by a proxy we weren't told to trust."""
+    if via_untrusted_proxy(req_headers, trust_proxy):
+        return False
+    return _is_home(client_ip(req_headers, peer, trust_proxy))
+
+
+SETUP_VIA_PROXY = ("First-time setup has to be done from your home network. On a device at home, open the server's "
+                   "local address (like http://192.168.1.20:8790) and create the owner account there. If this address "
+                   "is your own tunnel or reverse proxy and it's the only way in, you can set ET_TRUST_PROXY=on instead.")
+
+
+_SLOWED = 0
+SLOW_S = 2.0              # the wait for each sign-in from outside while the whole server sees many failures
+SLOW_MAX = 20             # slowed tries waiting at once; past that they're refused
+
+
+async def _slow_down() -> None:
+    import asyncio
+    global _SLOWED
+    if _SLOWED >= SLOW_MAX:
+        raise HTTPException(429, "Too many tries. Wait a few minutes and try again.")
+    _SLOWED += 1
+    try:
+        await asyncio.sleep(SLOW_S)
+    finally:
+        _SLOWED -= 1
 
 
 def principal_of(request: Request) -> Principal:
@@ -104,8 +157,14 @@ def build_auth_router(state) -> APIRouter:
         secure = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
         resp.set_cookie(COOKIE, tok, max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax", secure=secure, path="/")
 
+    def hdrs(request: Request) -> dict[str, str]:
+        return {k.lower(): v for k, v in request.headers.items()}
+
     def ip(request: Request) -> str:
-        return client_ip({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else None, state.cfg.trust_proxy)
+        return client_ip(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy)
+
+    def home(request: Request) -> bool:
+        return from_home(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy)
 
     def me_view(p: Principal | None) -> dict | None:
         if p is None:
@@ -125,7 +184,11 @@ def build_auth_router(state) -> APIRouter:
         a = auth()
         if not a.setup_needed():
             raise HTTPException(409, "This home is already set up. Sign in instead.")
-        if not _is_home(ip(request)):
+        if via_untrusted_proxy(hdrs(request), state.cfg.trust_proxy):
+            # through a tunnel the peer is the tunnel's own (private) address: a stranger on the public URL would
+            # otherwise look like they're at home and could claim the owner account
+            raise HTTPException(403, SETUP_VIA_PROXY)
+        if not home(request):
             # until there's an owner, a stranger who finds the public address could claim it
             raise HTTPException(403, "Finish setup from your home network (open the server's local address), then use this address.")
         if b.person is not None and b.person not in people_ids():
@@ -150,9 +213,13 @@ def build_auth_router(state) -> APIRouter:
         # own tries count against their own address first.
         user = b.username.lower()
         who, where, name = f"u:{user}|{ip(request)}", f"ip:{ip(request)}", f"n:{user}"
-        if (a.throttled(who, now, 5, 300) or a.throttled(where, now, 20, 600) or a.throttled(name, now, 40, 3600)
-                or a.throttled("all", now, 60, 60)):                 # everyone together: a botnet can't keep the server busy
+        if a.throttled(who, now, 5, 300) or a.throttled(where, now, 20, 600) or a.throttled(name, now, 40, 3600):
             raise HTTPException(429, "Too many tries. Wait a few minutes and try again.")
+        # everyone together (60 failures a minute): a botnet can't keep the server busy. It never refuses the home
+        # network, and from outside it slows each try down instead of locking everyone out; only a pile-up of
+        # slowed tries is refused
+        if not home(request) and a.throttled("all", now, 60, 60):
+            await _slow_down()
         u = await _hashing(a.verify, b.username.strip(), b.password)
         if not u:
             a.failed(who, now)

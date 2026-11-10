@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import date as _date
 import re
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from . import ai
+from .autopilot_api import IMPORT_LOCK, _day
 from .engine.guide import apply_schedule, tuning_guide
 from .engine.insights import apply_proposal, insights
 from .engine.rhythm import night_date, pick_rhythm, resolve
@@ -111,6 +114,34 @@ def thin(pts: list, kind: str, budget: int, keep_every_s: float = 300) -> list:
     return out
 
 
+# a device's live state: what it reads now, what it has sent lately and when it changed
+LIVE_FIELDS = ("value", "ts", "age_s", "error", "vote", "vote_weight", "changes_today", "last_change")
+# devices that read a body or a life rather than the room: on the other person's side they're theirs too
+PERSONAL_ROLES = (*WEARABLE_ROLES, "weight")
+
+
+def someone_elses(c: SourceConfig, me: str | None, my_zone: str | None) -> bool:
+    """Is this device the other person's (for an account tied to `me`, whose side is `my_zone`)?"""
+    if c.person is not None:
+        return c.person != me
+    return c.role in PERSONAL_ROLES and c.zone is not None and c.zone != my_zone
+
+
+def redact_source(d: dict, c: SourceConfig, me: str | None, my_zone: str | None) -> dict:
+    if not someone_elses(c, me, my_zone):
+        return d
+    h = d.get("health") or {}
+    return {**d, **{k: None for k in LIVE_FIELDS}, "raw_seen": [], "private": True,
+            "health": {"status": h.get("status"), "why": "", "trusted": h.get("trusted")}}
+
+
+def redact_calibration(cal: dict, configs: list[SourceConfig], me: str | None, my_zone: str | None) -> dict:
+    """Body weights: only this account's own (person_kg) and its own side's scales (side_kg)."""
+    theirs = {c.id for c in configs if someone_elses(c, me, my_zone)}
+    return {**cal, "person_kg": {k: v for k, v in (cal.get("person_kg") or {}).items() if k == me},
+            "side_kg": {k: v for k, v in (cal.get("side_kg") or {}).items() if k not in theirs}}
+
+
 def build_studio_router(state) -> APIRouter:
     r = APIRouter(prefix="/api")
     ctl = lambda: state.controller          # noqa: E731
@@ -122,11 +153,24 @@ def build_studio_router(state) -> APIRouter:
         except KeyError:
             raise HTTPException(404, "unknown person")
 
+    def viewer(request: Request):
+        """The signed-in principal when it isn't the owner (None for the owner, or with sign-in off)."""
+        who = request.scope.get("state", {}).get("principal")
+        return who if who is not None and who.role != "owner" and who.kind != "open" else None
+
     # ---------- sources ----------
     @r.get("/sources")
-    async def list_sources():
-        return {"sources": [src().describe(c) for c in src().configs], "roles": ROLE_INFO, "types": DEVICE_TYPES,
-                "calibration": src().calibration.model_dump()}
+    async def list_sources(request: Request):
+        who = viewer(request)
+        out = [src().describe(c) for c in src().configs]
+        cal = src().calibration.model_dump()
+        if who is not None:
+            # the partner and view-only accounts see the device setup, not the other person's live readings
+            # (where their phone is, their watch, their weight): auth.PRIVATE_READS, for Studio's device list
+            zone = next((p.zone for p in ctl().household.people if p.id == who.person), None)
+            out = [redact_source(d, c, who.person, zone) for d, c in zip(out, src().configs)]
+            cal = redact_calibration(cal, src().configs, who.person, zone)
+        return {"sources": out, "roles": ROLE_INFO, "types": DEVICE_TYPES, "calibration": cal}
 
     def _clean(c: SourceConfig) -> SourceConfig:
         """Check a device against its type: a sensible role, a side when it needs one, tuning within range."""
@@ -408,7 +452,7 @@ def build_studio_router(state) -> APIRouter:
             raise HTTPException(403, "That's their own sleep data.")          # (auth.PRIVATE_READS, as a query)
         points = max(50, min(points, 5000))
         tz, now = c.clock.tz, c.clock.now_ts()
-        d = _date.fromisoformat(date) if date else night_date(c.clock.now())
+        d = _day(date) if date else night_date(c.clock.now())
         win = night_window(p, d, tz, now)
         if not win:
             raise HTTPException(404, "no rhythm that night")
@@ -460,7 +504,7 @@ def build_studio_router(state) -> APIRouter:
         from .engine.stages import collect
         c = ctl()
         p = person(pid)
-        d = _date.fromisoformat(date) if date else night_date(c.clock.now())
+        d = _day(date) if date else night_date(c.clock.now())
         win = night_window(p, d, c.clock.tz, c.clock.now_ts())
         if not win:
             return []
@@ -488,42 +532,54 @@ def build_studio_router(state) -> APIRouter:
             raise HTTPException(400, "no usable segments (stages must be awake / light / deep / rem or Health Connect codes, with valid times)")
         segs.sort(key=lambda x: x["start"])
         overlaps = sum(1 for x, y in zip(segs, segs[1:]) if y["start"] < x["end"] - 60)
-        # line the night up with the bed: how much of the time in bed it covers, and whether it sits an hour off
-        rows = c.store.history(p.zone, segs[0]["start"] - 6 * 3600, segs[-1]["end"] + 6 * 3600, person=p.id)
-        spans = A.in_bed_spans(rows)
-        warnings, cov = [], None
-        if spans:
-            def covered(shift: float) -> float:
-                tot = sum(y - x for x, y in spans)
-                hit = 0.0
-                for x, y in spans:
-                    for g in segs:
-                        lo, hi = max(x, g["start"] + shift), min(y, g["end"] + shift)
-                        if hi > lo:
-                            hit += hi - lo
-                return hit / tot if tot else 0.0
-            cov = round(covered(0), 2)
-            best = max(range(-12, 13), key=lambda h: covered(h * 3600))
-            if best and covered(best * 3600) >= cov + 0.25:
-                warnings.append(f"These stages line up much better with your time in bed if moved {best:+d} h: probably a time-zone mistake in the export. Nothing was moved.")
-            if cov < 0.5:
-                warnings.append(f"They cover only {round(cov * 100)}% of your time in bed.")
-        if overlaps:
-            warnings.append(f"{overlaps} segment(s) overlap the one before.")
-        c.store.put_stages(p.id, b.source, b.label or b.source, segs, segs[0]["start"], segs[-1]["end"])
-        compared = _after_stages(c, p, segs)
-        return {"ok": True, "stored": len(segs), "rejected": bad, "coverage_in_bed": cov, "warnings": warnings,
-                "compared": compared}
 
-    _orion_tried: set[str] = set()
+        def work() -> dict:
+            # line the night up with the bed: how much of the time in bed it covers, and whether it sits an hour off
+            rows = c.store.history(p.zone, segs[0]["start"] - 6 * 3600, segs[-1]["end"] + 6 * 3600, person=p.id)
+            spans = A.in_bed_spans(rows)
+            warnings, cov = [], None
+            if spans:
+                def covered(shift: float) -> float:
+                    tot = sum(y - x for x, y in spans)
+                    hit = 0.0
+                    for x, y in spans:
+                        for g in segs:
+                            lo, hi = max(x, g["start"] + shift), min(y, g["end"] + shift)
+                            if hi > lo:
+                                hit += hi - lo
+                    return hit / tot if tot else 0.0
+                cov = round(covered(0), 2)
+                best = max(range(-12, 13), key=lambda h: covered(h * 3600))
+                if best and covered(best * 3600) >= cov + 0.25:
+                    warnings.append(f"These stages line up much better with your time in bed if moved {best:+d} h: probably a time-zone mistake in the export. Nothing was moved.")
+                if cov < 0.5:
+                    warnings.append(f"They cover only {round(cov * 100)}% of your time in bed.")
+            if overlaps:
+                warnings.append(f"{overlaps} segment(s) overlap the one before.")
+            c.store.put_stages(p.id, b.source, b.label or b.source, segs, segs[0]["start"], segs[-1]["end"])
+            compared = _after_stages(c, p, segs)
+            return {"ok": True, "stored": len(segs), "rejected": bad, "coverage_in_bed": cov, "warnings": warnings,
+                    "compared": compared}
+
+        # the stage lookups and the hindsight replays are long, blocking work: off the event loop (the controller tick and
+        # the WebSocket), one import at a time; they write only through the Store, which has its own lock
+        return await asyncio.to_thread(_locked, work)
+
+    _orion_done: set[str] = set()              # nights Orion's staging was fetched for
+    _orion_last: dict[str, float] = {}         # when each other night was last tried (empty or failed: try again later)
+    ORION_RETRY_S = 15 * 60
 
     async def _maybe_fetch_orion(p, d, win):
-        """With the cloud driver, pull Orion's own staging for that night once (needs Orion Intelligence)."""
+        """With the cloud driver, pull Orion's own staging for that night (needs Orion Intelligence). Done once it has
+        returned stages; an empty or failed fetch (the night is still being scored) is tried again after a while."""
         drv = ctl().driver
         key = f"{p.id}:{d.isoformat()}"
-        if getattr(drv, "id", "") != "orion-cloud" or key in _orion_tried:
+        if getattr(drv, "id", "") != "orion-cloud" or key in _orion_done:
             return
-        _orion_tried.add(key)
+        mono = time.monotonic()
+        if mono - _orion_last.get(key, -1e9) < ORION_RETRY_S:
+            return
+        _orion_last[key] = mono
         from .engine.stages import parse_orion_hypnogram
         try:
             r2 = await drv._http.get("/v2/insights", params={"from": d.isoformat(), "to": d.isoformat()})
@@ -534,6 +590,7 @@ def build_studio_router(state) -> APIRouter:
                     segs += parse_orion_hypnogram((sess.get("sleep_summary") or {}).get("hypnogram") or sess.get("hypnogram"))
             if segs:
                 ctl().store.put_stages(p.id, "orion", "Orion · cloud sleep staging", segs, *win)
+                _orion_done.add(key)
         except Exception:  # noqa: BLE001
             pass
 
@@ -545,7 +602,7 @@ def build_studio_router(state) -> APIRouter:
         who = request.scope.get("state", {}).get("principal")
         if who is not None and who.role != "owner" and who.kind != "open" and who.person != p.id:
             raise HTTPException(403, "That's their own sleep data.")          # (auth.PRIVATE_READS, as a query)
-        d = _date.fromisoformat(date) if date else night_date(c.clock.now())
+        d = _day(date) if date else night_date(c.clock.now())
         win = night_window(p, d, c.clock.tz, c.clock.now_ts())
         if not win:
             return []
@@ -674,6 +731,11 @@ def wearable_cards(c, p, now: float) -> list[dict]:
                         "detail": "Autopilot only uses fresh readings, so it carries on with the bed's own sensors.",
                         "evidence": [], "proposal": None})
     return out
+
+
+def _locked(fn):
+    with IMPORT_LOCK:
+        return fn()
 
 
 def _after_stages(c, p, segs: list[dict]) -> list[dict]:

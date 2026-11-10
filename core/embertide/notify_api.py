@@ -252,6 +252,7 @@ def build_notify_router(state) -> APIRouter:
 
     @r.get("/log")
     async def log(limit: int = 30):
+        limit = max(1, min(limit, 200))
         sent = [e for e in state.controller.store.events(limit=1000) if e["kind"] == "notification"][:limit]
         # how many phones each person can be reached on (0 = their notifications go nowhere)
         reach = {p.id: len(n().devices(p.id)) for p in state.controller.household.people}

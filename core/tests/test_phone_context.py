@@ -86,11 +86,23 @@ def test_validation_and_rate_limit(tmp_path):
         assert post(c, distance_km=-1).status_code == 422
         assert c.post("/api/people/p1/phone-context", headers=H, content=b'{"eta_min": NaN}',
                       ).status_code in (400, 422)
-        assert post(c, dials=[{"minor": 1, "rssi": 20}]).status_code == 422
         assert post(c, home=True, sharing=["location", "bogus"]).status_code == 200
         assert PC.latest(ctl(c).store, "p1")["sharing"] == ["location"]
         assert post(c, home=True).status_code == 429               # faster than the app ever sends
         assert post(c, pid="nobody", home=True).status_code == 404
+
+
+def test_one_bad_sub_field_does_not_reject_the_report(tmp_path, monkeypatch):
+    with make(tmp_path) as c:
+        nogap(monkeypatch)
+        r = post(c, home=False, distance_km=5, heading_home=True, eta_min=5000,
+                 dials=[{"minor": 1, "rssi": 20}, {"minor": 2, "rssi": 127}, {"minor": 0, "rssi": -60},
+                        {"minor": 3, "rssi": -55}, "junk"])
+        assert r.status_code == 200
+        cur = PC.latest(ctl(c).store, "p1")
+        assert ctx(c).eta_min == 24 * 60
+        assert [d["minor"] for d in cur["data"]["dials"]] == [3]
+        assert post(c, dials=[{"minor": 1, "rssi": 20}]).status_code == 200      # nothing valid left: still accepted
 
 
 def test_only_the_person_or_owner_may_send():

@@ -211,7 +211,7 @@ export default function Autopilot() {
 
           {lr && <div className="box">
             <div className="row"><span className="k">Learning your nights<Tip label="What are learning nights?" text={TIPS.learning} /></span>
-              <span className="chip" style={{ cursor: "default", color: lr.done ? "var(--good)" : "var(--mute)" }}>{lr.done ? (lr.skipped ? "started early" : "done") : `${lr.have} of ${lr.need} nights`}</span></div>
+              <span className="chip" style={{ cursor: "default", color: lr.done ? "var(--good)" : "var(--mute)" }}>{lr.done ? (lr.skipped ? "started early" : "done") : `${lr.have} of ${lr.need} nights${lr.paused ? " · paused, away" : ""}`}</span></div>
             {lr.need > 0 && <div className="gl-bar" aria-hidden><i style={{ width: `${Math.min(100, (lr.have / Math.max(1, lr.need)) * 100)}%` }} /></div>}
             <span className="mute" style={{ fontSize: 13 }}>{lr.done
               ? "It knows what a normal night looks like for you, so it can tell an unusual one."

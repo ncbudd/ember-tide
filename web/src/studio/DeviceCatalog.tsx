@@ -87,7 +87,7 @@ export function Calibration({ people, units, weightUnit = "kg", cal, scales, onE
         return <div key={p.id} className="calib-row">
           <span className={`sdot ${!l ? "off" : l.done ? "ok" : "warn"}`} aria-hidden />
           <span className="calib-text"><b>{p.name}</b><span className="mute">{!l ? "Checking…"
-            : !l.done ? `Learning ${p.name}'s nights: ${l.have} of ${l.need}. Autopilot only watches until then.`
+            : !l.done ? (l.paused ? `${p.name} is away: learning paused at ${l.have} of ${l.need}.` : `Learning ${p.name}'s nights: ${l.have} of ${l.need}. Autopilot only watches until then.`)
             : parts.length ? `Normal for ${p.name}: ${parts.join(", ")}. Autopilot stays quiet inside this.` : "Knows a normal night. A watch or ring gives a fuller picture."}</span>
             {l && !l.done && <span className="calib-bar" aria-hidden><span style={{ width: `${Math.min(100, l.have / Math.max(1, l.need) * 100)}%` }} /></span>}</span>
           <Link className="link" to="/studio/autopilot">Autopilot</Link>

@@ -99,7 +99,7 @@ async def test_learning_week_changes_nothing_then_starts(tmp_path):
     assert any(r["status"] == "learning" for r in recs)
     assert n.e(n.p1).s.target_c == before                                 # learning: nothing applied
     lr = n.c.autopilot.learning(n.p1, n.clock.now_ts())
-    assert lr == {"need": 2, "have": 0, "done": False, "skipped": False}
+    assert lr == {"need": 2, "have": 0, "done": False, "skipped": False, "paused": False}
     # finish this night and one more: learning is done
     await n.until("2026-11-03T07:30", dt=120)
     n.present("left", False)

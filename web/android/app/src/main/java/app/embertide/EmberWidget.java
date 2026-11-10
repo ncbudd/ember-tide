@@ -53,8 +53,8 @@ public class EmberWidget extends AppWidgetProvider {
     static void refreshAll(Context c) {
         AppWidgetManager m = AppWidgetManager.getInstance(c);
         int[] ids = m.getAppWidgetIds(new ComponentName(c, EmberWidget.class));
+        Shown data = load(c);      // also re-shows or clears the flash notification, so it runs with no widget too
         if (ids.length == 0) return;
-        Shown data = load(c);
         if (Build.VERSION.SDK_INT >= 31) {
             Map<SizeF, RemoteViews> sizes = new HashMap<>();
             sizes.put(new SizeF(40f, 40f), fill(c, R.layout.widget_xs, data));
@@ -125,12 +125,25 @@ public class EmberWidget extends AppWidgetProvider {
                 String at = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date((long) (nx.getDouble("at") * 1000)));
                 d.next = nx.isNull("temp_c") ? "off at " + at : nx.optString("name") + " " + Ember.temp(nx.getDouble("temp_c"), f) + " at " + at;
             }
+            lastGood = d;
+            failures = 0;
         } catch (Exception e) {
+            // keep the last good reading for a few misses (a blip shouldn't blank the widget); Offline after repeated ones
+            Shown old = lastGood;
+            if (old != null && ++failures < 3) {
+                Shown s = new Shown();
+                s.name = old.name; s.temp = old.temp; s.stateShort = old.stateShort; s.next = old.next;
+                s.state = old.state.endsWith(" · not updated") ? old.state : old.state + " · not updated";
+                return s;
+            }
             d.state = "Can't reach your server";
             d.stateShort = "Offline";
         }
         return d;
     }
+
+    private static Shown lastGood;
+    private static int failures;
 
     static RemoteViews fill(Context c, int layout, Shown d) {
         RemoteViews v = new RemoteViews(c.getPackageName(), layout);

@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
 from .engine import phone_context as PC
@@ -53,6 +53,28 @@ class PhoneContextBody(BaseModel):
         if v is not None and not math.isfinite(v):
             raise ValueError("must be a number")
         return v
+
+    @field_validator("eta_min", mode="before")
+    @classmethod
+    def _clamp_eta(cls, v):
+        # a long trip estimate is still a real report: clamp it rather than reject the whole thing
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return None if not math.isfinite(v) else min(max(float(v), 0.0), 24 * 60)
+        return v
+
+    @field_validator("dials", mode="before")
+    @classmethod
+    def _tolerant_dials(cls, v):
+        # one bad sighting (a stray RSSI, minor 0) drops that entry, not the whole report
+        if not isinstance(v, list):
+            return v
+        good = []
+        for d in v:
+            try:
+                good.append(DialSighting.model_validate(d))
+            except Exception:
+                continue
+        return good[:8]
 
     @field_validator("sharing")
     @classmethod
@@ -126,10 +148,15 @@ def build_phone_router(state) -> APIRouter:
         return {"uuid": PC.DIAL_UUID, "major": 1, "dials": PC.dial_beacons(ctl().store)}
 
     @r.get("/phone-context")
-    async def all_phone_context():
-        """Studio: every person's phone (what it shares, when it last reported)."""
+    async def all_phone_context(request: Request):
+        """Studio: every person's phone (what it shares, when it last reported). The partner and view-only accounts
+        get only their own phone's row: when the other person's phone last reported is theirs (auth.PRIVATE_READS)."""
+        who = request.scope.get("state", {}).get("principal")
+        mine_only = who is not None and who.role != "owner" and who.kind != "open"
         out = []
         for p in ctl().household.people:
+            if mine_only and p.id != who.person:
+                continue
             cur = PC.latest(ctl().store, p.id)
             if cur:
                 out.append({"person": p.id, "name": p.name, "device": cur.get("device"), "sharing": cur.get("sharing") or [],

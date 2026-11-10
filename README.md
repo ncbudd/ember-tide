@@ -67,12 +67,17 @@ During UI work, run `npm run dev` in `web/` (proxies the API to :8790).
 | `ET_ORION_SERIAL` | auto | |
 | `ET_DATA_DIR` | `./data` | SQLite database lives here |
 | `ET_PORT` | `8790` | |
-| `ET_AUTH` | `on` | Sign-in. The first visit creates the owner account. `off` only for testing on a trusted network. |
+| `ET_AUTH` | `on` | Sign-in. The first visit from your home network creates the owner account (see below). `off` only for testing on a trusted network. |
 | `ET_PUBLIC_URL` | | How phones reach the server (e.g. `https://bed.example.com`), so notification buttons work |
-| `ET_TRUST_PROXY` | `off` | `on` behind Cloudflare/nginx, so sign-in throttling sees real client addresses |
+| `ET_TRUST_PROXY` | `off` | `on` behind Cloudflare/nginx when that proxy is the only way in, so sign-in throttling and the home-network check see real client addresses |
 | `ET_LLM_URL` / `ET_LLM_MODEL` | | Any OpenAI-compatible endpoint (e.g. Ollama) for Ask |
 
 ### Accounts and access
+
+**First-time setup** (creating the owner account) only works from your home network: open the server's local
+address, like `http://192.168.1.20:8790`, on a device at home. Through a tunnel or reverse proxy the server can't
+tell where a visitor is, so setup over the public address is refused unless `ET_TRUST_PROXY=on` (set it only when
+that proxy is the sole way in). Once the owner exists, sign in from anywhere.
 
 - **Owner**: everything, including devices, the bed console and People & access.
 - **Sleeper**: their own side fully; the partner's side only as far as the partner shares it (Settings → Sharing).

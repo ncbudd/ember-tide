@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import statistics
+import threading
 from collections import Counter, defaultdict
 from datetime import date, datetime, timedelta
 from typing import Literal
@@ -172,17 +174,11 @@ def build_autopilot_router(state) -> APIRouter:
         """Import wearable samples (Health Connect, Oura, a script), lined up with the bed before they're stored."""
         p = person(pid)
         c = ctl()
-        report = _import_wearable(c, p, b)
-        rechecked = []
-        if report["stored"] and b.metric in ("skin_temp", "hr"):
-            # new evidence about past nights: re-run Autopilot over each night the samples cover, keep the hindsight view
-            for d in report["nights_touched"][-7:]:
-                try:
-                    rechecked.append(_recheck(c, p, d))
-                except HTTPException:
-                    pass
-        report["rechecked"] = rechecked
-        return report
+        if b.metric == "weight_kg":                  # also updates the sources' calibration, which the controller reads: stay on the loop
+            return _import_and_recheck(c, p, b, lock=False)
+        # the import and up to 7 hindsight replays are long, blocking work: keep them off the event loop (the controller
+        # tick and the WebSocket). They only read engine state and write through the Store, which has its own lock.
+        return await asyncio.to_thread(_import_and_recheck, c, p, b)
 
     @r.get("/people/{pid}/imports")
     async def imports(pid: str):
@@ -262,6 +258,29 @@ def _actual_phases(rows: list[dict], n) -> list[dict]:
     if out:
         return out
     return [{"id": ph.id, "name": ph.name, "start": ph.start, "temp_c": ph.temp_c} for ph in (n.phases if n else [])]
+
+
+IMPORT_LOCK = threading.Lock()          # imports read-modify-write the same keys (import log, learned offsets): one at a time
+
+
+def _import_and_recheck(c, p, b, lock: bool = True) -> dict:
+    if lock:
+        IMPORT_LOCK.acquire()
+    try:
+        report = _import_wearable(c, p, b)
+        rechecked = []
+        if report["stored"] and b.metric in ("skin_temp", "hr"):
+            # new evidence about past nights: re-run Autopilot over each night the samples cover, keep the hindsight view
+            for d in report["nights_touched"][-7:]:
+                try:
+                    rechecked.append(_recheck(c, p, d))
+                except HTTPException:
+                    pass
+        report["rechecked"] = rechecked
+        return report
+    finally:
+        if lock:
+            IMPORT_LOCK.release()
 
 
 def _import_wearable(c, p, b) -> dict:

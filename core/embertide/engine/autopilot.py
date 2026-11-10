@@ -391,6 +391,11 @@ class Autopilot:
             ns = [n for n in recent(self.c.store, p, self.c.clock.tz, now, 45)
                   if n.get("has_data") and not n.get("in_progress") and (n.get("in_bed_min") or 0) >= 180
                   and (n.get("in_bed_at") or 0) >= since]
+            # nights they weren't in their side of the bed (the morning check, or away for a while: engine/away.py)
+            from .away import away_periods, excluded_nights
+            gone, periods = excluded_nights(self.c.store, p.id), away_periods(self.c.store, p.id, now)
+            ns = [n for n in ns if n.get("date") not in gone
+                  and not any(x <= (n.get("in_bed_at") or 0) <= y for x, y in periods)]
             ns = self._usual_hours(ns)
             # a night the ring says ran a degree or more warmer than normal (illness, alcohol) teaches nothing
             from .ring import unusual
@@ -424,7 +429,10 @@ class Autopilot:
         have = len(self._nights(p, now))
         need = pol.learn_nights
         done = have >= need or pol.learn_skip
-        return {"need": need, "have": min(have, need), "done": done, "skipped": bool(pol.learn_skip and have < need)}
+        from .away import is_away
+        paused = (not done) and is_away(self.c.store, p.id, now)    # away for a while: the week waits for them
+        return {"need": need, "have": min(have, need), "done": done, "skipped": bool(pol.learn_skip and have < need),
+                "paused": paused}
 
     def baseline(self, p, now: float) -> dict | None:
         """This person's normal, from their recent finished nights: how restless, settled heart rate, skin temperature."""
@@ -589,43 +597,50 @@ class Autopilot:
             if now - self._last.get(p.id, 0) < self.EVERY_S and now >= self._last.get(p.id, 0):
                 continue
             self._last[p.id] = now
-            pol = p.settings.autopilot
-            e = self.c.engine_for(p.id)
-            if e.s.state == "done" and pol.ai_review and e.night and getattr(self.c, "review_hook", None):
-                key = f"ai_review_started:{p.id}:{e.night.date.isoformat()}"
-                if not self.c.store.get(key):
-                    self.c.store.put(key, now)
-                    self.c.review_hook(p, e.night.date.isoformat())      # runs in the background; result kept for the page
-            if pol.mode == "off":
-                continue
-            if e.s.state not in ("rhythm", "out_of_bed_hold") or not e.s.in_bed:
-                continue
-            w = self.window(p, now, since=e.s.in_bed - 600)
-            d = evaluate(w, pol, e.s.target_c, self.tonight(p.id, now))
-            d.person = p.id
-            if getattr(self.c, "active_since", None) is not None and not any(r.signal == "feedback" for r in d.reasons):
-                continue                                    # awake and moving, not sleeping yet: only a tap counts
-            lr = self.learning(p, now)
-            if not lr["done"] and d.status in ("suggested", "applied"):
-                d.status = "learning"                       # calibration week: note it, change nothing, suggest nothing
-                d.blocked_by.append(f"still learning your nights ({lr['have']} of {lr['need']})")
-            if now - self._last_log.get(p.id, 0) >= self.SIGNAL_LOG_S or now < self._last_log.get(p.id, 0):
-                self._last_log[p.id] = now
-                for k, v in (("score", d.score), *[(k, v) for k, v in d.signals.items() if isinstance(v, (int, float))]):
-                    if v is not None:
-                        self.c.store.sample(now, f"ap:{p.id}:{k}", float(v))
-            if d.direction == "none":
-                continue
-            # record a candidate at most once per gap, so a "blocked" or "suggested" doesn't repeat every minute
-            if now - self._last_logged_decision.get(p.id, -1e18) < pol.min_gap_min * 60 and d.status != "applied":
-                continue
-            self._last_logged_decision[p.id] = now
-            data = d.to_dict()
-            data.pop("ts")
-            data.pop("person")
-            self.c.store.event(now, "autopilot", p.id, "autopilot", **data)
-            if d.status == "applied":
-                e.adjust(now, delta_c=d.delta_c, until="next_phase", source="autopilot")
+            try:
+                self._tick_person(p, now)
+            except Exception:  # noqa: BLE001  (one person's trouble never stops the other's)
+                import logging
+                logging.getLogger(__name__).exception("autopilot failed for %s", p.id)
+
+    def _tick_person(self, p, now: float) -> None:
+        pol = p.settings.autopilot
+        e = self.c.engine_for(p.id)
+        if e.s.state == "done" and pol.ai_review and e.night and getattr(self.c, "review_hook", None):
+            key = f"ai_review_started:{p.id}:{e.night.date.isoformat()}"
+            if not self.c.store.get(key):
+                self.c.store.put(key, now)
+                self.c.review_hook(p, e.night.date.isoformat())      # runs in the background; result kept for the page
+        if pol.mode == "off":
+            return
+        if e.s.state not in ("rhythm", "out_of_bed_hold") or not e.s.in_bed:
+            return
+        w = self.window(p, now, since=e.s.in_bed - 600)
+        d = evaluate(w, pol, e.s.target_c, self.tonight(p.id, now))
+        d.person = p.id
+        if getattr(self.c, "active_since", None) is not None and not any(r.signal == "feedback" for r in d.reasons):
+            return                                    # awake and moving, not sleeping yet: only a tap counts
+        lr = self.learning(p, now)
+        if not lr["done"] and d.status in ("suggested", "applied"):
+            d.status = "learning"                       # calibration week: note it, change nothing, suggest nothing
+            d.blocked_by.append(f"still learning your nights ({lr['have']} of {lr['need']})")
+        if now - self._last_log.get(p.id, 0) >= self.SIGNAL_LOG_S or now < self._last_log.get(p.id, 0):
+            self._last_log[p.id] = now
+            for k, v in (("score", d.score), *[(k, v) for k, v in d.signals.items() if isinstance(v, (int, float))]):
+                if v is not None:
+                    self.c.store.sample(now, f"ap:{p.id}:{k}", float(v))
+        if d.direction == "none":
+            return
+        # record a candidate at most once per gap, so a "blocked" or "suggested" doesn't repeat every minute
+        if now - self._last_logged_decision.get(p.id, -1e18) < pol.min_gap_min * 60 and d.status != "applied":
+            return
+        self._last_logged_decision[p.id] = now
+        data = d.to_dict()
+        data.pop("ts")
+        data.pop("person")
+        self.c.store.event(now, "autopilot", p.id, "autopilot", **data)
+        if d.status == "applied":
+            e.adjust(now, delta_c=d.delta_c, until="next_phase", source="autopilot")
 
     def replay(self, p, start: float, end: float, policy, step_s: float = 60, wake: float | None = None) -> list[dict]:
         """What it would have done over a past stretch, with these settings. Reads only; writes nothing."""

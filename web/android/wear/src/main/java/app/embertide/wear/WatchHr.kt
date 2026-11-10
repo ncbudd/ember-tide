@@ -117,8 +117,10 @@ object WatchHr {
             val st = buf.getJSONArray("steps")
             val prev = if (st.length() > 0) st.getJSONArray(st.length() - 1) else null
             // steps add up into one entry per minute
-            if (prev != null && t - prev.getDouble(0) < 60) prev.put(1, prev.getLong(1) + dp.value)
-            else st.put(JSONArray().put(t).put(dp.value))
+            // (not into an entry a send has already taken: that one is dropped when the send finishes, so the steps would go with it)
+            if (prev != null && t - prev.getDouble(0) < 60 && (prev.getDouble(0) * 1000).toLong() > prefs(c).getLong("steps_sent_to", 0L))
+                prev.put(1, prev.getLong(1) + dp.value)
+            else st.put(JSONArray().put(if (prev != null) maxOf(t, prev.getDouble(0) + 0.001) else t).put(dp.value))
         }
         save(c, buf)
     }
@@ -144,7 +146,13 @@ object WatchHr {
     fun flush(c: Context, force: Boolean) {
         val p = prefs(c)
         if (!force && System.currentTimeMillis() - p.getLong("sent_at", 0) < SEND_EVERY_MS) return
-        val buf = synchronized(lock) { buffer(c) }
+        val buf = synchronized(lock) {
+            buffer(c).also { b ->
+                val st = b.getJSONArray("steps")
+                // from here on, steps arriving go into a new entry, not into one this send is carrying
+                if (st.length() > 0) p.edit().putLong("steps_sent_to", (st.getJSONArray(st.length() - 1).getDouble(0) * 1000).toLong()).apply()
+            }
+        }
         if (buf.getJSONArray("samples").length() == 0 && buf.getJSONArray("steps").length() == 0 && !force) return
         val sentCount = buf.getJSONArray("samples").length() to buf.getJSONArray("steps").length()
         buf.put("perm", permState(c))

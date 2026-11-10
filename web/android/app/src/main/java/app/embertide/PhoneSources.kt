@@ -35,6 +35,8 @@ import com.google.android.gms.wearable.Wearable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
@@ -91,6 +93,14 @@ object PhoneSources {
     fun backgroundOk(c: Context) = Build.VERSION.SDK_INT < 29 || has(c, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
     private val NET = Constraints.Builder().setRequiredNetworkType(androidx.work.NetworkType.CONNECTED).build()
+
+    /** Signed out: stop the periodic job and the on-charge / night triggers (schedule() brings them back). */
+    fun unschedule(c: Context) {
+        val wm = WorkManager.getInstance(c)
+        for (n in listOf(WORK, "$WORK-now", "$WORK-night", "$WORK-retry", "$WORK-oncharge")) wm.cancelUniqueWork(n)
+        c.getSystemService(AlarmManager::class.java)?.cancel(android.app.PendingIntent.getBroadcast(c, 41, Intent(c, NightAlarmReceiver::class.java),
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT))
+    }
 
     fun schedule(c: Context) {
         val wm = WorkManager.getInstance(c)
@@ -234,7 +244,7 @@ object PhoneSources {
                     if (prevKm > 0 && mins in 3.0..40.0 && prevKm - km >= 0.5) {
                         val speed = ((prevKm - km) / (mins / 60.0)).coerceIn(10.0, 130.0)
                         out.put("heading_home", true)
-                        out.put("eta_min", Math.round(km / speed * 60 * 10) / 10.0)
+                        out.put("eta_min", (Math.round(km / speed * 60 * 10) / 10.0).coerceAtMost(24 * 60.0))   // the server's limit
                     } else out.put("heading_home", false)
                 }
                 p.edit().putFloat("prev_km", km.toFloat()).putLong("prev_t", now).apply()
@@ -264,7 +274,7 @@ object PhoneSources {
         }
         val screenOff = c.getSystemService(android.os.PowerManager::class.java)?.isInteractive == false
         if ("dial" in on && (charging || bedtime || screenOff) && (nightWindow() || fakeDials(c) != null)) {
-            out.put("dials", scanDials(c))
+            out.put("dials", validDials(scanDials(c)))
         }
         out.put("sharing", JSONArray(on.toList()))
         out.put("device", Build.MODEL.take(60))
@@ -380,6 +390,18 @@ object PhoneSources {
         return out
     }
 
+    /** Only what the server accepts: signal -120..0 dBm (a beacon's 127 means "unknown"), minor 1..65535, at most 8. */
+    private fun validDials(all: JSONArray): JSONArray {
+        val out = JSONArray()
+        for (i in 0 until all.length()) {
+            val d = all.optJSONObject(i) ?: continue
+            val rssi = d.optDouble("rssi", Double.NaN)
+            if (d.optInt("minor", 0) < 1 || rssi.isNaN() || rssi > 0 || rssi == 127.0) continue
+            if (out.length() < 8) out.put(if (rssi < -120) d.put("rssi", -120) else d)
+        }
+        return out
+    }
+
     private fun uuidBytes(u: UUID): ByteArray {
         val b = ByteArray(16)
         for (i in 0 until 8) b[i] = (u.mostSignificantBits ushr (8 * (7 - i))).toByte()
@@ -396,12 +418,24 @@ object PhoneSources {
     }
 
     // ---------- send ----------
-    suspend fun send(c: Context): JSONObject? {
-        if (!Ember.ready(c)) return null
+    private val sendLock = Mutex()                 // one send at a time; the server wants 5 s between reports
+    private var lastPostAt = 0L
+
+    suspend fun send(c: Context): JSONObject? = sendLock.withLock {
+        if (!Ember.ready(c)) return@withLock null
+        val wait = lastPostAt + 5_500L - System.currentTimeMillis()
+        if (wait in 1..5_500L) delay(wait)             // e.g. switching a source off sends twice in a row
+        sendNow(c)
+    }
+
+    private suspend fun sendNow(c: Context): JSONObject? {
         val body = collect(c)
         val res = withContext(Dispatchers.IO) {
             runCatching { Ember.call(c, "POST", "/api/people/" + Ember.person(c) + "/phone-context", body.toString()) }
         }
+        lastPostAt = System.currentTimeMillis()
+        // a 429 means the server already has a report from the last few seconds: not an error, nothing to retry
+        if (res.exceptionOrNull()?.message?.startsWith("HTTP 429") == true) return body
         val ok = res.isSuccess
         prefs(c).edit().putLong("last_sent", if (ok) System.currentTimeMillis() else prefs(c).getLong("last_sent", 0))
             .putString("last_body", body.toString()).putString("last_error", if (ok) null else res.exceptionOrNull()?.message?.take(120)).apply()

@@ -32,7 +32,8 @@ from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
 ACTION_TTL_S = 12 * 3600
-APP_ACTS = {"pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm", "pet_yes", "pet_me", "pet_unsure"}   # the only things a notification button can do in the app
+APP_ACTS = {"pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm", "pet_yes", "pet_me", "pet_unsure",
+            "away_away", "away_night", "away_home", "away_back", "away_still"}   # the only things a notification button can do in the app
 MAX_DEVICES = 6
 OFFLINE_AFTER_S = 300
 STALE_AFTER_S = 600
@@ -40,13 +41,14 @@ LEFT_ON_AFTER_S = 20 * 60     # on by hand, nobody in it this long → ask to tu
 # How often (docs/notifications.md). A kind's daily cap per person (household messages count under "household"),
 # and all capped kinds together per person per day. EXEMPT: things the person asked for themselves.
 IGNORED_AFTER_S = 20 * 60          # a side ignoring commands this long gets a "not taking changes" alert
-CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "left_on": 2, "problem": 3}
+TICK_FAIL_AFTER = 120              # a person's update failing this many ticks in a row (~2 min) gets a "not updating" alert
+CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "not_started": 1, "left_on": 2, "problem": 3}
 DAILY_MAX = 4
 DEDUP_S = 6 * 3600            # the same message (person, kind, title) again within this is dropped
 EXEMPT = {"test", "action_done"}
 # about you being out of bed or away: you're up, so these go out in the evening even after bedtime; from midnight
 # to your wake they're held like everything else (a 2:30 AM "your side is empty" would wake you wherever you are)
-AWAKE_KINDS = {"away_precool", "empty_side", "left_on"}
+AWAKE_KINDS = {"away_precool", "empty_side", "left_on", "not_started"}
 RUNNING = ("rhythm", "out_of_bed_hold")
 
 
@@ -275,6 +277,72 @@ class Notifier:
         self.store.put("notify_recent", (recent + [[m.person, m.kind, m.title, now]])[-40:])
 
     # ---------- triggers ----------
+    def _observe_person(self, person, pv: dict, now: float, out: list, online: bool) -> None:
+        from . import voice
+        tz = self.c.clock.tz
+        prefs = person.settings.notify
+        n, sch = pv["night"], pv.get("schedule")
+        if n.get("guest"):
+            return                                  # a guest's side: no reminders, nothing about the guest
+        # turned on by hand outside the rhythm (a nap, an early night) and nobody has been in it for a while
+        o = n.get("override") or {}
+        on_by_hand = bool(o.get("manual")) and n.get("target_c") is not None and not n.get("flash")
+        if on_by_hand and pv.get("presence", {}).get("present") is False:
+            since = self._empty_since.setdefault(person.id, now)
+            if (prefs.left_on and now - since >= LEFT_ON_AFTER_S
+                    and self._once(f"left_on:{person.id}:{int(o.get('set_ts') or 0)}")):
+                t, b = self._say("left_on", {"name": person.name, "minutes": round((now - since) / 60)}, person, now)
+                out.append(Message("left_on", t, b, person.id, [Action("Turn it off", "manual_off")], priority=3, tags=["zzz"]))
+        else:
+            self._empty_since.pop(person.id, None)
+        m = self._pet_question(person, now)
+        if m:
+            out.append(m)
+        m = self._away_check(person, now)
+        if m:
+            out.append(m)
+        if not sch:
+            return
+        night = datetime.fromtimestamp(sch["bedtime"], tz).date().isoformat()
+        if prefs.away_precool and n["state"] == "away" and not n.get("away") and now >= sch["precool"] and self._once(f"away:{person.id}:{night}"):
+            t, b = self._say("away_precool", {"name": person.name}, person, now)
+            out.append(Message("away_precool", t, b, person.id,
+                               [Action("Wait an hour", "pause", 60), Action("Off tonight", "skip"), Action("Start anyway", "start_now")],
+                               tags=["house"]))
+        if prefs.empty_side and n["state"] == "missed" and self._once(f"empty:{person.id}:{night}"):
+            t, b = self._say("empty_side", {}, person, now)
+            out.append(Message("empty_side", t, b, person.id, [Action("Turn it off tonight", "skip")], priority=2, tags=["zzz"]))
+        # lying in their side a long while, but the bed radar never backed it, so the night hasn't started (controller:
+        # settle.offer_start). Offered once a night, never from midnight to wake (it would only wait for the morning)
+        if ((n.get("settle") or {}).get("offer_start") and n["state"] in ("waiting", "missed") and not n.get("away")
+                and not self._small_hours(person.id, now) and self._once(f"not_started:{person.id}:{night}")):
+            out.append(Message("not_started", "Your side hasn't started",
+                               "You've been lying down a while, but the bed couldn't tell it was you. Start it now?",
+                               person.id, [Action("Start now", "start_now")], priority=3, tags=["zzz"]))
+        if prefs.morning and n["state"] == "done" and sch["end"] <= now < sch["end"] + 4 * 3600 and self._once(f"morning:{person.id}:{night}"):
+            m = self._morning(person, night, now)
+            if m:
+                out.append(m)
+        # a bed sensor that stops updating while someone's night is running
+        # (not while the whole bed is unreachable: "Can't reach the bed" already says so, once)
+        stale = bool(pv.get("presence", {}).get("stale")) and n["state"] in ("rhythm", "out_of_bed_hold") and online
+        if stale:
+            since = self._stale_since.setdefault(pv["zone"], now)
+            if now - since >= STALE_AFTER_S and self._once(f"stale:{pv['zone']}:{night}"):
+                t, b = voice.say("problem_stale", {"side": pv["zone"].title()}, day=self._day(now), store=self.store)
+                out.append(Message("problem", t, b, None, priority=4, tags=["warning"]))
+        else:
+            self._stale_since.pop(pv["zone"], None)
+        # the bed is online but this side keeps ignoring what it's told (a whole night off-plan, otherwise unseen)
+        since = (getattr(self.c, "unconfirmed_since", None) or {}).get(pv["zone"])
+        if (online and since and now - since >= IGNORED_AFTER_S and n["state"] in ("rhythm", "out_of_bed_hold", "waiting")
+                and self._once(f"ignored:{pv['zone']}:{night}")):
+            side = pv["zone"].title()
+            out.append(Message("problem", f"The bed isn't taking changes on the {side.lower()} side",
+                               f"It has ignored the last few temperature changes for {round((now - since) / 60)} minutes, so that "
+                               "side may not be following the plan. Turning the bed's power off and on usually clears it.",
+                               None, priority=4, tags=["warning"]))
+
     def observe(self, now: float, snap: dict) -> list[Message]:
         """Called every tick with the live snapshot. Returns whatever became due (sent now, or held for the morning)."""
         from . import voice
@@ -287,58 +355,11 @@ class Notifier:
                 person = self.c.person(pv["id"])
             except KeyError:
                 continue
-            prefs = person.settings.notify
-            n, sch = pv["night"], pv.get("schedule")
-            if n.get("guest"):
-                continue                                  # a guest's side: no reminders, nothing about the guest
-            # turned on by hand outside the rhythm (a nap, an early night) and nobody has been in it for a while
-            o = n.get("override") or {}
-            on_by_hand = bool(o.get("manual")) and n.get("target_c") is not None and not n.get("flash")
-            if on_by_hand and pv.get("presence", {}).get("present") is False:
-                since = self._empty_since.setdefault(person.id, now)
-                if (prefs.left_on and now - since >= LEFT_ON_AFTER_S
-                        and self._once(f"left_on:{person.id}:{int(o.get('set_ts') or 0)}")):
-                    t, b = self._say("left_on", {"name": person.name, "minutes": round((now - since) / 60)}, person, now)
-                    out.append(Message("left_on", t, b, person.id, [Action("Turn it off", "manual_off")], priority=3, tags=["zzz"]))
-            else:
-                self._empty_since.pop(person.id, None)
-            m = self._pet_question(person, now)
-            if m:
-                out.append(m)
-            if not sch:
-                continue
-            night = datetime.fromtimestamp(sch["bedtime"], tz).date().isoformat()
-            if prefs.away_precool and n["state"] == "away" and now >= sch["precool"] and self._once(f"away:{person.id}:{night}"):
-                t, b = self._say("away_precool", {"name": person.name}, person, now)
-                out.append(Message("away_precool", t, b, person.id,
-                                   [Action("Wait an hour", "pause", 60), Action("Off tonight", "skip"), Action("Start anyway", "start_now")],
-                                   tags=["house"]))
-            if prefs.empty_side and n["state"] == "missed" and self._once(f"empty:{person.id}:{night}"):
-                t, b = self._say("empty_side", {}, person, now)
-                out.append(Message("empty_side", t, b, person.id, [Action("Turn it off tonight", "skip")], priority=2, tags=["zzz"]))
-            if prefs.morning and n["state"] == "done" and sch["end"] <= now < sch["end"] + 4 * 3600 and self._once(f"morning:{person.id}:{night}"):
-                m = self._morning(person, night, now)
-                if m:
-                    out.append(m)
-            # a bed sensor that stops updating while someone's night is running
-            # (not while the whole bed is unreachable: "Can't reach the bed" already says so, once)
-            stale = bool(pv.get("presence", {}).get("stale")) and n["state"] in ("rhythm", "out_of_bed_hold") and online
-            if stale:
-                since = self._stale_since.setdefault(pv["zone"], now)
-                if now - since >= STALE_AFTER_S and self._once(f"stale:{pv['zone']}:{night}"):
-                    t, b = voice.say("problem_stale", {"side": pv["zone"].title()}, day=self._day(now), store=self.store)
-                    out.append(Message("problem", t, b, None, priority=4, tags=["warning"]))
-            else:
-                self._stale_since.pop(pv["zone"], None)
-            # the bed is online but this side keeps ignoring what it's told (a whole night off-plan, otherwise unseen)
-            since = (getattr(self.c, "unconfirmed_since", None) or {}).get(pv["zone"])
-            if (online and since and now - since >= IGNORED_AFTER_S and n["state"] in ("rhythm", "out_of_bed_hold", "waiting")
-                    and self._once(f"ignored:{pv['zone']}:{night}")):
-                side = pv["zone"].title()
-                out.append(Message("problem", f"The bed isn't taking changes on the {side.lower()} side",
-                                   f"It has ignored the last few temperature changes for {round((now - since) / 60)} minutes, so that "
-                                   "side may not be following the plan. Turning the bed's power off and on usually clears it.",
-                                   None, priority=4, tags=["warning"]))
+            try:
+                self._observe_person(person, pv, now, out, online)
+            except Exception:  # noqa: BLE001  (one person's trouble never stops the other's messages)
+                log.exception("notifications failed for %s", person.id)
+        self._tick_errors(snap, now, out)
         if not online:
             self._offline_since = self._offline_since or now
             if now - self._offline_since >= OFFLINE_AFTER_S and self._once(f"offline:{int(self._offline_since)}"):
@@ -351,6 +372,23 @@ class Notifier:
             self.send(m)
         self._release(now)
         return out
+
+    def _tick_errors(self, snap: dict, now: float, out: list) -> None:
+        """A person's update has failed many ticks in a row (controller: snapshot system.tick_errors): their side may be
+        stuck at its last setting. Said once per night."""
+        from datetime import timedelta
+        night = (datetime.fromtimestamp(now, self.c.clock.tz) - timedelta(hours=12)).date().isoformat()
+        for pid, n in ((snap.get("system") or {}).get("tick_errors") or {}).items():
+            if n < TICK_FAIL_AFTER:
+                continue
+            try:
+                person = self.c.person(pid)
+            except KeyError:
+                continue
+            if self._once(f"tick_errors:{pid}:{night}"):
+                out.append(Message("problem", f"{person.name}'s side isn't updating",
+                                   f"Something went wrong working out {person.name}'s night, so that side may stay at its "
+                                   "last setting. Restarting Ember & Tide usually clears it.", None, priority=4, tags=["warning"]))
 
     def _release(self, now: float) -> None:
         """Held messages: each person gets them once, inside their morning summary, or as one "While you slept" note
@@ -397,11 +435,43 @@ class Notifier:
                     Action("Not sure", "pet_unsure", ref=q["id"])]
         return Message("pet_question", t, b, person.id, actions=acts, priority=2, tags=["dog"])
 
+    def _away_check(self, person, now: float) -> Message | None:
+        """The day after a night they clearly weren't in their side of the bed: "Were you away?" (or, marked away,
+        "Back home?" when their ring shows them asleep in bed). Once per night, 7 AM to 9 PM; checked every 10 min."""
+        last = self.__dict__.setdefault("_ac_checked", {})
+        if last.get(person.id, 0) > now - 600 and now >= last.get(person.id, 0):
+            return None
+        last[person.id] = now
+        from .engine import away
+        q = away.morning_check(self.c, person, now)
+        if not q:
+            return None
+        from datetime import date
+        d = date.fromisoformat(q["night"])
+        day = d.strftime("%A")
+        if q["kind"] == "away":
+            t = f"Were you away {day} night?"
+            b = (f"It looks like you weren't in bed ({q['why']}). If you were away, that night is left out of what "
+                 "Autopilot learns about you.")
+            acts = [Action("Away a few days", "away_away", ref=q["night"]), Action("Just that night", "away_night", ref=q["night"]),
+                    Action("I was home", "away_home", ref=q["night"])]
+        else:
+            t = "Welcome back?"
+            b = f"You're marked away, but it looks like you slept in your side {day} night ({q['why']})."
+            acts = [Action("Yes, I'm back", "away_back", ref=q["night"]), Action("Still away", "away_still", ref=q["night"])]
+        return Message("away_check", t, b, person.id, actions=acts, priority=3, tags=["house"])
+
     def _morning(self, person, night: str, now: float) -> Message | None:
         """The morning summary: the night in a line, anything held overnight, an open pet question, and one action
         (tap to check in)."""
         from datetime import date
         from .engine.summary import summarize
+        from .engine.away import is_away
+        if is_away(self.store, person.id, now):
+            return None                                   # away: whatever was on their side wasn't their night
+        from .engine.away import night_verdict
+        if night_verdict(self.c, person, date.fromisoformat(night))[0] == "away":
+            return None                                   # clearly not in bed: the away check asks instead
         s = summarize(self.store, person, date.fromisoformat(night), self.c.clock.tz, now)
         if not s or not s.get("has_data") or not s.get("in_bed_min"):
             return None                                   # no night in bed: nothing to sum up
@@ -460,6 +530,12 @@ class Notifier:
                 e.clear_override(now)
         elif a["act"].startswith("feel_"):
             save_feel(self.c, a["person"], a["act"][5:], now, source="notification")
+        elif a["act"].startswith("away_"):
+            from .engine import away
+            try:                          # the question may already be answered in the app (then nothing)
+                away.answer_check(self.c, a["person"], a.get("ref") or "", a["act"][5:], now)
+            except (KeyError, ValueError):
+                pass
         elif a["act"].startswith("pet_"):
             from .engine import petq
             try:                          # one pet answer; the question may already be answered in the app (then nothing)
@@ -485,6 +561,10 @@ class Notifier:
             return f"Paused {name}'s side until {t}"
         if a["act"].startswith("feel_"):
             return {"feel_cold": "Noted: too cold", "feel_right": "Noted: just right", "feel_warm": "Noted: too warm"}[a["act"]]
+        if a["act"].startswith("away_"):
+            return {"away_away": "Marked away: your side is off until you're back", "away_night": "Noted: that night is left out",
+                    "away_home": "Noted: you were home", "away_back": "Welcome back: your side runs again tonight",
+                    "away_still": "Noted: still away"}[a["act"]]
         if a["act"].startswith("pet_"):
             return {"pet_yes": "Thanks: noted as the pet", "pet_me": "Thanks: noted as you", "pet_unsure": "No problem: nothing changed"}[a["act"]]
         return {"manual_off": f"{name}'s side is off", "skip": f"{name}'s side is off for tonight", "start_now": f"Started {name}'s night",

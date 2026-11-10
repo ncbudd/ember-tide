@@ -69,6 +69,10 @@ class NightEngine:
         self.s = NightState()
         self.night: ResolvedNight | None = None
         self.busy_until: float | None = None       # set by the controller from calendar context
+        self.away = False                          # away for a while (engine/away.py), set by the controller each tick
+        # settling in (controller._start_gate): False = the bed radar / phone don't back this side's presence yet, so
+        # lying there doesn't start the night; None = no opinion (no radar), the usual start
+        self.start_gate: bool | None = None
         # cold / warm room (engine/padlag.py), set by the controller each tick: the bedroom now, this side's learned
         # warm/cool speed, and "don't warm early" (a too hot tap lately)
         self.room_c: float | None = None
@@ -154,10 +158,22 @@ class NightEngine:
     ALARM_EARLIER_S = 4 * 3600         # an alarm up to 4 h before the planned wake moves it earlier
     ALARM_LATER_S = 3 * 3600           # and up to 3 h after (a second, later alarm to sleep in) moves it later
 
-    def follow_alarm(self, now: float, alarm: float | None) -> bool:
+    SNOOZE_S = 30 * 60                                   # a later alarm this soon after the first one rang = snooze
+
+    def follow_alarm(self, now: float, alarm: float | None, reported: bool = False) -> bool:
         """Line tonight's wake up with the phone's next alarm (Settings: "Wake with my alarm"). Returns True when the
-        wake moved. A wake set by hand in the app wins; an alarm far from tonight's planned wake is someone else's day."""
-        if alarm is None or not getattr(self.person.settings, "wake_with_alarm", True) or self.s.wake_by_hand:
+        wake moved. A wake set by hand in the app wins; an alarm far from tonight's planned wake is someone else's day.
+        `reported`: the phone sent its next alarm lately. Then "no alarm" (None: none set, or the next one a day or more
+        away) means the followed alarm was turned off before it rang, and the planned wake comes back. A phone that has
+        gone quiet says nothing either way."""
+        if not getattr(self.person.settings, "wake_with_alarm", True) or self.s.wake_by_hand:
+            return False
+        if alarm is None:
+            fa = self.s.wake_from_alarm
+            if reported and fa and now < fa and self.s.wake_override == fa:
+                self.s.wake_override, self.s.wake_from_alarm = None, None
+                self._ev(now, "wake_alarm_cleared", was=fa, reason="no alarm")
+                return True
             return False
         from datetime import datetime
         d = night_date(datetime.fromtimestamp(now, self.tz))
@@ -176,6 +192,11 @@ class NightEngine:
                 return True
             return False
         if self.s.wake_from_alarm == alarm:
+            return False
+        fa = self.s.wake_from_alarm
+        if fa and fa <= now and fa < alarm <= fa + self.SNOOZE_S:
+            # the followed alarm already rang and the next one is a few minutes after it: a snooze. The wake holds
+            # at the time the alarm first rang (a reset alarm well after it is a real change of plan and is followed)
             return False
         self.s.wake_override, self.s.wake_from_alarm = alarm, alarm
         self._ev(now, "wake_from_alarm", wake=alarm, planned=planned)
@@ -217,7 +238,9 @@ class NightEngine:
             self.s.presence_since = None
             if self.s.started:
                 self.s.absent_since = self.s.absent_since or now
-        if (not self.s.started and sched.start_on_presence and present and self.s.presence_since
+        away = bool(getattr(self, "away", False))      # away for a while (engine/away.py): nothing starts it
+        if (not self.s.started and not away and self.start_gate is not False and sched.start_on_presence and present
+                and self.s.presence_since
                 and n.window_start <= now < n.wake - 3600 and now - self.s.presence_since >= confirm_min(self.person, sched) * 60):
             # earliest start = window_start; after window_end the empty side stops pre-cooling, but getting in still
             # starts the night (a 2:40 AM arrival should get a working bed), up to an hour before wake
@@ -231,14 +254,14 @@ class NightEngine:
                 # a change made while settling in is meant for the night you're starting, not the phase that just ended
                 _, ph = target_at(n, now)
                 o.phase_id = ph.id if ph else o.phase_id
-        if not self.s.started and not sched.start_on_presence and now >= n.bedtime:
+        if not self.s.started and not away and not sched.start_on_presence and now >= n.bedtime:
             self.s.started, self.s.in_bed = True, n.bedtime
         if present is None and active is None:
             self.s.unknown_since = self.s.unknown_since or now
         else:
             self.s.unknown_since = None
         busy = getattr(self, "busy_until", None)
-        if (not self.s.started and sched.start_on_presence and self.s.home is not False and now >= n.bedtime
+        if (not self.s.started and not away and sched.start_on_presence and self.s.home is not False and now >= n.bedtime
                 and self.s.unknown_since is not None and now - self.s.unknown_since >= 600 and now < n.wake - 3600
                 and not (busy and now < busy)):              # out at a late event: wait for it (plus travel) to end
             # the bed can't tell us whether anyone is in this side (sensor silent or frozen): don't leave the person
@@ -256,6 +279,8 @@ class NightEngine:
             state, base = "paused", None
         elif now >= n.end:
             state, base = "done", None
+        elif away:
+            state, base = "away", None
         elif self.s.started:
             if self.s.absent_since and now - self.s.absent_since > sched.absent_hold_min * 60:
                 state, base = "out_of_bed", None

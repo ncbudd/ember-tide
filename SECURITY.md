@@ -12,7 +12,8 @@ Only the latest release (and `main`) gets fixes. The project is early (0.x).
 
 ## Security model in brief
 
-- **Accounts:** the first visit creates the **owner**. Roles are **owner** (everything), **sleeper** (their own
+- **Accounts:** the first visit from the home network creates the **owner** (over a tunnel or proxy only with
+  `ET_TRUST_PROXY=on`). Roles are **owner** (everything), **sleeper** (their own
   side; the partner's side only as far as the partner shares it) and **viewer** (read only). Scripts and Home
   Assistant use per-purpose API keys (`Authorization: Bearer et_...`) created by the owner.
 - **Run it behind HTTPS.** Put it behind a tunnel or reverse proxy that terminates TLS (Cloudflare Tunnel, Caddy,

@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { api, appServer, isApp, setAppSession } from "./api";
+import { api, appServer, declineSecureAddress, forgetAppServer, isApp, learnServerId, rememberServerId, secureAddressOffer, setAppSession, switchToSecureAddress } from "./api";
+import Sheet from "./components/Sheet";
 import { nativeBars, nativeSignedOut, pushBeforeSignOut } from "./native";
 
 interface Principal { kind: "user" | "token" | "open"; id: string; name: string; role: "owner" | "sleeper" | "viewer"; person: string | null }
@@ -78,7 +79,7 @@ function Login({ done }: { done: () => void }) {
         {err && <p className="err" role="alert">{err}</p>}
         <button className="btn pri big" disabled={busy || !u || !p}>{busy ? "Signing in…" : "Sign in"}</button>
       </form>
-      {isApp() && <button type="button" className="link" style={{ textAlign: "center" }} onClick={() => { setAppSession("", null); localStorage.removeItem("et-server"); location.reload(); }}>Server: {appServer().replace(/^https?:\/\//, "")} · change</button>}
+      {isApp() && <button type="button" className="link" style={{ textAlign: "center" }} onClick={() => { forgetAppServer(); location.reload(); }}>Server: {appServer().replace(/^https?:\/\//, "")} · change</button>}
       <p className="faint" style={{ fontSize: 12.5 }}>Forgot it? The owner can make you a reset link in Studio → People &amp; access. Owners can run <code>reset-password</code> on the server (see the README).</p>
     </Shell>
   );
@@ -193,10 +194,11 @@ function ServerPick({ done }: { done: () => void }) {
       const r = await fetch(url + "/healthz", { credentials: "omit" });
       const j = r.ok ? await r.json() : null;
       ok = !!(j && j.ok === true && typeof j.version === "string");     // it really is an Ember & Tide server
+      if (ok) { forgetAppServer(); rememberServerId(j.id); }               // the server the person chose
     } catch { ok = false; }
     if (!ok) throw new Error("Couldn't reach Ember & Tide there. Check the address (and that your phone is on the same network for a home address).");
     setAppSession(url, null);
-    done();
+    done();                                                    // a home http address is offered its https one next
   });
   return (
     <Shell>
@@ -218,7 +220,14 @@ export function AuthGate({ children }: { children: ReactNode }) {
     try { setState(await api.get<AuthState>("/api/auth/state")); setDown(false); } catch { setDown(true); }
   }, []);
   const [needServer, setNeedServer] = useState(() => isApp() && !appServer());
-  useEffect(() => { if (!needServer) refresh(); }, [refresh, needServer]);
+  // the server's encrypted address, offered (never taken silently) when the app reached it over plain http at home
+  const [offer, setOffer] = useState<string | null>(null);
+  useEffect(() => {
+    if (needServer) return;
+    void refresh();
+    void learnServerId();
+    void secureAddressOffer().then(setOffer);
+  }, [refresh, needServer]);
   useEffect(() => {
     const on = () => refresh();
     window.addEventListener("et-signed-out", on);
@@ -238,16 +247,41 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => clearTimeout(t);
   }, [down]);
 
-  if (needServer) return <ServerPick done={() => setNeedServer(false)} />;
-  if (location.pathname === "/act") return <ActPage />;
-  if (!state) return <Shell>
-    <p className="mute">{down && downLong ? "Can't reach your server. Retrying…" : "Connecting…"}</p>
-    {down && downLong && isApp() && <button type="button" className="link" onClick={() => { setAppSession("", null); localStorage.removeItem("et-server"); location.reload(); }}>
-      Server: {appServer().replace(/^https?:\/\//, "")} · change
-    </button>}
-  </Shell>;
-  if (state.setup_needed) return <Setup people={state.people ?? []} done={refresh} />;
-  if (!state.me) return location.pathname === "/join" ? <Join done={refresh} /> : <Login done={refresh} />;
-  const signOut = async () => { await pushBeforeSignOut(); try { await api.post("/api/auth/logout"); } finally { if (isApp()) { setAppSession(null, null); await nativeSignedOut(); } await refresh(); } };
-  return <A.Provider value={{ state, me: state.me, isOwner: state.me.role === "owner", signOut, refresh }}>{children}</A.Provider>;
+  const page = (() => {
+    if (needServer) return <ServerPick done={() => setNeedServer(false)} />;
+    if (location.pathname === "/act") return <ActPage />;
+    if (!state) return <Shell>
+      <p className="mute">{down && downLong ? "Can't reach your server. Retrying…" : "Connecting…"}</p>
+      {down && downLong && isApp() && <button type="button" className="link" onClick={() => { forgetAppServer(); location.reload(); }}>
+        Server: {appServer().replace(/^https?:\/\//, "")} · change
+      </button>}
+    </Shell>;
+    if (state.setup_needed) return <Setup people={state.people ?? []} done={refresh} />;
+    if (!state.me) return location.pathname === "/join" ? <Join done={refresh} /> : <Login done={refresh} />;
+    const signOut = async () => { await pushBeforeSignOut(); try { await api.post("/api/auth/logout"); } finally { if (isApp()) { setAppSession(null, null); await nativeSignedOut(); } await refresh(); } };
+    return <A.Provider value={{ state, me: state.me, isOwner: state.me.role === "owner", signOut, refresh }}>{children}</A.Provider>;
+  })();
+  const answer = async (yes: boolean) => {
+    const sec = offer;
+    setOffer(null);
+    if (!sec) return;
+    if (!yes) { declineSecureAddress(sec); return; }              // remembered: not asked again for this address
+    if (await switchToSecureAddress(sec)) void refresh();
+  };
+  return <>{page}{offer && <SecureOffer address={offer} onAnswer={answer} />}</>;
+}
+
+/** Asked once, calmly: the server says it also has an encrypted address. Only the person can tell it's really
+ *  theirs (a plain-http answer on the home Wi-Fi could be faked), so the app never moves there on its own. */
+function SecureOffer({ address, onAnswer }: { address: string; onAnswer: (yes: boolean) => void }) {
+  const host = address.replace(/^https:\/\//, "");
+  return <Sheet onClose={() => onAnswer(false)} role="alertdialog" aria-labelledby="secure-title" aria-describedby="secure-desc">
+    <h2 id="secure-title" style={{ fontSize: 20 }}>Use the secure address?</h2>
+    <p style={{ fontSize: 17, fontWeight: 600, overflowWrap: "anywhere", margin: "2px 0" }}>{host}</p>
+    <p id="secure-desc" className="mute" style={{ fontSize: 14 }}>Your server says it can also be reached here, encrypted, at home and away. Say yes only if you recognise this address. Your home address stays as a backup.</p>
+    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 6 }}>
+      <button className="btn" onClick={() => onAnswer(false)}>No thanks</button>
+      <button className="btn pri" onClick={() => onAnswer(true)}>Use it</button>
+    </div>
+  </Sheet>;
 }

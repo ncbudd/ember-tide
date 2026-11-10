@@ -512,6 +512,25 @@ async def test_the_warm_wake_follows_the_phones_alarm(tmp_path):
     assert not e.follow_alarm(n.clock.now_ts(), early + 900)           # switched off
 
 
+async def test_snoozing_the_alarm_holds_the_wake(tmp_path):
+    """The followed alarm rings and is snoozed: the phone's next alarm is now 9 min later. The wake stays at the
+    time the alarm first rang; resetting the alarm an hour later (sleeping in on purpose) is still followed."""
+    n = Night(tmp_path, "2026-11-05T22:00")
+    n.present("left", True)
+    await n.until("2026-11-06T03:00")
+    e = n.e(n.p1)
+    alarm = e.night.wake - 3600
+    assert e.follow_alarm(n.clock.now_ts(), alarm)
+    from datetime import datetime
+    await n.until(datetime.fromtimestamp(alarm + 30, n.clock.tz).strftime("%Y-%m-%dT%H:%M"))
+    now = n.clock.now_ts()
+    assert not e.follow_alarm(now, alarm + 9 * 60)                      # snooze
+    assert not e.follow_alarm(now, alarm + 18 * 60)                     # and again
+    assert abs(e.s.wake_override - alarm) < 1
+    assert e.follow_alarm(now, alarm + 3600)                            # a new alarm an hour later: followed
+    assert abs(e.s.wake_override - (alarm + 3600)) < 1
+
+
 def test_a_short_sit_down_hours_before_isnt_getting_into_bed():
     """2026-11-09: 30 s on her side at 11:21 PM (sitting on the edge / the dog), then in bed from 12:55."""
     from datetime import date
@@ -548,3 +567,25 @@ async def test_a_temperature_set_in_the_night_doesnt_keep_an_empty_side_running(
     assert e.s.state in ("out_of_bed", "done") and e.s.target_c is None
     await n.until("2026-11-06T09:00")
     assert e.s.target_c is None
+
+
+async def test_one_persons_error_doesnt_stop_the_other_side(tmp_path, monkeypatch):
+    """A failure in one sleeper's update (a broken engine step) is logged and the other side keeps running; a broken
+    context source alone doesn't stop that sleeper's own night either."""
+    n = Night(tmp_path, "2026-11-05T21:30")
+    n.present("left", True)
+    n.present("right", True)
+    a, b = n.p1, n.p2
+
+    def boom(*_a, **_k):
+        raise RuntimeError("broken")
+    monkeypatch.setattr(n.e(a), "tick", boom)
+    await n.until("2026-11-06T01:00")
+    assert n.e(b).s.started and n.e(b).s.target_c is not None
+    assert n.c._person_errors.get(a.id, 0) > 0 and b.id not in n.c._person_errors
+    monkeypatch.undo()
+    import embertide.engine.context as cx
+    monkeypatch.setattr(cx, "person_context", boom)
+    await n.step(40)
+    assert a.id not in n.c._person_errors, n.c._person_errors
+    assert n.e(a).s.started, n.e(a).s.state

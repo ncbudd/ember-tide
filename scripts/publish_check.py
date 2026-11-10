@@ -6,7 +6,9 @@ Scans the content of every tracked file (`git ls-files`) for
       user:password@ in URLs, password=... literals;
   (b) a denylist of private words: one regex per line (blank lines and # comments ignored), read from the
       file named by $PUBLISH_DENYLIST, else ../ember-tide-private/publish-denylist.txt (outside this repo).
-With --history it also scans every commit message (subject + body) against the denylist.
+With --history it also scans, against the denylist, every commit message (subject + body) and every line any commit
+ever added, so a word that was committed and later edited out or deleted is still found (`git log -p`, streamed).
+--all-refs widens --history from HEAD to every branch and tag. Nothing is rewritten.
 
 Exit status 1 if anything is found; hits print as file:line: reason. Run from anywhere inside the repo.
 """
@@ -80,9 +82,13 @@ def scan_tree(root: Path, deny: list[re.Pattern]) -> list[str]:
     return hits
 
 
-def scan_history(root: Path, deny: list[re.Pattern]) -> list[str]:
+def _revs(all_refs: bool) -> list[str]:
+    return ["--all"] if all_refs else ["HEAD"]
+
+
+def scan_history(root: Path, deny: list[re.Pattern], all_refs: bool = False) -> list[str]:
     hits = []
-    log = run_git("log", "--format=%x00%h%x01%s%n%b", cwd=root)
+    log = run_git("log", *_revs(all_refs), "--format=%x00%h%x01%s%n%b", cwd=root)
     for chunk in log.split("\0"):
         if not chunk.strip():
             continue
@@ -93,6 +99,40 @@ def scan_history(root: Path, deny: list[re.Pattern]) -> list[str]:
     return hits
 
 
+def scan_history_contents(root: Path, deny: list[re.Pattern], all_refs: bool = False) -> list[str]:
+    """Every line any commit ever added (`git log -p -U0`, streamed): a word that was committed and later removed is
+    still in the history that would be published. One hit per commit, file and pattern."""
+    if not deny:
+        return []
+    anyrx = re.compile("|".join(f"(?:{rx.pattern})" for rx in deny), re.IGNORECASE)   # one search per line first
+    hits, seen = [], set()
+    commit = path = ""
+    cmd = ["git", "log", *_revs(all_refs), "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
+           "--format=%x00%h"]
+    with subprocess.Popen(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                          text=True, encoding="utf-8", errors="replace") as proc:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            if line.startswith("\0"):
+                commit, path = line[1:].strip(), ""
+            elif line.startswith("+++ "):
+                p = line[4:].rstrip("\r\n")
+                path = "" if p == "/dev/null" else (p[2:] if p.startswith("b/") else p)
+            elif line.startswith("+") and path:
+                if path.lower().endswith(SKIP_SUFFIXES) or Path(path).name in SKIP_NAMES:
+                    continue
+                if "publish-check: ok" in line or not anyrx.search(line):
+                    continue
+                for rx in deny:
+                    if rx.search(line) and (commit, path, rx.pattern) not in seen:
+                        seen.add((commit, path, rx.pattern))
+                        hits.append(f"commit {commit}: {path}: denylist /{rx.pattern}/")
+        err = proc.stderr.read() if proc.stderr else ""
+    if proc.returncode:
+        raise subprocess.CalledProcessError(proc.returncode, cmd, stderr=err)
+    return hits
+
+
 def default_denylist(root: Path) -> Path:
     env = os.environ.get("PUBLISH_DENYLIST")
     return Path(env) if env else (root.parent / "ember-tide-private" / "publish-denylist.txt")
@@ -100,7 +140,9 @@ def default_denylist(root: Path) -> Path:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--history", action="store_true", help="also scan commit messages against the denylist")
+    ap.add_argument("--history", action="store_true",
+                    help="also scan commit messages and every past version of every file against the denylist")
+    ap.add_argument("--all-refs", action="store_true", help="with --history: every branch and tag, not just HEAD")
     ap.add_argument("--root", type=Path, default=Path.cwd(), help="a path inside the repo (default: cwd)")
     a = ap.parse_args(argv)
     root = repo_root(a.root)
@@ -110,7 +152,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"warning: no private-word denylist at {dl}; only generic secret patterns are checked", file=sys.stderr)
     hits = scan_tree(root, deny)
     if a.history:
-        hits += scan_history(root, deny)
+        hits += scan_history(root, deny, a.all_refs)
+        hits += scan_history_contents(root, deny, a.all_refs)
     for h in hits:
         print(h)
     print(f"publish_check: {len(hits)} hit(s)", file=sys.stderr)

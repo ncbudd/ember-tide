@@ -125,7 +125,7 @@ def build_dials_router(state) -> APIRouter:
                     return [], "Home Assistant refused the saved token. Update it in Studio → Integrations → Home Assistant."
                 st = await http.get(c["url"] + "/api/states")
                 return (from_states(st.json()), None) if st.status_code == 200 else ([], f"Home Assistant answered {st.status_code}.")
-        except (httpx.ConnectError, httpx.TimeoutException):
+        except (httpx.HTTPError, httpx.InvalidURL, ValueError):         # unreachable, bad address, or a reply that isn't JSON
             return [], "Couldn't reach Home Assistant right now."
 
     def reported_side(home: str | None) -> str | None:

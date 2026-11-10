@@ -41,7 +41,11 @@ public class MainActivity extends BridgeActivity {
         applyOrientation(getResources().getConfiguration());
         windowInfo = new WindowInfoTrackerCallbackAdapter(WindowInfoTracker.getOrCreate(this));
         pushKeyboard(getResources().getConfiguration());
-        takeIntent(getIntent());
+        // not again when the activity is recreated, or reopened from Recents with the old launch intent
+        Intent launch = getIntent();
+        boolean again = savedInstanceState != null
+                || (launch != null && (launch.getFlags() & Intent.FLAG_ACTIVITY_LAUNCHED_FROM_HISTORY) != 0);
+        if (!again) takeIntent(launch);
     }
 
     @Override

@@ -56,6 +56,16 @@ class TonightBody(BaseModel):
     source: str = Field("app", max_length=20)
 
 
+class AwayCheckBody(BaseModel):
+    night: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
+    answer: str
+
+
+class AwayBody(BaseModel):
+    away: bool
+    until: float | None = None    # unix seconds; back automatically then
+
+
 class ContextBody(BaseModel):
     home: bool | None = None
     wake: float | None = None     # unix seconds, e.g. from a phone alarm
@@ -116,7 +126,12 @@ def for_viewer(snap: dict | None, who) -> dict | None:
         pres = {k: (None if k in PRIVATE_PRESENCE else v) for k, v in (p.get("presence") or {}).items()}
         if isinstance(pres.get("fusion"), dict):
             pres["fusion"] = {"present": pres["fusion"].get("present")}
-        night = {**(p.get("night") or {}), "context": None}
+        n = p.get("night") or {}
+        away = n.get("away")
+        # `home` is the phone / home-sensor verdict (location context, private like `context`); `away` stays because
+        # the partner is meant to see "away until Friday, their side stays off", but only its dates
+        night = {**n, "context": None, "away_check": None, "home": None,
+                 "away": {"since": away.get("since"), "until": away.get("until"), "by": None, "held": 0} if isinstance(away, dict) else away}
         people.append({**p, "presence": pres, "night": night})
     return {**snap, "people": people}
 
@@ -240,6 +255,40 @@ def build_router(app_state) -> APIRouter:
                 raise HTTPException(422, "wake time must be within the next 24 hours")
             st = ctl().engine_for(pid).s
             st.wake_override, st.wake_by_hand = b.wake, True       # by hand: the phone's alarm no longer moves it
+        return await refresh(pid)
+
+    @r.post("/people/{pid}/away")
+    async def set_away(pid: str, b: AwayBody, request: Request):
+        """Away for a while: the night pauses (and so does the calibration week) until they're back."""
+        find(pid)
+        not_guest(pid)
+        from .engine import away
+        c = ctl()
+        now = c.clock.now_ts()
+        who = request.scope.get("state", {}).get("principal")
+        by = getattr(who, "person", None) or "app"
+        if b.away:
+            if b.until is not None and not now < b.until <= now + 90 * 86400:
+                raise HTTPException(422, "the end date must be within the next 90 days")
+            away.start(c, pid, now, by=by, until=b.until)
+            e = c.engine_for(pid)
+            if e.s.started and e.s.state in ("waiting", "rhythm", "out_of_bed_hold", "out_of_bed"):
+                e.s.started, e.s.in_bed = False, None          # started by whatever lay there: not their night
+        else:
+            away.end(c, pid, now, "back", by=by)
+        return await refresh(pid)
+
+    @r.post("/people/{pid}/away-check")
+    async def away_check(pid: str, b: AwayCheckBody):
+        """The morning check answered: away / night / home, or back / still."""
+        find(pid)
+        from .engine import away
+        try:
+            away.answer_check(ctl(), pid, b.night, b.answer, ctl().clock.now_ts())
+        except KeyError:
+            raise HTTPException(404, "no such question")
+        except ValueError as ex:
+            raise HTTPException(422, str(ex))
         return await refresh(pid)
 
     # ---------- configuration ----------
@@ -375,15 +424,15 @@ def build_router(app_state) -> APIRouter:
     async def nights(pid: str, count: int = 7):
         from .engine.summary import recent
         c = ctl()
-        return recent(c.store, find(pid), c.clock.tz, c.clock.now_ts(), min(30, count))
+        return recent(c.store, find(pid), c.clock.tz, c.clock.now_ts(), max(1, min(30, count)))
 
     @r.get("/people/{pid}/night")
     async def night(pid: str, date: str | None = None):
-        from datetime import date as _date
+        from .autopilot_api import _day
         from .engine.rhythm import night_date
         from .engine.summary import summarize
         c = ctl()
-        d = _date.fromisoformat(date) if date else night_date(c.clock.now())
+        d = _day(date) if date else night_date(c.clock.now())
         p = find(pid)
         s = summarize(c.store, p, d, c.clock.tz, c.clock.now_ts(), series=True)
         if s is None:
@@ -470,12 +519,12 @@ def build_router(app_state) -> APIRouter:
             if zone != mine:
                 raise HTTPException(403, "That's their own sleep data.")
         now = ctl().clock.now_ts()
-        return ctl().store.history(zone, now - min(hours, 24 * 14) * 3600, step_s=max(step, 15))
+        return ctl().store.history(zone, now - max(0.0, min(hours, 24 * 14)) * 3600, step_s=max(step, 15))
 
     @r.get("/events")
     async def events(request: Request, limit: int = 100, person: str | None = None):
         who = _viewer(request)
-        evs = ctl().store.events(limit=min(limit, 5000), person=person)
+        evs = ctl().store.events(limit=max(1, min(limit, 5000)), person=person)
         if who is not None:                                # yours and the household's, not the partner's notes and nights
             evs = [e for e in evs if e.get("person") in (None, who.person)]
         return evs
@@ -490,7 +539,7 @@ def build_router(app_state) -> APIRouter:
             if who is not None and who.role != "owner" and who.person != p.id:
                 continue                                   # your own data only, unless you're the owner
             name = f"P{i + 1}" if pseudonymize else p.name
-            for h in c.store.history(p.zone, now - hours * 3600, person=p.id):
+            for h in c.store.history(p.zone, now - max(0.0, hours) * 3600, person=p.id):
                 rows.append({"person": name, "zone": p.zone,
                              "time": datetime.fromtimestamp(h["ts"], c.clock.tz).isoformat(), **{k: v for k, v in h.items() if k != "ts"}})
         rows.sort(key=lambda x: x["time"])

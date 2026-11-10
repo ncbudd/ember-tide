@@ -22,6 +22,7 @@ public class EmberNativePlugin extends Plugin {
     public void configure(PluginCall call) {
         Ember.configure(getContext(), call.getString("server", ""), call.getString("token", ""), call.getString("person", ""));
         EmberWear.signIn(getContext(), call.getString("server", ""), call.getString("token", ""), call.getString("person", ""));
+        PhoneSources.INSTANCE.schedule(getContext());          // back after a sign-out (no-op when no source is on)
         new Thread(() -> EmberWidget.refreshAll(getContext())).start();
         call.resolve();
     }
@@ -29,6 +30,8 @@ public class EmberNativePlugin extends Plugin {
     @PluginMethod
     public void signOut(PluginCall call) {
         Ember.clear(getContext());
+        HealthSync.INSTANCE.unschedule(getContext());        // the background jobs have nothing to do signed out
+        PhoneSources.INSTANCE.unschedule(getContext());
         EmberWear.signOut(getContext());
         FlashNotifier.clear(getContext());
         new Thread(() -> EmberWidget.refreshAll(getContext())).start();

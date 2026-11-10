@@ -26,7 +26,12 @@ class EmberHealthPlugin : Plugin() {
     @PluginMethod
     fun status(call: PluginCall) {
         scope.launch {
-            try { reply(call, HealthSync.status(context)) } catch (e: Exception) { call.reject(e.message ?: "status failed") }
+            try {
+                val st = HealthSync.status(context)
+                // the 6-hour job is cancelled on sign-out; signed in again, bring it back (KEEP: no-op if already there)
+                if (st.optBoolean("connected") && Ember.ready(context)) HealthSync.schedule(context)
+                reply(call, st)
+            } catch (e: Exception) { call.reject(e.message ?: "status failed") }
         }
     }
 

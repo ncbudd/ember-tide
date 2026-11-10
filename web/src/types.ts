@@ -4,7 +4,7 @@ export interface FlashSettings { target_c: number; relative: boolean; delta_c: n
 export interface AutopilotPolicy { mode: "off" | "suggest" | "act"; max_delta_c: number; floor_c: number; ceiling_c: number; max_actions: number; min_gap_min: number; phases: string[]; quiet_before_wake_min: number; signals: string[]; sensitivity: "low" | "medium" | "high"; respect_manual_min: number; ai_review: boolean; suggest_manual: boolean; suggest_cadence: "morning" | "weekly" | "monthly" | "off"; suggest_weekday: number; learn_nights: number; learn_skip: boolean; learn_since?: number | null; trust: { bed: number; wearable: number; room: number }; trust_more?: TrustMore }
 /** "Which to trust more" when the bed and a watch or ring disagree. */
 export type TrustMore = "wearable" | "balanced" | "bed";
-export interface Learning { need: number; have: number; done: boolean; skipped: boolean }
+export interface Learning { need: number; have: number; done: boolean; skipped: boolean; paused?: boolean }
 export interface Band { bed_c?: [number, number]; hr?: [number, number]; br?: [number, number]; skin?: [number, number]; restless?: number; feel_rate?: number }
 export interface Baseline { nights: number; restless_p90: number; restless_median: number; hr: number | null; skin: number | null; band?: Band }
 interface Suggestion { id: string; kind: "manual" | "pattern"; title: string; detail: string; phase: string; proposal: { rhythm_id: string; phase_id: string; field: string; from?: number; to: number } }
@@ -26,7 +26,9 @@ interface FlashState { kind: "hot" | "cold"; start: number; end: number; ease_en
 export interface GuestSide { since: number; on: boolean; temp_c: number; morning_off_min: number; ends: number | null; dial?: boolean }
 export interface NightView {
   state: string; phase_id: string | null; phase_name: string | null; started: boolean; in_bed: number | null;
-  base_c: number | null; target_c: number | null; skip: boolean; pause_until: number | null; home: boolean | null; context?: NightContext | null;
+  base_c: number | null; target_c: number | null; skip: boolean; pause_until: number | null; home: boolean | null; away?: { since: number; until: number | null; by: string | null; held: number } | null; away_check?: { night: string; kind: "away" | "back"; why: string } | null;
+  /** Settling in: gate false = the start is held until the bed backs the presence; absent when no bed radar is in use */
+  settle?: { gate: boolean; why: string; share?: number } | null; context?: NightContext | null;
   guest?: GuestSide | null;
   flash: FlashState | null; override: { until: string; temp_c: number | null; delta_c: number | null; phase_id: string | null; end_ts?: number | null; manual?: boolean } | null;
 }

@@ -119,7 +119,7 @@ def test_recalibrate_wipes_only_autopilot_learning_for_that_person(tmp_path):
         assert c.put("/api/people/p1/settings", json=s, headers=H).status_code == 200
         r = c.post("/api/people/p1/autopilot/recalibrate", headers=H).json()
         assert r["ok"] and r["wiped"]["decisions"] == 1 and r["wiped"]["rechecks"] == 1
-        assert r["learning"] == {"need": 7, "have": 0, "done": False, "skipped": False}
+        assert r["learning"] == {"need": 7, "have": 0, "done": False, "skipped": False, "paused": False}
         pol = c.get("/api/people/p1/autopilot").json()["policy"]
         assert pol["trust"] == {"bed": 1.0, "wearable": 1.0, "room": 1.0} and pol["learn_since"] >= now
         assert pol["sensitivity"] == "high", "other settings are kept"

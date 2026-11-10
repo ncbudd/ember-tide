@@ -246,7 +246,23 @@ def create_app(cfg: Config | None = None) -> FastAPI:
 
     @app.get("/healthz")
     async def healthz():
-        return {"ok": True, "version": __version__}
+        out = {"ok": True, "version": __version__}
+        # the app reached over plain http at home moves to the encrypted address (so the session isn't sent in the
+        # clear on the home network), after checking that address answers with this same server's id
+        try:
+            store = state.controller.store
+            sid = store.get("server_id")
+            if not sid:
+                import secrets
+                sid = secrets.token_hex(8)
+                store.put("server_id", sid)
+            out["id"] = sid
+            pub = state.notifier.public_url if getattr(state, "notifier", None) else None
+            if pub and pub.startswith("https://"):
+                out["secure_url"] = pub.rstrip("/")
+        except Exception:  # noqa: BLE001  (still up even before the controller is ready)
+            pass
+        return out
 
     web = cfg.web_dir or Path(__file__).resolve().parents[2] / "web" / "dist"
     if web.exists():

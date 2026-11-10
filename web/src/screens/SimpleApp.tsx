@@ -8,6 +8,7 @@ import { useAuth } from "../auth";
 import { useApp } from "../ctx";
 import { clock, colorKey, COLORS, fToC, mmss, personaColor, stepC, tempNum } from "../format";
 import type { PersonSettings, PersonView, Rhythm, Snapshot } from "../types";
+import AwayNote from "../components/AwayNote";
 import PhoneNotifications from "./PhoneNotifications";
 import PhoneSources from "./PhoneSources";
 
@@ -40,7 +41,7 @@ function describe(p: PersonView, snap: Snapshot): { big: string; line: string; o
   switch (n.state) {
     case "skipped": return { big: "Off", line: "Off for tonight", on: false };
     case "paused": return { big: "Off", line: n.pause_until ? `Paused until ${clock(n.pause_until, tz)}` : "Paused", on: false };
-    case "away": return { big: "Away", line: "It will wait until you're home", on: false };
+    case "away": return { big: "Away", line: n.away ? "You're marked away. Your side stays off until you're back" : "It will wait until you're home", on: false };
     case "done": return { big: "Off", line: "All done · see you tonight", on: false };
     case "missed": return { big: "Off", line: "It starts when you get into bed", on: false };
     case "no_rhythm": return { big: "Off", line: "No schedule yet", on: false };
@@ -50,6 +51,7 @@ function describe(p: PersonView, snap: Snapshot): { big: string; line: string; o
 
 function Home() {
   const { snap, me, act, say } = useApp();
+  const { isOwner } = useAuth();
   const [lastNight, setLastNight] = useState<{ date: string; temp?: string } | null>(null);
   const [thanks, setThanks] = useState(false);
   const morning = snap ? (() => { const h = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: snap.tz }).format(new Date(snap.now * 1000))); return h >= 5 && h < 13; })() : false;
@@ -88,6 +90,8 @@ function Home() {
         <span className="sa-line">{d.line}</span>
       </div>
 
+      <AwayNote person={me} me={me} isOwner={isOwner} tz={snap.tz} />
+
       {morning && lastNight && !lastNight.temp && !thanks && (
         <div className="card sa-check">
           <span>How did you sleep?</span>
@@ -116,6 +120,7 @@ function Home() {
 
       <div className="sa-power">
         {n.override && !n.override.manual && !f && <button className="btn" onClick={() => act(`${base}/adjust/clear`)}>Back to my usual</button>}
+        {!n.away && <button className="btn" onClick={() => { void act(`${base}/away`, { away: true }); say("You're marked away. Your side stays off until you're back."); }}>Away for a few days</button>}
         {resumable ? <button className="btn" onClick={() => act(`${base}/tonight`, { action: "resume" })}>Turn back on</button>
           : n.override?.manual ? <button className="btn" onClick={() => act(`${base}/adjust/clear`)}>Turn off</button>
           : idle ? <button className="btn" onClick={() => act(`${base}/adjust`, { temp_c: first, until: "next_phase" })}>Turn on now</button>
@@ -151,7 +156,20 @@ function ScheduleCard({ rh, units, onSave }: { rh: Rhythm; units: "F" | "C"; onS
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => { timer.current = undefined; setState((await onSave(latest.current)) ? "Saved" : null); }, delay);
   };
-  useEffect(() => () => window.clearTimeout(timer.current), []);
+  // an edit still waiting for its timer is saved at once when you leave the tab or the page is hidden, not lost
+  const flush = () => {
+    if (!timer.current) return;
+    window.clearTimeout(timer.current);
+    timer.current = undefined;
+    void onSave(latest.current);
+  };
+  const flushRef = useRef(flush);
+  flushRef.current = flush;
+  useEffect(() => {
+    const hide = () => { if (document.visibilityState === "hidden") flushRef.current(); };
+    document.addEventListener("visibilitychange", hide);
+    return () => { document.removeEventListener("visibilitychange", hide); flushRef.current(); };
+  }, []);
   const step = units === "F" ? 5 / 9 : 0.5;
   const coolest = Math.min(...cur.phases.map(p => p.temp_c));
   const shift = (sign: number) => { const c = latest.current; save({ ...c, phases: c.phases.map(p => ({ ...p, temp_c: Math.round((p.temp_c + sign * step) * 100) / 100 })) }, 900); };

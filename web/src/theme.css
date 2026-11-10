@@ -2,7 +2,7 @@
   /* Ember & Tide: warm charcoal night; Tide (cool) and Ember (warm) carry both persona and temperature meaning.
      Calm rules: one large number per screen, soft surfaces, generous spacing, controls docked near the thumb. */
   --bg:#100e12; --surf:#19161c; --raise:#252029; --edge:#2e2832;
-  --text:#f2eadf; --mute:#a39aa4; --faint:#6f6772;
+  --text:#f2eadf; --mute:#a39aa4; --faint:#948c97;
   --p1:#5fb8b0; --p2:#ee8a55;
   /* person colours (Settings → Your colour); light-theme variants keep 4.5:1 */
   --pc-teal:#5fb8b0; --pc-orange:#ee8a55; --pc-blue:#79aee8; --pc-violet:#ae9af0; --pc-rose:#ec8fae; --pc-green:#93c47e; --pc-gold:#e0b45c;
@@ -45,7 +45,7 @@
 .dockctl .steps small{font-size:11px;color:var(--mute);margin-top:3px;font-weight:450}
 .dockctl button:disabled{opacity:.35;cursor:default}
 /* Simple screen: true black for OLED, softer text so nothing glows */
-.amoled{--bg:#000;--surf:#0b0b0c;--raise:#141416;--edge:#1c1c1f;--text:#e6ded2;--mute:#8e8790;--faint:#5c5660;--line:rgba(230,222,210,.07);--line2:rgba(230,222,210,.14);color-scheme:dark}
+.amoled{--bg:#000;--surf:#0b0b0c;--raise:#141416;--edge:#1c1c1f;--text:#e6ded2;--mute:#8e8790;--faint:#8d8590;--line:rgba(230,222,210,.07);--line2:rgba(230,222,210,.14);color-scheme:dark}
 /* optional red tint on the black Simple screen */
 .night{--pc-teal:#b9584c;--pc-orange:#b9584c;--pc-blue:#b9584c;--pc-violet:#b9584c;--pc-rose:#b9584c;--pc-green:#b9584c;--pc-gold:#b9584c;--bg:#000;--surf:#0f0806;--raise:#170c09;--edge:#22110d;--text:#b9584c;--mute:#7a3b31;--faint:#4d2620;--p1:#b9584c;--p2:#9c4a3f;--cool:#c4685b;--warm:#a5544a;--acc:#c4685b;--line:rgba(185,88,76,.12);--line2:rgba(185,88,76,.24);--good:#8a4a3f;color-scheme:dark}
 
@@ -185,7 +185,8 @@ a{color:var(--acc)}
 .chip[aria-pressed="true"],.chip[aria-checked="true"]{border-color:var(--acc);color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,transparent)}
 select,input[type=text],input[type=password],input[type=search],input[type=number],input[type=time],input[type=datetime-local]{background:var(--bg);color:var(--text);border:1px solid var(--line2);border-radius:10px;padding:8px 10px;font:inherit;box-sizing:border-box;min-height:38px}
 .banner{font-size:12.5px;border-radius:12px;padding:8px 12px;margin:10px 16px 0;background:color-mix(in srgb,var(--warn) 14%,transparent);border:1px solid color-mix(in srgb,var(--warn) 40%,transparent)}
-.toast{position:absolute;left:50%;bottom:90px;transform:translateX(-50%);background:var(--raise);border:1px solid var(--line2);border-radius:12px;padding:9px 14px;font-size:13px;z-index:50;max-width:90%;white-space:nowrap}
+.toast{position:absolute;left:50%;bottom:90px;transform:translateX(-50%);background:var(--raise);border:1px solid var(--line2);border-radius:12px;padding:9px 14px;font-size:13px;z-index:50;max-width:90%;width:max-content;text-align:center;overflow-wrap:anywhere}
+.toast:empty{opacity:0;pointer-events:none;padding:0;border-color:transparent}
 .breathe{animation:breathe 5s ease-in-out infinite}
 @keyframes breathe{0%,100%{opacity:.5}50%{opacity:1}}
 @media (prefers-reduced-motion:reduce){.breathe{animation:none}.app{transition:none}}
@@ -1159,3 +1160,15 @@ button.bedpick-half:focus-visible,.bedpick-whole:focus-visible{outline:2px solid
 .vmap-raw code{font-size:13px}
 .vmap-live{font-family:var(--mono,monospace);font-weight:500}
 @media (max-width:560px){.vmap-row{grid-template-columns:1fr}}
+
+/* phone UI: small controls get a 44px hit area without growing visually much (Studio and the short-screen layout keep their density) */
+.app:not(.compact) .top .icon-btn,.app:not(.compact) .dock .sub .icon-btn{min-height:44px;padding-left:14px;padding-right:14px}
+.app:not(.compact) .dock .sub .link,.app:not(.compact) .away-note .link{min-height:44px;display:inline-flex;align-items:center}
+.app:not(.compact) .tn .seg button{min-height:44px}
+.app:not(.compact) .planrow .pill,.app:not(.compact) .away-note .pill{min-height:44px;padding-left:16px;padding-right:16px}
+.app:not(.compact) .planrow .chips .chip,.app:not(.compact) .away-note .chips .chip{min-height:44px;padding:8px 14px;font-size:14px}
+/* the bed link is down: the number is the last one we heard, so it is dimmed */
+.stale{opacity:.45}
+.stale-note{display:block;font-size:12.5px;color:var(--mute);text-align:center}
+.sr-close{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.sr-close:focus{position:static;width:auto;height:auto;clip:auto}

@@ -86,7 +86,7 @@ export default function Settings() {
   const sumTonight = `Opens on ${s.default_view === "me" ? "me" : s.default_view === "both" ? "both" : partner?.name ?? "partner"} · °${u} · ${weightUnit(s)}`;
   const sumLook = `${appearanceShort(s.appearance)} · ${COLORS.find(c => c.key === colorKey({ zone: me.zone, settings: s }))?.name ?? ""}`;
   const sumFlash = flashSummary(s);
-  const sumAp = `${cap(ap.mode)}${ap.mode !== "off" && learning && !learning.done ? ` · learning ${learning.have} of ${learning.need}` : ""}`;
+  const sumAp = `${cap(ap.mode)}${ap.mode !== "off" && learning && !learning.done ? ` · learning ${learning.have} of ${learning.need}${learning.paused ? " (paused, away)" : ""}` : ""}`;
   const notifyOn = notifyOnCount(s);
   const guests = Object.entries(snap.guest ?? {}).filter(([, g]) => g?.on).map(([z]) => sideLower(z));
   const sumShare = sharingSummary(s);

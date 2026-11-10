@@ -75,7 +75,7 @@ export default function TodayCard({ me, snap }: { me: PersonView; snap: Snapshot
   if (item) lines.push({ text: item.title, strong: true });
   else if (guide) lines.push({ text: guide.title, strong: true });
   const lr = sug?.learning;
-  if (lr && !lr.done && me.settings.autopilot.mode !== "off") lines.push({ text: `Autopilot is learning your nights: ${lr.have} of ${lr.need}` });
+  if (lr && !lr.done && me.settings.autopilot.mode !== "off") lines.push({ text: lr.paused ? `Autopilot's learning is paused while you're away (${lr.have} of ${lr.need})` : `Autopilot is learning your nights: ${lr.have} of ${lr.need}` });
   const ctx = contextText(me.night, snap.now, snap.tz);
   const sc = me.schedule;
   if (ctx) lines.push({ text: ctx });

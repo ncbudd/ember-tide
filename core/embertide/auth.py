@@ -269,18 +269,29 @@ class Auth:
         return self._x("DELETE FROM invites WHERE substr(hash,1,12)=? AND used_by IS NULL", (prefix,))
 
     def accept_invite(self, code: str, username: str, password: str) -> dict:
-        inv = self.invite(code)
-        if not inv:
-            raise ValueError("This invite link has expired or was already used. Ask for a new one.")
-        if inv["reset_for"]:
-            uid = self._q("SELECT user_id FROM invites WHERE hash=?", (_h(code),))[0][0]
-            self.set_password(uid, None, password)
-            self._x("DELETE FROM sessions WHERE user_id=?", (uid,))            # anyone holding the old password is out
-            self._x("UPDATE invites SET used_by=? WHERE hash=?", (uid, _h(code)))
-            return self.user(uid)
-        u = self.create_user(username, password, inv["role"], inv["person"])
-        self._x("UPDATE invites SET used_by=? WHERE hash=?", (u["id"], _h(code)))
-        return u
+        """Redeem an invite or a password-reset link. The link is claimed first, in one UPDATE that only succeeds while
+        it's unused, so two requests at the same moment can't both redeem it; if the account or password step then
+        fails (a taken username, a weak password) the claim is let go and the link still works."""
+        gone = "This invite link has expired or was already used. Ask for a new one."
+        h = _h(code)
+        claim = "claiming:" + secrets.token_hex(8)
+        if self._x("UPDATE invites SET used_by=? WHERE hash=? AND used_by IS NULL AND expires>?", (claim, h, time.time())) != 1:
+            raise ValueError(gone)
+        try:
+            person, role, uid = self._q("SELECT person,role,user_id FROM invites WHERE hash=?", (h,))[0]
+            if uid:
+                if not self.user(uid):
+                    raise ValueError(gone)
+                self.set_password(uid, None, password)
+                self._x("DELETE FROM sessions WHERE user_id=?", (uid,))            # anyone holding the old password is out
+                done = self.user(uid)
+            else:
+                done = self.create_user(username, password, role, person)
+        except BaseException:
+            self._x("UPDATE invites SET used_by=NULL WHERE hash=? AND used_by=?", (h, claim))
+            raise
+        self._x("UPDATE invites SET used_by=? WHERE hash=? AND used_by=?", (done["id"], h, claim))
+        return done
 
     # ---------- API tokens ----------
     def new_token(self, name: str, role: str, person: str | None, by: str) -> tuple[str, dict]:
@@ -343,6 +354,7 @@ OWNER_ONLY = [
     re.compile(r"^/api/integrations"), re.compile(r"^/api/pets"), re.compile(r"^/api/ha(/|$)"), re.compile(r"^/api/client-errors$"),
     re.compile(r"^/api/guest/(left|right|both)/(start|stop)$"), re.compile(r"^/api/bed-orientation$"),
     re.compile(r"^/api/dials(/|$)"), re.compile(r"^/api/notify/log$"),   # dial setup asks HA with the owner's token; the log is everyone's messages
+    re.compile(r"^/api/dial-beacons$"),                                   # Studio's dial map; the phone app never reads it
 ]
 # no sign-in, the address itself is the key: OAuth redirects (single-use state) and owner-made webhooks (secret URL)
 PUBLIC_PATTERNS = [("GET", re.compile(r"^/api/cloud/[a-z]{2,20}/callback$")), ("POST", re.compile(r"^/api/hooks/[A-Za-z0-9_]{2,20}/[A-Za-z0-9_\-]{16,64}$"))]
@@ -361,8 +373,11 @@ def authorize(p: Principal, method: str, path: str, partner_shares) -> str | Non
         return None
     read = method in ("GET", "HEAD", "OPTIONS")
     if any(rx.match(path) for rx in OWNER_ONLY):
-        if read and path.startswith(("/api/sim", "/api/sources", "/api/calibration", "/api/pets", "/api/bed-orientation")):
-            return None                                     # seeing device setup is fine; changing it is the owner's
+        if read and path.startswith(("/api/sim", "/api/sources", "/api/pets", "/api/bed-orientation")):
+            return None                                     # seeing device setup is fine (the other person's live readings
+                                                            # are taken out); changing it is the owner's. Calibration holds
+                                                            # everyone's body weight: the owner's alone (Studio reads it
+                                                            # from /api/sources, redacted)
         return "Only the owner can do that."
     if read:
         m = PERSON_PATH.match(path)

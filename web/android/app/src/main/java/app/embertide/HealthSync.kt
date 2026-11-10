@@ -213,8 +213,9 @@ object HealthSync {
     }
 
     /** Sum amounts (steps, calories) into hourly totals, stamped at the end of each hour. */
-    private fun hourly(s: Series, end: Instant, amount: Double) {
+    private fun hourly(s: Series, end: Instant, amount: Double, now: Instant) {
         val h = Math.ceil(end.toEpochMilli() / 1000.0 / HOUR) * HOUR
+        if (h > now.toEpochMilli() / 1000.0) return      // the hour isn't over: it's sent whole on a later sync (the overlap re-reads it)
         val i = s.points.indexOfLast { it.first == h }
         if (i >= 0) s.points[i] = Pair(h, s.points[i].second + amount) else s.points += Pair(h, amount)
     }
@@ -296,12 +297,12 @@ object HealthSync {
         if (use("steps")) {
             val rs = readAll(cl, StepsRecord::class, from, now)
             read.put("steps", rs.size)
-            rs.forEach { hourly(series(all, "steps", it.metadata), it.endTime, it.count.toDouble()) }
+            rs.forEach { hourly(series(all, "steps", it.metadata), it.endTime, it.count.toDouble(), now) }
         }
         if (use("active_kcal")) {
             val rs = readAll(cl, ActiveCaloriesBurnedRecord::class, from, now)
             read.put("active_kcal", rs.size)
-            rs.forEach { hourly(series(all, "active_kcal", it.metadata), it.endTime, it.energy.inKilocalories) }
+            rs.forEach { hourly(series(all, "active_kcal", it.metadata), it.endTime, it.energy.inKilocalories, now) }
         }
         if (use("caffeine")) {
             val rs = readAll(cl, NutritionRecord::class, from, now).filter { (it.caffeine?.inMilligrams ?: 0.0) > 0 }
@@ -387,11 +388,15 @@ object HealthSync {
         override suspend fun doWork(): Result = try {
             sync(applicationContext)
             Result.success()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: SecurityException) {
             Result.success()                       // no background permission: the app syncs when it's opened instead
         } catch (e: Exception) {
-            android.util.Log.w("EmberTide", "health sync failed: ${e.message}")
-            Result.retry()
+            if (Ember.ready(applicationContext)) {
+                android.util.Log.w("EmberTide", "health sync failed: ${e.message}")
+                Result.retry()
+            } else Result.success()                // signed out: nothing to retry
         }
     }
 }

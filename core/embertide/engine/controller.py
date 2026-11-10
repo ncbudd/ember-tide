@@ -38,6 +38,7 @@ class Controller:
         self.presence = PresenceFilter()
         self.engines: dict[str, NightEngine] = {p.id: NightEngine(p, clock.tz) for p in household.people}
         self.home: dict[str, bool | None] = {p.id: None for p in household.people}      # manual switch (wins)
+        self._person_errors: dict[str, int] = {}
         self.context: dict[str, dict] = {}                                                # from context devices
         self._ctx_home: dict[str, bool | None] = {}
         self._last_cmd: dict[str, float] = {}
@@ -180,6 +181,8 @@ class Controller:
                     ep["pet_id"] = hit.id
             if pg.get("with_person"):
                 ep["with_person"] = True
+        # what the radar zones on this side said, before a pet guard zeroes them (_episode's "radar saw nobody" count)
+        self.__dict__.setdefault("_radar_raw", {})[zone] = [v for k, _, v in votes if k.startswith("presence:") and v is not None]
         if pg and pg["suspected"]:
             # the occupancy is explained by a pet: the strip and the scale (and a radar that sees the pet) say nothing
             # about a person; a radar saying empty stays as it is
@@ -242,6 +245,14 @@ class Controller:
                 ep["active"] = True                      # not a stretch to ask "was that the pet?" about
             s = self.presence.sides.get(zone)
             ep["ticks"] += 1
+            # what a radar zone on this side says meanwhile: a pad lit while the radar sees nobody is the partner's
+            # weight or movement leaking across, not someone (or the pet) lying there. Read from the votes as they came in
+            # (last tick), not as fused: a suspected pet zeroes them there, and a radar that sees the pet isn't "nobody"
+            radar = (self.__dict__.get("_radar_raw") or {}).get(zone) or []
+            if radar:
+                ep["radar_ticks"] = ep.get("radar_ticks", 0) + 1
+                if max(radar) < 0.5:
+                    ep["radar_empty"] = ep.get("radar_empty", 0) + 1
             if e is not None and e.s.in_bed and e.s.started:
                 ep["in_bed_ticks"] += 1
             if s is not None and s.hr:
@@ -490,33 +501,19 @@ class Controller:
         self._active_tick(now, guest_zones)
         if self.sources is not None:
             self.sources.paused_zones = guest_zones          # nothing from a guest's side is stored
+        try:
+            self._settle_sample(now)
+        except Exception:  # noqa: BLE001
+            log.exception("settle sample failed")
         for p in self.household.people:
-            e = self.engines[p.id]
-            present = self.fuse(p.zone)
-            if p.zone in guest_zones:
-                target = self._guest_tick(p, e, present, now)
-                if frame:
-                    await self._apply(p, target, frame, forced=bool(force and p.id in force))
-                continue
-            from .context import person_context
-            ctx = person_context(self.sources, self.store, p, now)
-            self.context[p.id] = ctx.to_dict()
-            manual = self.home.get(p.id)
-            home = manual if manual is not None else ctx.home
-            if home != self._ctx_home.get(p.id, None) and (p.id in self._ctx_home or home is not None):
-                self.store.event(now, "home_changed", p.id, "manual" if manual is not None else "context",
-                                 home=home, why="set by hand" if manual is not None else ctx.why)
-            self._ctx_home[p.id] = home
-            e.busy_until = ctx.busy_until
-            e.follow_alarm(now, ctx.next_alarm)                 # the warm wake lines up with the phone's alarm
-            self._room_inputs(p, e, now, frame)
-            target = e.tick(now, present, home, active=self.active_since)
-            self._room_shortfall(p, e, now, frame)
-            for ev in e.s.events:
-                self.store.event(ev.pop("ts"), ev.pop("kind"), ev.pop("person", p.id), ev.pop("source", None), **ev)
-            e.s.events.clear()
-            if frame:
-                await self._apply(p, target, frame, forced=bool(force and p.id in force))
+            # one person's failure (a bad setting, a broken source) must not stop the other side's update
+            try:
+                await self._tick_person(p, now, frame, guest_zones, force)
+            except Exception:  # noqa: BLE001
+                log.exception("tick failed for %s", p.id)
+                self._person_errors[p.id] = self._person_errors.get(p.id, 0) + 1
+            else:
+                self._person_errors.pop(p.id, None)
         if frame and online and now - self._last_tel >= TELEMETRY_EVERY_S:
             # only while the bed is reporting: a frozen last frame (bed off, broker down) is not history
             self._last_tel = now
@@ -550,6 +547,167 @@ class Controller:
             except Exception:  # noqa: BLE001
                 pass
         return snap
+
+    async def _tick_person(self, p: Person, now: float, frame, guest_zones: set[str], force: set[str] | None) -> None:
+        e = self.engines[p.id]
+        present = self.fuse(p.zone)
+        if p.zone in guest_zones:
+            target = self._guest_tick(p, e, present, now)
+            if frame:
+                await self._apply(p, target, frame, forced=bool(force and p.id in force))
+            return
+        # the extras (phone/calendar context, alarm, room) are optional: if one breaks, the night still runs on
+        # what is left instead of the side being stuck at its last setting
+        manual = self.home.get(p.id)
+        home = manual
+        try:
+            from .context import person_context
+            ctx = person_context(self.sources, self.store, p, now)
+            self.context[p.id] = ctx.to_dict()
+            home = manual if manual is not None else ctx.home
+            if home != self._ctx_home.get(p.id, None) and (p.id in self._ctx_home or home is not None):
+                self.store.event(now, "home_changed", p.id, "manual" if manual is not None else "context",
+                                 home=home, why="set by hand" if manual is not None else ctx.why)
+            self._ctx_home[p.id] = home
+            e.busy_until = ctx.busy_until
+            e.follow_alarm(now, ctx.next_alarm, ctx.alarm_reported)    # the warm wake lines up with the phone's alarm
+        except Exception:  # noqa: BLE001
+            log.exception("context failed for %s", p.id)
+        # away for a while (engine/away.py): back when they use their side or the end date passes
+        from . import away as away_mod
+        try:
+            away_mod.tick(self, p, now, list(e.s.events))
+            e.away = away_mod.is_away(self.store, p.id, now)
+        except Exception:  # noqa: BLE001
+            log.exception("away check failed for %s", p.id)
+        try:
+            e.start_gate = self._start_gate(p, e, now)
+        except Exception:  # noqa: BLE001
+            e.start_gate = None
+            log.exception("start gate failed for %s", p.id)
+        try:
+            self._room_inputs(p, e, now, frame)
+        except Exception:  # noqa: BLE001
+            log.exception("room inputs failed for %s", p.id)
+        target = e.tick(now, present, home, active=self.active_since)
+        try:
+            self._room_shortfall(p, e, now, frame)
+        except Exception:  # noqa: BLE001
+            log.exception("room check failed for %s", p.id)
+        # write tonight's events from a copy: one that can't be written (a locked database) is logged and dropped, so it
+        # can't stop the others, the next ticks or the bed commands below
+        evs, e.s.events = list(e.s.events), []
+        for ev in evs:
+            d = dict(ev)
+            try:
+                self.store.event(d.pop("ts"), d.pop("kind"), d.pop("person", p.id), d.pop("source", None), **d)
+            except Exception:  # noqa: BLE001
+                log.exception("could not record %s for %s", ev.get("kind"), p.id)
+        if frame:
+            await self._apply(p, target, frame, forced=bool(force and p.id in force))
+
+    # ---------- settling in: who is really in bed (radar zones + the phone going on the charger) ----------
+    SETTLE_S = 600               # the first ~10 minutes after lying down decide whether this side's night starts
+    SETTLE_SHARE = 0.6           # the radar must back it for this share of that time
+    SETTLE_MIN_S = 420           # and have watched at least this long (from lying down, not on top of other waits)
+    SETTLE_MIN_N = 8             # with at least this many radar samples
+    OFFER_START_S = 40 * 60      # lying there this long with the radar still not backing it: offer to start (notify.py)
+    CHARGER_EARLY_S = 1200       # the phone plugged in up to 20 min before lying down still counts
+
+    def _radar(self, zone: str) -> float | None:
+        """This side's bed-radar zone right now (1 = someone there, 0 = nobody), None without a working radar."""
+        src = self.sources
+        if src is None or not hasattr(src, "configs"):
+            return None
+        vals = [src.vote_value(c) for c in src.configs
+                if c.zone == zone and c.enabled and c.kind == "radar" and c.role == "presence"]
+        vals = [v for v in vals if v is not None]
+        return max(vals) if vals else None
+
+    def _settle_sample(self, now: float) -> None:
+        hist = self.__dict__.setdefault("_settle_hist", {"left": [], "right": []})
+        a, b = self._radar("left"), self._radar("right")
+        for zone, own, other in (("left", a, b), ("right", b, a)):
+            h = hist.setdefault(zone, [])
+            h.append((now, own, other))
+            while h and now - h[0][0] > self.SETTLE_S + 120:
+                h.pop(0)
+
+    def _charger(self, p, since: float, now: float) -> bool:
+        """Their phone went on the charger around the time they lay down and still is (the phone app's charging share).
+        Where the phone is isn't checked: it backs a pad that is already lit on their side."""
+        from .phone_context import STALE, latest
+        cur = latest(self.store, p.id) or {}
+        cs = cur.get("charging_since")
+        ts = (cur.get("ts") or {}).get("charging") or 0
+        return bool(cs and (cur.get("data") or {}).get("charging") and now - ts <= STALE["charging"]
+                    and since - self.CHARGER_EARLY_S <= cs <= now)
+
+    def _start_gate(self, p, e, now: float) -> bool | None:
+        """Before this side's night starts: does the bed radar back the presence (and is it really this side's sleeper)?
+        - nobody else in bed: this side's radar zone saw someone for most of the settle time;
+        - the partner already in bed: BOTH zones saw someone at once for most of it (two bodies). The partner rolling
+          over onto this side lights this zone but empties theirs, so it doesn't count;
+        - their phone going on the charger as they settle confirms it at once.
+        None (the usual start) without a radar that has been reporting."""
+        info = self.__dict__.setdefault("_settle_info", {})
+        if e.s.started or not e.s.presence_since:
+            info.pop(p.id, None)
+            return None
+        # from when they lay down: the strip's stretch began (it may be well before presence_since, e.g. while their
+        # watch was being checked), so this wait runs alongside the others instead of after them
+        ep = (self.__dict__.get("_eps") or {}).get(p.zone)
+        since = min(e.s.presence_since, ep["since"]) if ep else e.s.presence_since
+        if self._charger(p, since, now):
+            info[p.id] = {"gate": True, "why": "phone on the charger"}
+            return True
+        if ep and ep.get("me_seen") and not ep.get("not_me"):
+            info[p.id] = {"gate": True, "why": "their watch matched the bed"}
+            return True
+        h = [x for x in (self.__dict__.get("_settle_hist") or {}).get(p.zone, []) if x[0] >= max(since, now - self.SETTLE_S)]
+        seen = [x for x in h if x[1] is not None]
+        if not h or len(seen) < 0.6 * len(h):
+            info.pop(p.id, None)
+            return None                                   # no radar (or it went quiet): the usual start
+        # the partner in bed now: their night running and them on their side (not up, not in an out-of-bed hold)
+        partner = next((q for q in self.household.people if q.zone != p.zone and q.id in self.engines
+                        and self.engines[q.id].s.started and self.engines[q.id].s.absent_since is None
+                        and self.engines[q.id].s.state == "rhythm"), None)
+        partner_seen = partner is not None and sum(1 for x in seen if x[2] is not None) >= 0.6 * len(seen)
+        if partner is not None and partner_seen:
+            share = sum(1 for _, own, oth in seen if own is not None and own >= 0.5 and oth is not None and oth >= 0.5) / len(seen)
+            why = "the radar saw two people" if share >= self.SETTLE_SHARE else f"the radar saw only one person ({partner.name} moving across?)"
+        else:
+            share = sum(1 for _, own, _o in seen if own >= 0.5) / len(seen)
+            why = "the radar saw someone on this side" if share >= self.SETTLE_SHARE else "the radar hasn't seen anyone on this side"
+        if now - since < self.SETTLE_MIN_S or len(seen) < self.SETTLE_MIN_N or now - seen[0][0] < self.SETTLE_MIN_S - 60:
+            # (the radar's samples are kept in memory only: after a restart they start afresh while presence_since comes
+            # back, so a verdict waits until the radar has really watched for a while again)
+            info[p.id] = {"gate": False, "why": "settling in", "share": round(share, 2)}
+            return False
+        ok = share >= self.SETTLE_SHARE
+        info[p.id] = {"gate": ok, "why": why, "share": round(share, 2)}
+        # lying there a long while (the strip steady, no pet suspected, not away) and the radar still doesn't back it:
+        # notify.py offers once to start it now. Never started automatically
+        pet = (self.fused.get(p.zone) or {}).get("pet") or {}
+        if (not ok and ep is not None and now - ep["since"] >= self.OFFER_START_S and not ep.get("pet_ticks")
+                and not pet.get("candidate") and not pet.get("suspected") and not getattr(e, "away", False)):
+            info[p.id]["offer_start"] = True
+        return ok
+
+    def _away_check_view(self, pid: str) -> dict | None:
+        from . import away as away_mod
+        try:
+            return away_mod.open_check(self.store, pid)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _away_view(self, pid: str) -> dict | None:
+        from . import away as away_mod
+        try:
+            return away_mod.view(self.store, pid, self.clock.now_ts())
+        except Exception:  # noqa: BLE001
+            return None
 
     # ---------- cold / warm room (engine/padlag.py) ----------
     PADLAG_EVERY_S = 3600
@@ -799,7 +957,8 @@ class Controller:
                     "state": e.s.state, "phase_id": e.s.phase_id, "phase_name": cur_phase, "started": e.s.started,
                     "in_bed": e.s.in_bed, "base_c": e.s.base_c, "target_c": e.s.target_c, "skip": e.s.skip,
                     "room_note": self.room_note(p.id), "lead_min": round(e.lead_s / 60) if e.lead_s else None,
-                    "pause_until": e.s.pause_until, "home": e.s.home, "context": None if p.zone in self.household.guest else self.context.get(p.id),
+                    "pause_until": e.s.pause_until, "home": e.s.home, "away": self._away_view(p.id), "away_check": self._away_check_view(p.id),
+                    "settle": (self.__dict__.get("_settle_info") or {}).get(p.id), "context": None if p.zone in self.household.guest else self.context.get(p.id),
                     "guest": self.household.guest[p.zone].model_dump() if p.zone in self.household.guest else None,
                     "flash": None if not f else {"kind": f.kind, "start": f.start, "end": f.end, "ease_end": f.end + f.ease_s,
                                                   "target_c": f.target_c, "source": f.source},
@@ -826,7 +985,9 @@ class Controller:
             "system": {**self.driver.status(), "capabilities": sorted(c.value for c in self.driver.capabilities),
                        "firmware": frame.firmware if frame else None, "quiet": frame.quiet_mode if frame else None,
                        "brightness": frame.brightness if frame else None, "rgb": frame.rgb if frame else None,
-                       "system_state": frame.system_state if frame else None},
+                       "system_state": frame.system_state if frame else None,
+                       # ticks in a row a person's update has failed (0 / absent = fine; notify.py says so after a while)
+                       "tick_errors": dict(self._person_errors)},
             "household": {"user_min_c": self.household.user_min_c, "user_max_c": self.household.user_max_c},
             "guest": {z: g.model_dump() for z, g in self.household.guest.items()},
             # each side of the bed as the bed names it, whoever sleeps there (setup's "check your side" uses it)

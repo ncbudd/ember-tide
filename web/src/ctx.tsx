@@ -18,6 +18,12 @@ interface Ctx {
 }
 const C = createContext<Ctx | null>(null);
 
+/** One always-present polite live region, so a screen reader announces each message that is written into it. */
+export function Toast() {
+  const { toast } = useApp();
+  return <div className="toast" role="status" aria-live="polite" aria-atomic="true">{toast}</div>;
+}
+
 export function Provider({ children }: { children: ReactNode }) {
   const { snap, connected, apply } = useLive();
   const auth = useAuth();

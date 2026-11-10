@@ -13,13 +13,14 @@ import { useApp } from "../ctx";
 import { clock, contextText, deltaText, isNight, mins, mmss, personaColor, STATE_TEXT, stepC, tempNum } from "../format";
 import type { PersonView, View } from "../types";
 import Simple from "./Simple";
+import AwayNote from "../components/AwayNote";
 import PetQuestion from "../components/PetQuestion";
 import { useHardwareKeyboard } from "../keyboard";
 
-function BigTemp({ c, units, color, size }: { c: number | null; units: "F" | "C"; color?: string; size?: number }) {
+function BigTemp({ c, units, color, size, stale }: { c: number | null; units: "F" | "C"; color?: string; size?: number; stale?: boolean }) {
   // "Off" is a word, not a number: at the numeral's size its round O looks huge, so it sits smaller on the same line
-  if (c == null) return <span className="big off" style={{ fontSize: size ? size * 0.6 : undefined, color: "var(--mute)" }}>Off</span>;
-  return <span className="big" style={{ fontSize: size, color }}>{tempNum(c, units)}<span className="deg">°</span></span>;
+  if (c == null) return <span className={`big off${stale ? " stale" : ""}`} style={{ fontSize: size ? size * 0.6 : undefined, color: "var(--mute)" }}>Off</span>;
+  return <span className={`big${stale ? " stale" : ""}`} style={{ fontSize: size, color }}>{tempNum(c, units)}<span className="deg">°</span></span>;
 }
 
 const LENGTHS: [number | null, string, string][] = [[30, "30m", "30 minutes"], [60, "1h", "1 hour"], [90, "1½h", "1½ hours"], [120, "2h", "2 hours"], [null, "Bedtime", "until bedtime"]];
@@ -28,8 +29,8 @@ const LENGTHS: [number | null, string, string][] = [[30, "30m", "30 minutes"], [
  * The rhythm has the side off (daytime, or done for the night): turn it on by hand, e.g. for a nap.
  * The temperature is set with the dock's Cooler/Warmer below (one set of controls); Turn on sits on the right, under the thumb.
  */
-function TurnOn({ t, units, len, setLen, endsAt, onStart }: {
-  t: number; units: "F" | "C"; len: number | null; setLen: (m: number | null) => void; endsAt: string; onStart: () => void;
+function TurnOn({ t, units, len, setLen, endsAt, onStart, connected }: {
+  connected: boolean; t: number; units: "F" | "C"; len: number | null; setLen: (m: number | null) => void; endsAt: string; onStart: () => void;
 }) {
   return <div className="card turnon">
     <div className="seg lens" role="group" aria-label="For how long">
@@ -38,7 +39,7 @@ function TurnOn({ t, units, len, setLen, endsAt, onStart }: {
     <div className="row">
       <span><span className="num" style={{ fontSize: 22 }}>{tempNum(t, units)}°</span> <span className="mute" style={{ fontSize: 13 }}>{endsAt}</span>
         <small className="mute" style={{ display: "block", fontSize: 12 }}>Set it with Cooler and Warmer</small></span>
-      <button className="btn pri go" data-key="n" onClick={onStart}>Turn on</button>
+      <button className="btn pri go" data-key="n" disabled={!connected} onClick={onStart}>Turn on</button>
     </div>
   </div>;
 }
@@ -179,6 +180,8 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
   const m = target.bed.measured_c;
   const doing = n.target_c == null || m == null ? "On" : n.target_c < m - 0.4 ? "On · Cooling" : n.target_c > m + 0.4 ? "On · Warming" : "On · Holding";
   const idle = n.target_c == null && !n.flash && ["day", "done", "missed", "out_of_bed", "away"].includes(n.state);
+  // in bed, but the bed's radar hasn't yet backed it up (core: night.settle.gate === false): the start is held
+  const held = n.settle?.gate === false && !n.started && target.presence.present === true;
   const pendingT = onTemp ?? target.phases[0]?.temp_c ?? 21.1;
   const showTurnOn = idle && canAdjust && v !== "both";
   const turnOn = () => { setOnTemp(null); return act(`${base}/adjust`, onLen ? { temp_c: pendingT, minutes: onLen, until: "next_phase" } : { temp_c: pendingT, until: "next_phase" }); };
@@ -213,7 +216,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
       <div className="tn-main">
       <div className="tn-upper" ref={upperRef}>
       <div className="top">
-        <span className="num"><span className="dot" style={{ background: !connected ? "var(--faint)" : snap.system.online ? "var(--good)" : "var(--bad)" }} />{clock(snap.now, snap.tz)}{snap.speed !== 1 ? ` · sim ×${snap.speed}` : ""}</span>
+        <span className="num"><span className="dot" style={{ background: !connected ? "var(--faint)" : snap.system.online ? "var(--good)" : "var(--bad)" }} />{clock(snap.now, snap.tz)}{snap.speed !== 1 && snap.system.driver === "sim" ? ` · sim ×${snap.speed}` : ""}</span>
         <button className="icon-btn" aria-label="Night screen: just the temperature and flashes" onClick={() => setSimple(true)}>Night screen</button>
       </div>
       <div className="seg" role="group" aria-label="Whose night" data-cycle="v">
@@ -227,7 +230,8 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
       {v !== "both" ? (
         <div className="hero">
           <span className="state">{n.flash && snap.now < n.flash.end ? `${n.flash.kind === "hot" ? "Hot" : "Cold"} flash · then ${n.state === "rhythm" && n.phase_name ? `back to ${n.phase_name}` : "back to off"}` : manualOn ? `${doing} · ${n.override?.end_ts ? `until ${clock(n.override.end_ts, snap.tz)}` : "until bedtime"}` : n.phase_name && n.state === "rhythm" ? n.phase_name : n.state === "waiting" && focus.presence.starts_in_s != null ? "Settling in" : n.state === "paused" && n.pause_until ? `Paused until ${clock(n.pause_until, snap.tz)}` : STATE_TEXT[n.state] ?? n.state}{(() => { const ph = focus.phases.find(p => p.id === n.phase_id); return ph && n.target_c != null && !n.flash && !n.override && Math.abs(ph.temp_c - n.target_c) > 0.25 ? ` · easing to ${tempNum(ph.temp_c, u)}°` : ""; })()}{n.flash && snap.now >= n.flash.end ? " · easing back after the flash" : n.flash ? "" : n.override && !n.override.manual ? ` · adjusted ${n.override.delta_c != null ? deltaText(n.override.delta_c, u) : ""}` : ""}</span>
-          {<BigTemp c={n.target_c} units={u} color={color(focus)} size={showTurnOn ? Math.max(46, tempSize - Math.round(daySq * 0.35)) : tempSize} />}
+          <BigTemp c={n.target_c} units={u} color={color(focus)} stale={!connected} size={showTurnOn ? Math.max(46, tempSize - Math.round(daySq * 0.35)) : tempSize} />
+          {!connected && <span className="stale-note" role="status">Last updated {clock(snap.now, snap.tz)}</span>}
           <div className="meta">
             {focus.presence.present
               ? <span><span className="dot" />In bed{n.in_bed ? ` ${mins(snap.now - n.in_bed)}` : ""}</span>
@@ -256,6 +260,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
       </div>
       <div className="tn-lower">
 
+      <AwayNote person={target} me={me} isOwner={isOwner} tz={snap.tz} />
       {n.flash && snap.now < n.flash.end ? (
         <div className="flashcard" style={{ borderColor: n.flash.kind === "hot" ? "var(--cool)" : "var(--warm)" }}>
           <span><span style={{ display: "inline-flex", alignItems: "center", gap: 6, verticalAlign: "-3px" }}><Icon name={n.flash.kind === "hot" ? "snow" : "sun"} size={17} />{n.flash.kind === "hot" ? "Hot flash" : "Cold flash"}</span>{target.id !== me.id ? ` · ${target.name}` : ""}<br />
@@ -265,7 +270,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
       ) : showTurnOn ? (
         <div className="turnon-slot">
           {target.id === me.id && <TodayCard me={me} snap={snap} />}
-          <TurnOn t={pendingT} units={u} len={onLen} setLen={setOnLen} endsAt={endsAt} onStart={turnOn} />
+          <TurnOn t={pendingT} units={u} len={onLen} setLen={setOnLen} endsAt={endsAt} onStart={turnOn} connected={connected} />
         </div>
       ) : manualOn && v !== "both" ? (
         <div className="flashcard" style={{ borderColor: color(target) }}>
@@ -276,11 +281,13 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         </div>
       ) : (
         <div className="plan" ref={planRef} style={{ minHeight: planMin || undefined }}>
-          {n.state === "waiting" && (target.presence.starts_in_s != null
+          {n.state === "waiting" && (held
+            ? <div className="planrow note">Waiting until {target.id === me.id ? "you're" : `${target.name} is`} settled in.</div>
+            : target.presence.starts_in_s != null
             ? <div className="planrow note">{target.id === me.id ? "You're" : `${target.name}'s`} in bed. The night starts in {Math.max(1, Math.ceil(target.presence.starts_in_s / 60))} min, once settled.</div>
             : <div className="planrow note">Holding the pre-cool. The night starts when {target.id === me.id ? "you're" : `${target.name} is`} in bed{target.schedule ? ` (from ${clock(target.schedule.window_start, snap.tz)})` : ""}.</div>)}
           {v === "both" && <div className="planrow note" style={{ paddingBottom: 2 }}>{target.id === me.id ? "Your" : `${target.name}'s`} next changes · tap a side above to switch</div>}
-          {n.state === "away" && <div className="planrow note">Waiting until {target.id === me.id ? "you're" : `${target.name} is`} home</div>}
+          {!n.away && n.state === "away" && <div className="planrow note">Waiting until {target.id === me.id ? "you're" : `${target.name} is`} home</div>}
           {target.phases.filter((_p, i, arr) => (arr[i + 1]?.start ?? Infinity) > snap.now).map(p => {
             const cur = p.id === n.phase_id;
             return <div key={p.id} className={`planrow ${cur ? "cur" : ""}`}>
@@ -299,12 +306,12 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         {/* right-handed: the temperature (used most) sits under the thumb on the right, flashes on the left */}
         <div className="dockctl">
           <div className="flashes">
-            <button className="hot" disabled={!canFlash} onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> Hot flash</button>
-            <button className="cold" disabled={!canFlash} onClick={() => act(`${base}/flash`, { kind: "cold" })}><Icon name="sun" className="fl-ico" /> Cold flash</button>
+            <button className="hot" disabled={!canFlash || !connected} onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> Hot flash</button>
+            <button className="cold" disabled={!canFlash || !connected} onClick={() => act(`${base}/flash`, { kind: "cold" })}><Icon name="sun" className="fl-ico" /> Cold flash</button>
           </div>
           <div className="steps">
-            <button aria-label="Warmer" disabled={!canAdjust || (!showTurnOn && n.target_c == null && n.state !== "paused" && n.state !== "skipped")} onClick={() => nudge(1)}>+<small>Warmer</small></button>
-            <button aria-label="Cooler" disabled={!canAdjust || (!showTurnOn && n.target_c == null && n.state !== "paused" && n.state !== "skipped")} onClick={() => nudge(-1)}>−<small>Cooler</small></button>
+            <button aria-label="Warmer" disabled={!connected || !canAdjust || (!showTurnOn && n.target_c == null && n.state !== "paused" && n.state !== "skipped")} onClick={() => nudge(1)}>+<small>Warmer</small></button>
+            <button aria-label="Cooler" disabled={!connected || !canAdjust || (!showTurnOn && n.target_c == null && n.state !== "paused" && n.state !== "skipped")} onClick={() => nudge(-1)}>−<small>Cooler</small></button>
           </div>
         </div>
         {!canAdjust && <p className="mute" style={{ fontSize: 12, textAlign: "center", margin: "-4px 0 0" }}>Only flashes: {target.name} hasn't shared temperature control.</p>}
@@ -339,6 +346,9 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
             const w = n.context!.early_start! - 45 * 60;                 // warm wake 45 min before the early start
             return <button className="item" onClick={() => run(`${base}/context`, { wake: w })}>Wake up earlier tonight<small>early start at {clock(n.context!.early_start!, snap.tz)} · warm wake from {clock(w - 30 * 60, snap.tz)}</small></button>;
           })()}
+          {(target.id === me.id || isOwner) && (n.away
+            ? <button className="item" onClick={() => run(`${base}/away`, { away: false })}>{target.id === me.id ? "I'm back" : `${target.name} is back`}<small>{whose} nights run again from now</small></button>
+            : <button className="item" onClick={() => { run(`${base}/away`, { away: true }); say(target.id === me.id ? "You're marked away. Your side stays off until you're back." : `${target.name} is marked away. Their side stays off until they're back.`); }}>Away for a few days<small>{whose} side stays off, tonight too, and Autopilot's learning pauses until back</small></button>)}
           {isOwner && <button className="item" onClick={() => { setSheet(false); setGuestSheet(true); }}>Guest mode<small>lend a side, or the whole bed, to a guest</small></button>}
           <button className="item" onClick={() => setSheet(false)}>Cancel<small /></button>
       </Sheet>}

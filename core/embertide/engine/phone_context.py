@@ -20,7 +20,8 @@ import time as _time
 READY_MIN = 30                    # heading home this close → get the bed ready
 TRAVEL_S = 20 * 60                # after an evening event, time to get home
 # charging/bedtime: Android batches the 15-min check; real check-ins came 15-35 min apart overnight (2026-11-08)
-STALE = {"location": 45 * 60, "home": 6 * 3600, "wifi": 30 * 60, "charging": 50 * 60, "bedtime": 50 * 60, "watch": 30 * 60}
+STALE = {"location": 45 * 60, "home": 6 * 3600, "wifi": 30 * 60, "charging": 50 * 60, "bedtime": 50 * 60, "watch": 30 * 60,
+         "alarm": 50 * 60}         # the alarm's time is used until it passes; this is only how recent "the phone said" is
 
 # person id → {"data": {...}, "ts": {field: when it was last reported}}, per store (tests run several apps)
 
@@ -93,6 +94,12 @@ def fresh(cur: dict, key: str, kind: str, now: float):
     return (cur.get("data") or {}).get(key)
 
 
+def reported(cur: dict, key: str, kind: str, now: float) -> bool:
+    """The phone sent this field lately (whatever it said, "none" included)."""
+    ts = (cur.get("ts") or {}).get(key)
+    return ts is not None and ts - 300 <= now <= ts + STALE[kind]
+
+
 def merge(ctx, store, p, now: float | None = None) -> None:
     """Fold the phone's report into a PersonContext (in place)."""
     now = _time.time() if now is None else now
@@ -130,6 +137,8 @@ def merge(ctx, store, p, now: float | None = None) -> None:
     al = (cur.get("data") or {}).get("next_alarm")
     if al and al > now and al - now < 24 * 3600:
         ctx.next_alarm = float(al)
+    # the phone said lately what its next alarm is (none counts): a followed alarm it no longer reports was turned off
+    ctx.alarm_reported = reported(cur, "next_alarm", "alarm", now)
     ctx.charging = fresh(cur, "charging", "charging", now)
     ctx.bedtime_mode = fresh(cur, "bedtime_mode", "bedtime", now)
     ctx.watch_connected = fresh(cur, "watch_connected", "watch", now)
