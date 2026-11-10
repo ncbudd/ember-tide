@@ -63,7 +63,9 @@ public class EmberNativePlugin extends Plugin {
     @PluginMethod
     public void takeAction(PluginCall call) {
         JSObject r = new JSObject();
-        r.put("action", MainActivity.pendingAction);
+        // a shortcut tapped long ago (no server chosen yet, signed out…) isn't run when the page finally asks
+        boolean stale = android.os.SystemClock.elapsedRealtime() - MainActivity.pendingAt > MainActivity.PENDING_MAX_MS;
+        r.put("action", stale ? null : MainActivity.pendingAction);
         MainActivity.pendingAction = null;
         call.resolve(r);
     }

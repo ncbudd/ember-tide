@@ -27,6 +27,9 @@ public class MainActivity extends BridgeActivity {
     static volatile String lastKeyboard = "{\"hardware\":false}";
     /** A launcher shortcut or command ("hot", "hot flash", "cooler"…) waiting for the web app to pick up. */
     static volatile String pendingAction = null;
+    /** When it was left (elapsedRealtime): one nobody collected within PENDING_MAX_MS is dropped, not run late. */
+    static volatile long pendingAt = 0;
+    static final long PENDING_MAX_MS = 60_000;
 
     private WindowInfoTrackerCallbackAdapter windowInfo;
     private final Consumer<WindowLayoutInfo> foldListener = this::pushFold;
@@ -48,10 +51,20 @@ public class MainActivity extends BridgeActivity {
         if (!again) takeIntent(launch);
     }
 
+    /** Tell the open page there is an action waiting (it collects it with takeAction; on a fresh load it asks by itself). */
+    private void announceAction() {
+        String a = pendingAction;
+        WebView wv = getBridge() == null ? null : getBridge().getWebView();
+        if (a == null || wv == null) return;
+        String js = "window.__etAction=" + JSONObject.quote(a) + ";window.dispatchEvent(new CustomEvent('et-action',{detail:window.__etAction}));";
+        wv.post(() -> wv.evaluateJavascript(js, null));
+    }
+
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         takeIntent(intent);
+        announceAction();          // a launcher shortcut (ShortcutActivity) left one and brought the app forward
     }
 
     @Override
@@ -117,12 +130,11 @@ public class MainActivity extends BridgeActivity {
      */
     private void takeIntent(Intent intent) {
         if (intent == null) return;
-        // our own launcher shortcuts run straight away: they arrive through the NON-exported alias (only the system's
-        // shortcut launcher can open it). The same extra on the exported activity came from another app or an
-        // intent:// web link, so it's asked about like any outside command.
+        // our own launcher shortcuts never arrive here: they go through the NON-exported ShortcutActivity (only the
+        // system's shortcut launcher can open it), which hands the action over itself. The same extra on this exported
+        // activity came from another app or an intent:// web link, so it's asked about like any outside command.
         String a = intent.getStringExtra("et_action");
-        android.content.ComponentName cn = intent.getComponent();
-        boolean outside = a != null && (cn == null || !cn.getClassName().endsWith(".ShortcutActivity"));
+        boolean outside = a != null;
         if (a == null && Intent.ACTION_SEND.equals(intent.getAction()) && "text/plain".equals(intent.getType())) {
             a = intent.getStringExtra(Intent.EXTRA_TEXT);
             outside = true;
@@ -139,11 +151,8 @@ public class MainActivity extends BridgeActivity {
         // from another app or a web link: the web app asks before doing anything to the bed
         if (outside) a = "ask:" + a;
         pendingAction = a;
-        WebView wv = getBridge() == null ? null : getBridge().getWebView();
-        if (wv != null) {
-            String js = "window.__etAction=" + JSONObject.quote(a) + ";window.dispatchEvent(new CustomEvent('et-action',{detail:window.__etAction}));";
-            wv.post(() -> wv.evaluateJavascript(js, null));
-        }
+        pendingAt = android.os.SystemClock.elapsedRealtime();
+        announceAction();
         intent.removeExtra("et_action");
     }
 

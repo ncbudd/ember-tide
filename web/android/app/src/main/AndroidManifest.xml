@@ -86,8 +86,10 @@
             <!-- Launcher shortcuts: Hot flash, Cold flash, Off tonight, Simple screen -->
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
-        <!-- launcher shortcuts only: not exported, so no other app or web link can use it to skip the "ask first" -->
-        <activity-alias android:name=".ShortcutActivity" android:targetActivity=".MainActivity" android:exported="false" />
+        <!-- launcher shortcuts only: not exported, so no other app or web link can use it to skip the "ask first".
+             Its own short-lived task: the action never becomes part of the app's launch intent (no replay from Recents). -->
+        <activity android:name=".ShortcutActivity" android:exported="false" android:theme="@android:style/Theme.NoDisplay"
+            android:taskAffinity="" android:excludeFromRecents="true" android:noHistory="true" />
 
         <service
             android:name=".FlashTileService"
