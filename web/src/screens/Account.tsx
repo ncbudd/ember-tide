@@ -6,6 +6,9 @@ import { useAuth } from "../auth";
 import { useApp } from "../ctx";
 
 interface Sess { id: string; created: number; seen: number; agent: string | null; ip: string | null; current: boolean }
+/** A limited key the phone made for its widget and tile, or for the watch (never the sign-in itself). */
+export interface DeviceKey { id: string; name: string; scope: "watch" | "phone"; person: string | null; created: number; last_used: number | null; username: string | null; this_device: boolean }
+export const deviceKeyName = (k: DeviceKey) => k.scope === "watch" ? "Watch" : "Phone widget and tile";
 
 /** "Phone on Android · Firefox" from a user-agent, good enough to recognise your own devices. */
 function deviceName(ua: string | null): string {
@@ -25,7 +28,11 @@ export default function Account() {
   const [cur, setCur] = useState(""), [nw, setNw] = useState(""), [nw2, setNw2] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
   const [sess, setSess] = useState<Sess[]>([]);
-  const loadSess = () => api.get<Sess[]>("/api/auth/me/sessions").then(setSess).catch(() => {});
+  const [keys, setKeys] = useState<DeviceKey[]>([]);
+  const loadSess = () => {
+    api.get<Sess[]>("/api/auth/me/sessions").then(setSess).catch(() => {});
+    api.get<DeviceKey[]>("/api/auth/me/device-tokens").then(setKeys).catch(() => setKeys([]));
+  };
   useEffect(() => { if (open === "devices") loadSess(); }, [open]);
   if (!auth.state.enabled) {
     return <Fold id="settings.account" title="Account" summary="Sign-in is off">
@@ -85,6 +92,13 @@ export default function Account() {
               {!s.current && <button className="pill" onClick={async () => { await api.del(`/api/auth/me/sessions/${s.id}`); loadSess(); }}>Sign out</button>}</div>
           ))}
           {sess.length > 1 && <button className="btn" onClick={async () => { await api.post("/api/auth/me/sessions/others"); loadSess(); }}>Sign out everywhere else</button>}
+          {keys.length > 0 && <>
+            <small className="mute" style={{ paddingTop: 10 }}>Watch and widget keys. They can only show your side and change its temperature, flashes and tonight. Signing out of the phone that made one ends it.</small>
+            {keys.map(k => (
+              <div className="row" key={k.id}><span>{deviceKeyName(k)}{k.this_device && <small className="mute"> · from this phone</small>}<br /><small className="mute">{k.last_used ? `last used ${ago(k.last_used)}` : "not used yet"}</small></span>
+                <button className="pill" onClick={async () => { try { await api.del(`/api/auth/me/device-tokens/${k.id}`); setMsg(`${deviceKeyName(k)} key revoked. Opening the app on that phone makes a new one.`); } catch (e) { setMsg((e as Error).message); } loadSess(); }}>Revoke</button></div>
+            ))}
+          </>}
         </div>}
       </>}
       {msg && <p className="mute" role="status" style={{ fontSize: 13, padding: "8px 0" }}>{msg}</p>}

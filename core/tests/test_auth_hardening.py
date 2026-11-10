@@ -51,18 +51,18 @@ def test_home_test_ignores_an_untrusted_proxys_private_address():
         hdr = {h: f"for={OUT}" if h == "forwarded" else OUT}
         assert via_untrusted_proxy(hdr, False), h
         assert not from_home(hdr, "172.18.0.7", False), h
-    # trusted proxy: the visitor's address in the header decides
-    assert from_home({"cf-connecting-ip": "192.168.1.50"}, "172.18.0.7", True)
+    # trusted proxy: still never "home", even when the header claims a home address (a visitor can write that)
+    assert not from_home({"cf-connecting-ip": "192.168.1.50"}, "172.18.0.7", True)
     assert not from_home({"cf-connecting-ip": OUT}, "172.18.0.7", True)
     assert not from_home({"forwarded": 'for="[2606:4700::1111]:4711"'}, "172.18.0.7", True)
-    assert from_home({"forwarded": "for=192.168.1.9:1234;proto=https"}, "172.18.0.7", True)
+    assert not from_home({"forwarded": "for=192.168.1.9:1234;proto=https"}, "172.18.0.7", True)
 
 
 def test_setup_through_the_tunnel_is_refused_without_trust_proxy(tmp_path):
     with TestClient(create_app(cfg_for(tmp_path)), client=("172.18.0.7", 40000)) as c:   # peer = the tunnel's container
         r = c.post("/api/auth/setup", json={"username": "mallory", "password": PW}, headers=TUNNEL)
         assert r.status_code == 403
-        assert "home network" in r.json()["detail"] and "ET_TRUST_PROXY" in r.json()["detail"]
+        assert "home network" in r.json()["detail"] and "local address" in r.json()["detail"]
         assert c.get("/api/auth/state").json()["setup_needed"]
         # a real device on the home network (no proxy headers) still sets it up
         r = c.post("/api/auth/setup", json={"username": "alex", "password": PW})

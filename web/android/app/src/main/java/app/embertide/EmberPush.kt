@@ -187,16 +187,16 @@ object EmberPush {
         c.getSystemService(NotificationManager::class.java).notify(nid, Notification.Builder(c, CHANNEL).setSmallIcon(R.drawable.ic_stat_flash)
             .setContentTitle("Working…").setContentText(label).setOnlyAlertOnce(true).setTimeoutAfter(30000).build())
         val ok = try {
-            if (act == "manual_off") Ember.call(c, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
+            if (act == "manual_off") Ember.sideCall(c, pid, "POST", "/api/people/$pid/adjust/clear?source=notification", null)
             else if (act.startsWith("feel_"))           // the morning check-in: how the temperature felt last night
-                Ember.call(c, "POST", "/api/people/$pid/feedback", JSONObject().put("temp", act.removePrefix("feel_")).toString())
+                Ember.sideCall(c, pid, "POST", "/api/people/$pid/feedback", JSONObject().put("temp", act.removePrefix("feel_")).toString())
             else if (act.startsWith("pet_") && ref.matches(Regex("[A-Za-z0-9]{1,40}")))   // "was that the dog?" answered from the notification
-                Ember.call(c, "POST", "/api/people/$pid/pet-question/$ref", JSONObject().put("answer", act.removePrefix("pet_")).toString())
+                Ember.sideCall(c, pid, "POST", "/api/people/$pid/pet-question/$ref", JSONObject().put("answer", act.removePrefix("pet_")).toString())
             else if (act.startsWith("pet_")) throw IllegalArgumentException("no question")
             else if (act.startsWith("away_") && ref.matches(Regex("\\d{4}-\\d{2}-\\d{2}")))   // "were you away last night?"
-                Ember.call(c, "POST", "/api/people/$pid/away-check", JSONObject().put("night", ref).put("answer", act.removePrefix("away_")).toString())
+                Ember.sideCall(c, pid, "POST", "/api/people/$pid/away-check", JSONObject().put("night", ref).put("answer", act.removePrefix("away_")).toString())
             else if (act.startsWith("away_")) throw IllegalArgumentException("no question")
-            else Ember.call(c, "POST", "/api/people/$pid/tonight",
+            else Ember.sideCall(c, pid, "POST", "/api/people/$pid/tonight",
                 JSONObject().put("action", act).put("source", "notification").apply { if (minutes > 0) put("minutes", minutes) }.toString())
             true
         } catch (_: Exception) { false }

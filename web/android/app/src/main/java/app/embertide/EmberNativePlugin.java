@@ -21,9 +21,13 @@ public class EmberNativePlugin extends Plugin {
     @PluginMethod
     public void configure(PluginCall call) {
         Ember.configure(getContext(), call.getString("server", ""), call.getString("token", ""), call.getString("person", ""));
-        EmberWear.signIn(getContext(), call.getString("server", ""), call.getString("token", ""), call.getString("person", ""));
         PhoneSources.INSTANCE.schedule(getContext());          // back after a sign-out (no-op when no source is on)
-        new Thread(() -> EmberWidget.refreshAll(getContext())).start();
+        final android.content.Context app = getContext().getApplicationContext();
+        new Thread(() -> {
+            Ember.dropRevokedKeys(app);                         // revoked in Settings / Studio: made again on first use
+            EmberWear.sync(app);                                // the watch gets its own key, never the session
+            EmberWidget.refreshAll(app);
+        }).start();
         call.resolve();
     }
 

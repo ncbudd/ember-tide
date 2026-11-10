@@ -159,6 +159,16 @@ def build_router(app_state) -> APIRouter:
     async def snapshot(request: Request):
         return for_viewer(ctl().last_snapshot or await refresh(), request.scope.get("state", {}).get("principal"))
 
+    @r.post("/live/ticket")
+    async def live_ticket(request: Request):
+        """A single-use ticket (30 s) for opening /api/live?ticket=… as this account, so the app's session never goes in
+        a URL. Device keys can't get one (auth.DEVICE_SCOPES)."""
+        from .auth import TICKET_S
+        who = request.scope.get("state", {}).get("principal")
+        if who is None:
+            raise HTTPException(401, "Please sign in.")
+        return {"ticket": app_state.auth.new_ticket(who), "expires_in": TICKET_S}
+
     @r.websocket("/live")
     async def live(ws: WebSocket):
         await ws.accept()

@@ -48,7 +48,11 @@ DEDUP_S = 6 * 3600            # the same message (person, kind, title) again wit
 EXEMPT = {"test", "action_done"}
 # about you being out of bed or away: you're up, so these go out in the evening even after bedtime; from midnight
 # to your wake they're held like everything else (a 2:30 AM "your side is empty" would wake you wherever you are)
-AWAKE_KINDS = {"away_precool", "empty_side", "left_on", "not_started"}
+AWAKE_KINDS = {"away_precool", "empty_side", "left_on"}
+# not_started follows its own time rule instead (see _observe_person): any time except the last hour before wake. Quiet hours
+# don't hold it: it's about getting into bed, and holding it for the morning summary would make it useless
+OWN_TIMING_KINDS = {"not_started"}
+NOT_STARTED_QUIET_BEFORE_WAKE_S = 3600
 RUNNING = ("rhythm", "out_of_bed_hold")
 
 
@@ -259,7 +263,9 @@ class Notifier:
         if any(r[0] == m.person and r[1] == m.kind and r[2] == m.title and now - r[3] < DEDUP_S for r in recent):
             return "duplicate"
         pids = [m.person] if m.person else [p.id for p in self.c.household.people]
-        if m.kind in AWAKE_KINDS:
+        if m.kind in OWN_TIMING_KINDS:
+            pass
+        elif m.kind in AWAKE_KINDS:
             if any(self._small_hours(pid, now) for pid in pids):
                 return "held"
         elif any(self.quiet(pid, now) for pid in pids):
@@ -313,9 +319,10 @@ class Notifier:
             t, b = self._say("empty_side", {}, person, now)
             out.append(Message("empty_side", t, b, person.id, [Action("Turn it off tonight", "skip")], priority=2, tags=["zzz"]))
         # lying in their side a long while, but the bed radar never backed it, so the night hasn't started (controller:
-        # settle.offer_start). Offered once a night, never from midnight to wake (it would only wait for the morning)
-        if ((n.get("settle") or {}).get("offer_start") and n["state"] in ("waiting", "missed") and not n.get("away")
-                and not self._small_hours(person.id, now) and self._once(f"not_started:{person.id}:{night}")):
+        # settle.offer_start). Offered once a night, any time of the night
+        # except the last hour before wake and after it (a late bedtime still gets it)
+        if (prefs.not_started and (n.get("settle") or {}).get("offer_start") and n["state"] in ("waiting", "missed") and not n.get("away")
+                and now < sch["wake"] - NOT_STARTED_QUIET_BEFORE_WAKE_S and self._once(f"not_started:{person.id}:{night}")):
             out.append(Message("not_started", "Your side hasn't started",
                                "You've been lying down a while, but the bed couldn't tell it was you. Start it now?",
                                person.id, [Action("Start now", "start_now")], priority=3, tags=["zzz"]))

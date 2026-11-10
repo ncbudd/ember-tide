@@ -87,7 +87,7 @@ public class EmberWidget extends AppWidgetProvider {
             return d;
         }
         try {
-            JSONObject snap = new JSONObject(Ember.call(c, "GET", "/api/snapshot", null));
+            JSONObject snap = new JSONObject(Ember.deviceCall(c, "GET", "/api/snapshot", null));
             JSONObject me = Ember.me(c, snap);
             boolean f = Ember.fahrenheit(me);
             JSONObject n = me.getJSONObject("night");
@@ -174,33 +174,33 @@ public class EmberWidget extends AppWidgetProvider {
      */
     static void togglePower(Context c) throws Exception {
         String pid = Ember.person(c);
-        JSONObject me = Ember.me(c, new JSONObject(Ember.call(c, "GET", "/api/snapshot", null)));
+        JSONObject me = Ember.me(c, new JSONObject(Ember.deviceCall(c, "GET", "/api/snapshot", null)));
         JSONObject n = me.getJSONObject("night");
         String st = n.optString("state");
         JSONObject o = n.optJSONObject("override");
         if (o != null && o.optBoolean("manual")) {
             // a by-hand session (a nap, or turned on in the morning) isn't part of tonight: "off tonight" wouldn't stop it
-            Ember.call(c, "POST", "/api/people/" + pid + "/adjust/clear?source=widget", null);
+            Ember.deviceCall(c, "POST", "/api/people/" + pid + "/adjust/clear?source=widget", null);
             return;
         }
         if (!n.isNull("target_c") && !"skipped".equals(st) && !"paused".equals(st)) {
-            Ember.call(c, "POST", "/api/people/" + pid + "/tonight", "{\"action\":\"skip\",\"source\":\"widget\"}");
+            Ember.deviceCall(c, "POST", "/api/people/" + pid + "/tonight", "{\"action\":\"skip\",\"source\":\"widget\"}");
             return;
         }
         if ("skipped".equals(st) || "paused".equals(st)) {
-            Ember.call(c, "POST", "/api/people/" + pid + "/tonight", "{\"action\":\"resume\",\"source\":\"widget\"}");
-            me = Ember.me(c, new JSONObject(Ember.call(c, "GET", "/api/snapshot", null)));
+            Ember.deviceCall(c, "POST", "/api/people/" + pid + "/tonight", "{\"action\":\"resume\",\"source\":\"widget\"}");
+            me = Ember.me(c, new JSONObject(Ember.deviceCall(c, "GET", "/api/snapshot", null)));
             if (!me.getJSONObject("night").isNull("target_c")) return;
         }
         // daytime, out of bed or done: on by hand at the fall-asleep temperature, until the rhythm takes over
         org.json.JSONArray ph = me.optJSONArray("phases");
         double t = ph != null && ph.length() > 0 ? ph.getJSONObject(0).getDouble("temp_c") : 21.1;
-        Ember.call(c, "POST", "/api/people/" + pid + "/adjust", String.format(java.util.Locale.US, "{\"temp_c\":%.2f,\"until\":\"next_phase\",\"source\":\"widget\"}", t));
+        Ember.deviceCall(c, "POST", "/api/people/" + pid + "/adjust", String.format(java.util.Locale.US, "{\"temp_c\":%.2f,\"until\":\"next_phase\",\"source\":\"widget\"}", t));
     }
 
     /** −/+ one step (1°F or 0.5°C) until the next phase, like the app. While idle it turns the side on at the bed's temperature ± a step. */
     static void adjust(Context c, int sign) throws Exception {
-        JSONObject me = Ember.me(c, new JSONObject(Ember.call(c, "GET", "/api/snapshot", null)));
+        JSONObject me = Ember.me(c, new JSONObject(Ember.deviceCall(c, "GET", "/api/snapshot", null)));
         double step = Ember.fahrenheit(me) ? 5.0 / 9.0 : 0.5;
         JSONObject n = me.getJSONObject("night");
         String st = n.optString("state");
@@ -212,6 +212,6 @@ public class EmberWidget extends AppWidgetProvider {
         } else {
             body = String.format(java.util.Locale.US, "{\"delta_c\":%.4f,\"until\":\"next_phase\",\"source\":\"widget\"}", sign * step);
         }
-        Ember.call(c, "POST", "/api/people/" + Ember.person(c) + "/adjust", body);
+        Ember.deviceCall(c, "POST", "/api/people/" + Ember.person(c) + "/adjust", body);
     }
 }

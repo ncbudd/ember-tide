@@ -22,17 +22,18 @@ def reset_password(username: str) -> None:
 
 
 class RedactTokens(logging.Filter):
-    """The phone app opens the live connection as /api/live?token=…; uvicorn logs that path on every connect. Never
-    let a working sign-in token reach the logs."""
+    """The phone app opens the live connection as /api/live?ticket=… (older builds: ?token=…); uvicorn logs that path on
+    every connect. Never let a working sign-in token or live ticket reach the logs."""
     import re as _re
-    RX = _re.compile(r"(token=)[^&\s\"']+")
+    RX = _re.compile(r"((?:token|ticket)=)[^&\s\"']+", _re.IGNORECASE)
 
     def filter(self, record: logging.LogRecord) -> bool:
         try:
             msg = record.getMessage()
         except Exception:  # noqa: BLE001
             return True
-        if "token=" in msg:
+        low = msg.lower()
+        if "token=" in low or "ticket=" in low:
             record.msg, record.args = self.RX.sub(lambda m: m.group(1) + "***", msg), ()
         return True
 

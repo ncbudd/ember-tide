@@ -70,8 +70,8 @@ export default function Simple({ person, partner, onExit, night }: { person: Per
             <button onClick={() => act(`${base}/flash/extend`)}>+5 min</button>
             <button onClick={() => act(`${base}/flash/stop`)}>Stop</button>
           </> : <>
-            <button className="hot" onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> I'm hot</button>
-            <button className="cold" onClick={() => act(`${base}/flash`, { kind: "cold" })}><Icon name="sun" className="fl-ico" /> I'm cold</button>
+            <button className="hot" onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> Hot flash</button>
+            <button className="cold" onClick={() => act(`${base}/flash`, { kind: "cold" })}><Icon name="sun" className="fl-ico" /> Cold flash</button>
           </>}
         </div>
         <div className="steps">

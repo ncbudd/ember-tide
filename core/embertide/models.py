@@ -163,6 +163,7 @@ class NotifyPrefs(BaseModel):
     away_precool: bool = True     # pre-cool is due and you're not home
     empty_side: bool = True       # pre-cooled but nobody got in
     left_on: bool = True          # turned on by hand, then nobody in it for a while
+    not_started: bool = True      # lying in bed a long while but the bed isn't sure it's you: offer to start the side
     morning: bool = True          # a short morning summary
     problems: bool = True         # bed or sensor trouble (household)
     pet_question: bool = True     # "was the pet on the bed?" (daytime only; the question also waits in the app)

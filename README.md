@@ -69,22 +69,24 @@ During UI work, run `npm run dev` in `web/` (proxies the API to :8790).
 | `ET_PORT` | `8790` | |
 | `ET_AUTH` | `on` | Sign-in. The first visit from your home network creates the owner account (see below). `off` only for testing on a trusted network. |
 | `ET_PUBLIC_URL` | | How phones reach the server (e.g. `https://bed.example.com`), so notification buttons work |
-| `ET_TRUST_PROXY` | `off` | `on` behind Cloudflare/nginx when that proxy is the only way in, so sign-in throttling and the home-network check see real client addresses |
+| `ET_TRUST_PROXY` | `off` | `on` behind Cloudflare/nginx, so sign-in throttling sees real visitor addresses (forwarding headers are believed only from a private or loopback peer; Cloudflare's `CF-Connecting-IP` wins) |
 | `ET_LLM_URL` / `ET_LLM_MODEL` | | Any OpenAI-compatible endpoint (e.g. Ollama) for Ask |
 
 ### Accounts and access
 
 **First-time setup** (creating the owner account) only works from your home network: open the server's local
 address, like `http://192.168.1.20:8790`, on a device at home. Through a tunnel or reverse proxy the server can't
-tell where a visitor is, so setup over the public address is refused unless `ET_TRUST_PROXY=on` (set it only when
-that proxy is the sole way in). Once the owner exists, sign in from anywhere.
+tell where a visitor is, so setup over the public address is always refused (a forwarding header claiming a home
+address isn't believed). Once the owner exists, sign in from anywhere.
 
 - **Owner**: everything, including devices, the bed console and People & access.
 - **Sleeper**: their own side fully; the partner's side only as far as the partner shares it (Settings → Sharing).
 - **Viewer**: can look, can't change anything.
 
 Invite the other sleeper from Studio → People & access: it makes a one-time link, nothing to install. Home Assistant,
-dials and scripts use API keys from the same page (`Authorization: Bearer et_…`).
+dials and scripts use API keys from the same page (`Authorization: Bearer et_…`). The phone's widget, Quick Settings
+tile and the watch get their own limited device keys (their own side's flash / temperature / tonight, and the
+snapshot), never the phone's sign-in; see and revoke them under Settings → Account → Signed-in devices.
 
 Locked out of the owner account? On the server: `python -m embertide reset-password <username>`
 (in Docker: `docker exec -it ember-tide python -m embertide reset-password <username>`) prints a one-time link.

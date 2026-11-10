@@ -21,6 +21,7 @@ Pushes (from the server):
 | Pre-cool, not home (`away_precool`) | pre-cool time while the person is away (phone / GPS / manual) | the sleeper | evening, at pre-cool | 1 a night | Wait an hour · Off tonight · Start anyway |
 | Pre-cooled but empty (`empty_side`) | the side waited its whole window and nobody got in (state "missed") | the sleeper | evening; after midnight held for the morning | 1 a night | Turn it off tonight |
 | Left on by hand (`left_on`) | turned on by hand (nap, timer), nobody in it for 20 min | the sleeper | any time; after midnight held | 1 per session, 2 a day | Turn it off |
+| Side hasn't started (`not_started`) | lying in it ~40 min, bed radar still not backing it, no pet suspected, not away | the sleeper | any time except the last hour before wake and after it; not held by quiet hours | 1 a night | Start now |
 | Pet question (`pet_question`, and `pet_questions` for asking at all) | something lay on the side and looked like a pet, or lay there with no night running | that side's sleeper | 8 AM–9 PM; a question from the night rides in the morning summary | 1 per question, 1 a day | none; tap opens the question |
 | Can't reach the bed (`problems`) | no word from the bed for 5 min | household | at once in the day; held while anyone sleeps | 1 per outage, 3 household problems a day | none |
 | Bed sensor stopped updating (`problems`) | one side's readings frozen 10 min during a night (not while the whole bed is offline) | household | as above | 1 a night per side | none |
@@ -79,7 +80,7 @@ What we found:
   but from midnight to wake they're held too (and dropped if a night in bed follows: the morning summary doesn't
   bring up a "your side is empty" from before you got in). Nothing is currently urgent enough to wake anyone: the bed keeps its
   last temperature when it can't be reached.
-- **Caps per day** (`notify.CAPS`): morning 1, digest 1, pet question 1, pre-cool 1, empty side 1, left on 2,
+- **Caps per day** (`notify.CAPS`): morning 1, digest 1, pet question 1, pre-cool 1, empty side 1, side-hasn't-started 1, left on 2,
   household problems 3; and at most 4 capped pings per person per day all together. Tests and button confirmations
   are not capped.
 - **De-duplication**: the same message (person, type, title) within 6 hours is dropped, and every message uses one

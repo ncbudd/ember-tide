@@ -32,7 +32,7 @@ const SECTIONS: Section[] = [
     id: "tonight", title: "Tonight controls",
     items: [
       { term: "Warmer / Cooler", text: "Nudges your side by 1° each press. By default it lasts until the next part of the night; from the Tonight menu you can make it last all night or change your rhythm for every night." },
-      { term: "I'm hot / I'm cold (flashes)", text: "A quick blast of cold or warmth, 15 minutes by default, then it eases back to the plan. Press again for 5 more minutes, or stop it early. Change the defaults in Settings." },
+      { term: "Hot flash / Cold flash", text: "A quick blast of cold or warmth, 15 minutes by default, then it eases back to the plan. Press again for 5 more minutes, or stop it early. Change the defaults in Settings." },
       { term: "Pause", text: "Turns your side off for an hour, then it carries on." },
       { term: "Off tonight", text: "Turns your side off until tomorrow evening. Pressing + or − brings it back." },
       { term: "Turn on now", text: "Outside the night (a nap, an early night) you can turn your side on by hand with a timer. It turns off at the timer or when your rhythm starts." },
@@ -127,7 +127,7 @@ const SECTIONS: Section[] = [
       { term: "Sleeper", text: "Has their own side, rhythm and settings." },
       { term: "Viewer", text: "Can look, not change." },
       { term: "Sharing", text: "Each person decides whether their partner may start flashes or change their temperature (Settings → Sharing)." },
-      { term: "Simple or Full app", text: "Simple is just temperature, I'm hot / I'm cold and an easy schedule; Full has charts, the night's story and all settings. Anyone can switch in their own Settings; the owner can also set it in Studio → People & access." },
+      { term: "Simple or Full app", text: "Simple is just temperature, Hot flash / Cold flash and an easy schedule; Full has charts, the night's story and all settings. Anyone can switch in their own Settings; the owner can also set it in Studio → People & access." },
       { term: "Invites", text: "Studio → People & access makes a one-time link for the partner to set their own password." },
     ],
   },

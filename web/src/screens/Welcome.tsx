@@ -162,7 +162,7 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
         <button role="radio" aria-checked={mode === "simple"} className="wl-card" data-key="1" onClick={() => setMode("simple")}>
           <span className="wl-prev wl-prev-simple" aria-hidden><b>68°</b><i /><i /></span>
           <span className="wl-name">Simple</span>
-          <span className="mute">Just your temperature, I'm hot / I'm cold, and your bedtime.</span>
+          <span className="mute">Just your temperature, Hot flash / Cold flash, and your bedtime.</span>
         </button>
         <button role="radio" aria-checked={mode === "full"} className="wl-card" data-key="2" onClick={() => setMode("full")}>
           <span className="wl-prev wl-prev-full" aria-hidden><svg viewBox="0 0 60 24"><path d="M0 8 C12 8 14 18 24 18 S44 14 52 6 L60 4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg><i /></span>

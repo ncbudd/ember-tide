@@ -132,6 +132,7 @@ class SetNotifications(_Strict):
     away_precool: bool | None = None
     empty_side: bool | None = None
     left_on: bool | None = None
+    not_started: bool | None = None
     morning: bool | None = None
     problems: bool | None = None
     pet_question: bool | None = None
@@ -351,7 +352,7 @@ class Assistant:
             ch = a.model_dump(exclude_none=True)
             if all(cur.get(k) == v for k, v in ch.items()):
                 raise ActionError(409, "Those notifications are already set that way.")
-            names = {"away_precool": "away at pre-cool", "empty_side": "nobody got in", "left_on": "left on", "morning": "morning summary",
+            names = {"away_precool": "away at pre-cool", "empty_side": "nobody got in", "left_on": "left on", "not_started": "ask to start my side", "morning": "morning summary",
                      "problems": "bed or sensor trouble", "pet_question": "pet questions"}
             return Plan("Notifications: " + ", ".join(f"{names[k]} {'on' if v else 'off'}" for k, v in ch.items()),
                         [{"method": "PATCH", "path": f"{base}/settings", "json": {"notify": {**cur, **ch}}}],

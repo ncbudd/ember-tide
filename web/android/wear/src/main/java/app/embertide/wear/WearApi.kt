@@ -5,7 +5,9 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** What the tile needs: the server, the sign-in the phone handed over, and a tiny HTTP client. */
+/** What the tile needs: the server, the watch key the phone handed over (a limited `et_d_` key that can only show and
+ *  change this person's side; older phone apps handed over their session, which the phone replaces on its next start),
+ *  and a tiny HTTP client. */
 object WearApi {
     private fun prefs(c: Context) = c.getSharedPreferences("embertide", Context.MODE_PRIVATE)
     fun server(c: Context) = prefs(c).getString("server", "") ?: ""
@@ -75,7 +77,9 @@ object WearApi {
             }
             View(me.optString("name"), if (on) temp(n.getDouble("target_c"), f) else "Off", state, short, on, kind, left)
         } catch (e: Exception) {
-            View("Ember & Tide", "–", "Can't reach your server", "–", false, ok = false)
+            // 401: the watch key was revoked or the phone signed out; opening the app on the phone hands over a new one
+            if (e.message?.startsWith("HTTP 401") == true) View("Ember & Tide", "–", "Open the app on your phone to sign in again", "Sign in", false, ok = false)
+            else View("Ember & Tide", "–", "Can't reach your server", "–", false, ok = false)
         }
     }
 

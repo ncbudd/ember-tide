@@ -86,10 +86,10 @@ public final class FlashNotifier {
                 try {
                     String pid = Ember.person(app);
                     switch (act) {
-                        case "app.embertide.FLASH_EXTEND": Ember.call(app, "POST", "/api/people/" + pid + "/flash/extend?source=notification", null); break;
-                        case "app.embertide.FLASH_STOP": Ember.call(app, "POST", "/api/people/" + pid + "/flash/stop?source=notification", null); clear(app); break;
-                        case "app.embertide.HOT_FLASH": Ember.call(app, "POST", "/api/people/" + pid + "/flash", "{\"kind\":\"hot\",\"source\":\"widget\"}"); break;
-                        case "app.embertide.COLD_FLASH": Ember.call(app, "POST", "/api/people/" + pid + "/flash", "{\"kind\":\"cold\",\"source\":\"widget\"}"); break;
+                        case "app.embertide.FLASH_EXTEND": Ember.deviceCall(app, "POST", "/api/people/" + pid + "/flash/extend?source=notification", null); break;
+                        case "app.embertide.FLASH_STOP": Ember.deviceCall(app, "POST", "/api/people/" + pid + "/flash/stop?source=notification", null); clear(app); break;
+                        case "app.embertide.HOT_FLASH": Ember.deviceCall(app, "POST", "/api/people/" + pid + "/flash", "{\"kind\":\"hot\",\"source\":\"widget\"}"); break;
+                        case "app.embertide.COLD_FLASH": Ember.deviceCall(app, "POST", "/api/people/" + pid + "/flash", "{\"kind\":\"cold\",\"source\":\"widget\"}"); break;
                         case "app.embertide.POWER": EmberWidget.togglePower(app); break;
                         case "app.embertide.ADJ_UP": EmberWidget.adjust(app, 1); break;
                         case "app.embertide.ADJ_DOWN": EmberWidget.adjust(app, -1); break;

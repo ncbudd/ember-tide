@@ -51,6 +51,11 @@ class TokenBody(BaseModel):
     person: str | None = None
 
 
+class DeviceTokenBody(BaseModel):
+    label: str = Field("", max_length=60)
+    scope: Literal["watch", "phone"]
+
+
 _HASH_SLOTS = None
 
 
@@ -69,28 +74,45 @@ async def _hashing(fn, *args):
 PROXY_HEADERS = ("cf-connecting-ip", "cf-ray", "x-forwarded-for", "x-real-ip", "forwarded")
 
 
-def _forwarded_for(v: str) -> str | None:
-    """The first `for=` of an RFC 7239 Forwarded header (quotes, [brackets] and :port removed)."""
-    for part in v.split(",")[0].split(";"):
-        k, _, val = part.strip().partition("=")
-        if k.lower() == "for" and val:
-            val = val.strip('"')
-            if val.startswith("["):
-                return val[1:].split("]")[0]
-            return val.rsplit(":", 1)[0] if val.count(":") == 1 else val
-    return None
+def _ip(v: str | None) -> str | None:
+    """A bare address from one hop of a forwarding header (quotes, [brackets] and :port removed), or None if it isn't one."""
+    import ipaddress
+    if not v:
+        return None
+    v = v.strip().strip('"')
+    if v.startswith("["):
+        v = v[1:].split("]")[0]
+    elif v.count(":") == 1:
+        v = v.rsplit(":", 1)[0]                     # 1.2.3.4:5678
+    try:
+        return str(ipaddress.ip_address(v))
+    except ValueError:
+        return None
 
 
-def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) -> str:
-    if trust_proxy:
-        for h in ("cf-connecting-ip", "x-real-ip"):
-            if req_headers.get(h):
-                return req_headers[h]
-        if req_headers.get("x-forwarded-for"):
-            return req_headers["x-forwarded-for"].split(",")[0].strip()
-        if req_headers.get("forwarded") and (f := _forwarded_for(req_headers["forwarded"])):
-            return f
-    return peer or "?"
+def _forwarded_hops(v: str) -> list[str | None]:
+    """The `for=` of each element of an RFC 7239 Forwarded header, in order (None where an element has none we can read)."""
+    hops: list[str | None] = []
+    for el in v.split(","):
+        got = None
+        for part in el.split(";"):
+            k, _, val = part.strip().partition("=")
+            if k.lower() == "for":
+                got = _ip(val)
+        hops.append(got)
+    return hops
+
+
+def _rightmost_untrusted(hops: list[str | None]) -> str | None:
+    """Walk a forwarding chain from the right (the hop our own proxy added) past our own proxies (private / loopback
+    addresses) to the first address that isn't ours: that one was seen by a proxy we trust; anything left of it is
+    whatever the visitor chose to send. A hop we can't read stops the walk (nothing beyond it can be believed)."""
+    for h in reversed(hops):
+        if h is None:
+            return None
+        if not _is_home(h):
+            return h
+    return None                                     # all private: nothing outside to name (see from_home)
 
 
 def _is_home(addr: str) -> bool:
@@ -102,6 +124,26 @@ def _is_home(addr: str) -> bool:
     return a.is_private or a.is_loopback or a.is_link_local
 
 
+def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) -> str:
+    """The visitor's address, for per-address limits and the sign-in list.
+
+    Forwarding headers count only with ET_TRUST_PROXY=on and only when the connection itself comes from a private or
+    loopback address (plausibly the tunnel / proxy): straight from the internet they are the visitor's own words.
+    Then Cloudflare's CF-Connecting-IP wins (Cloudflare sets it and overwrites any the visitor sends); otherwise the
+    right-most address that isn't one of ours in X-Forwarded-For, then Forwarded, and X-Real-IP last (Cloudflare and
+    many proxies pass that one through untouched)."""
+    if trust_proxy and _is_home(peer or "?"):
+        if (cf := _ip(req_headers.get("cf-connecting-ip"))):
+            return cf
+        if req_headers.get("x-forwarded-for") and (f := _rightmost_untrusted([_ip(x) for x in req_headers["x-forwarded-for"].split(",")])):
+            return f
+        if req_headers.get("forwarded") and (f := _rightmost_untrusted(_forwarded_hops(req_headers["forwarded"]))):
+            return f
+        if (xr := _ip(req_headers.get("x-real-ip"))) and not _is_home(xr):
+            return xr
+    return peer or "?"
+
+
 def via_untrusted_proxy(req_headers: dict[str, str], trust_proxy: bool) -> bool:
     """Came through a tunnel / reverse proxy that ET_TRUST_PROXY doesn't vouch for: the peer address is the proxy's
     (often a private one on the same machine or Docker network) and says nothing about where the visitor is."""
@@ -109,15 +151,20 @@ def via_untrusted_proxy(req_headers: dict[str, str], trust_proxy: bool) -> bool:
 
 
 def from_home(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) -> bool:
-    """Is this request from the home network? Never for one relayed by a proxy we weren't told to trust."""
-    if via_untrusted_proxy(req_headers, trust_proxy):
+    """Is this request from the home network (first-time setup, and never slowed by the server-wide sign-in limit)?
+
+    Only a direct connection from a private address with no forwarding headers at all. Anything relayed by a tunnel or
+    proxy is treated as outside, trusted or not, even when a header claims a home address: a visitor can write any
+    address into X-Forwarded-For / Forwarded / X-Real-IP, and Cloudflare passes those through. `trust_proxy` only
+    decides whose address the limits count (client_ip)."""
+    if any(req_headers.get(h) for h in PROXY_HEADERS):
         return False
-    return _is_home(client_ip(req_headers, peer, trust_proxy))
+    return _is_home(peer or "?")
 
 
 SETUP_VIA_PROXY = ("First-time setup has to be done from your home network. On a device at home, open the server's "
-                   "local address (like http://192.168.1.20:8790) and create the owner account there. If this address "
-                   "is your own tunnel or reverse proxy and it's the only way in, you can set ET_TRUST_PROXY=on instead.")
+                   "local address (like http://192.168.1.20:8790) and create the owner account there, then use this "
+                   "address.")
 
 
 _SLOWED = 0
@@ -298,6 +345,31 @@ def build_auth_router(state) -> APIRouter:
         p = principal_of(request)
         return {"ok": True, "ended": auth().end_other_sessions(p.id, p.session)}
 
+    # ---- my device keys (the phone's widget and tile, the watch) ----
+    @r.get("/me/device-tokens")
+    async def my_device_tokens(request: Request):
+        p = principal_of(request)
+        if p.kind != "user":
+            return []
+        return auth().device_tokens(p.id, p.session)
+
+    @r.post("/me/device-tokens")
+    async def make_device_token(b: DeviceTokenBody, request: Request):
+        p = principal_of(request)
+        if p.kind != "user" or not p.session:
+            raise HTTPException(403, "Sign in on the phone first.")          # not from an API key or another device key
+        if not p.person:
+            raise HTTPException(422, "This account has no side of the bed, so there's nothing for a widget or watch to control.")
+        tok, row = auth().new_device_token(p.id, p.session, p.person, b.label, b.scope)
+        return {"token": tok, **row}
+
+    @r.delete("/me/device-tokens/{tid}")
+    async def revoke_my_device_token(tid: str, request: Request):
+        p = principal_of(request)
+        if p.kind != "user":
+            raise HTTPException(403, "Only accounts have device keys.")
+        return {"ok": bool(auth().revoke_device_token(tid, p.id))}
+
     # ---- owner: people & access ----
     @r.get("/users")
     async def list_users():
@@ -359,14 +431,23 @@ def build_auth_router(state) -> APIRouter:
         tok, row = auth().new_token(b.name, b.role, b.person, principal_of(request).id)
         return {"token": tok, **row}
 
+    @r.get("/tokens/devices")
+    async def list_device_tokens():
+        return auth().device_tokens()
+
     @r.delete("/tokens/{tid}")
     async def revoke_token(tid: str):
-        return {"ok": bool(auth().revoke_token(tid))}
+        return {"ok": bool(auth().revoke_token(tid))}          # an API key or anyone's device key
 
     return r
 
 
 APP_ORIGINS = {"https://localhost", "http://localhost", "capacitor://localhost"}     # the Android / iPhone app's own page
+
+# Older app builds open the live feed as /api/live?token=<session>, which puts the session in a URL (proxy logs).
+# Current builds use ?ticket= (POST /api/live/ticket). Kept only so phones not yet updated keep their live feed; to
+# remove: set this to False (or delete it and its use in AuthMiddleware) and drop test_legacy_token_query_still_works.
+LEGACY_LIVE_TOKEN_QUERY = True
 
 
 def origin_ok(headers: dict[str, str]) -> bool:
@@ -401,14 +482,25 @@ class AuthMiddleware:
         if scope["type"] == "websocket" and not origin_ok(headers):
             # a browser on another site (even a sibling subdomain, whose cookies are sent) can't open the live feed
             return await self._deny(scope, receive, send, 403, "Not from this app.")
+        p = None
+        ticketed = False
         if scope["type"] == "websocket" and "authorization" not in headers:
             from urllib.parse import parse_qs
             qs = parse_qs(scope.get("query_string", b"").decode())
-            if qs.get("token"):
+            if qs.get("ticket"):
+                # the app's way in: a single-use ticket from POST /api/live/ticket (the session never goes in a URL)
+                ticketed = True
+                p = a.take_ticket(qs["ticket"][0]) if a.enabled else a.principal(headers)
+                if p is None and a.enabled:
+                    # used, expired or unknown: a distinct close code, so the app fetches a new ticket instead of
+                    # treating it as signed out (a session that really ended fails the ticket request with 401)
+                    return await self._deny(scope, receive, send, 4400, "That live ticket has expired.")
+            elif qs.get("token") and LEGACY_LIVE_TOKEN_QUERY:
                 headers["authorization"] = "Bearer " + qs["token"][0]
         method = scope.get("method", "GET") if scope["type"] == "http" else "GET"
         path = scope["path"].rstrip("/") or "/"
-        p = a.principal(headers)
+        if not ticketed:
+            p = a.principal(headers)
         scope.setdefault("state", {})["principal"] = p
         if ((method, path) in PUBLIC or path.startswith("/api/notify/act/")      # single-use action codes are their own key
                 or any(m == method and rx.match(path) for m, rx in PUBLIC_PATTERNS)):
@@ -438,7 +530,7 @@ class AuthMiddleware:
     async def _deny(self, scope, receive, send, code: int, msg: str):
         if scope["type"] == "websocket":
             await self._receive_connect(receive)
-            await send({"type": "websocket.close", "code": 4401 if code == 401 else 4403})
+            await send({"type": "websocket.close", "code": 4401 if code == 401 else 4403 if code == 403 else code})
             return
         body = json.dumps({"detail": msg}).encode()
         await send({"type": "http.response.start", "status": code,

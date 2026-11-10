@@ -7,6 +7,12 @@
 - Sessions: random token in an HttpOnly cookie, stored hashed, 90 days sliding. Signed out from Settings.
 - Invites: the owner makes a one-time link for a person; whoever opens it picks a username and password.
 - API tokens: for Home Assistant, dials, scripts and the MCP server. Sent as `Authorization: Bearer et_…`.
+- Device keys (`et_d_…`): what the phone's widget / Quick Settings tile / notification buttons and the watch use instead
+  of the 90-day session. A signed-in person makes them for themselves; each is tied to the session that made it (signing
+  out of that phone ends them), sees the snapshot as that person would, and can do only the few own-side things those
+  surfaces need (DEVICE_SCOPES). Never account, people, Studio, settings or owner routes, even for the owner.
+- Live tickets: the app opens the live WebSocket with a single-use ticket (30 s, memory only) instead of putting the
+  session in the URL.
 - Changes made with a cookie must carry the `X-Embertide: 1` header (the web app always sends it), which a page
   on another site can't add, so a malicious page can't drive the bed through a signed-in browser.
 
@@ -19,6 +25,7 @@ import hashlib
 import hmac
 import re
 import secrets
+import threading
 import time
 from dataclasses import dataclass
 from http.cookies import SimpleCookie
@@ -29,6 +36,7 @@ COOKIE = "et_session"
 SESSION_DAYS = 90
 INVITE_DAYS = 7
 ROLES = ("owner", "sleeper", "viewer")
+TICKET_S = 30
 USERNAME_RE = re.compile(r"^[a-zA-Z0-9._-]{2,32}$")
 
 SCHEMA = """
@@ -88,6 +96,8 @@ class Principal:
     role: str
     person: str | None
     session: str | None = None   # session hash, for "this device"
+    scope: str | None = None     # device keys: "watch" | "phone" (DEVICE_SCOPES)
+    user_id: str | None = None   # device keys: the account that made it
 
     def public(self) -> dict:
         return {"kind": self.kind, "id": self.id, "name": self.name, "role": self.role, "person": self.person}
@@ -102,11 +112,19 @@ class Auth:
         self.enabled = enabled
         with store._lock, store._db:
             store._db.executescript(SCHEMA)
-            try:
-                store._db.execute("ALTER TABLE invites ADD COLUMN user_id TEXT")     # set for password-reset links
-            except Exception:  # noqa: BLE001
-                pass
+            for ddl in ("ALTER TABLE invites ADD COLUMN user_id TEXT",          # set for password-reset links
+                        # device keys live with the API keys: kind 'device', made by user_id from session (hash), scope
+                        "ALTER TABLE tokens ADD COLUMN kind TEXT NOT NULL DEFAULT 'api'",
+                        "ALTER TABLE tokens ADD COLUMN user_id TEXT",
+                        "ALTER TABLE tokens ADD COLUMN session TEXT",
+                        "ALTER TABLE tokens ADD COLUMN scope TEXT"):
+                try:
+                    store._db.execute(ddl)
+                except Exception:  # noqa: BLE001
+                    pass                                                       # already there
         self._fails: dict[str, list[float]] = {}
+        self._tickets: dict[str, tuple[float, Principal]] = {}
+        self._tickets_lock = threading.Lock()
 
     # ---------- helpers ----------
     def _q(self, sql: str, args: tuple = ()) -> list[tuple]:
@@ -200,7 +218,9 @@ class Auth:
         return tok
 
     def session_principal(self, tok: str) -> Principal | None:
-        h = _h(tok)
+        return self._session_by_hash(_h(tok))
+
+    def _session_by_hash(self, h: str) -> Principal | None:
         r = self._q("SELECT s.user_id,s.expires,s.seen,u.username,u.role,u.person FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.hash=?", (h,))
         if not r:
             return None
@@ -219,12 +239,17 @@ class Auth:
 
     def end_session(self, h: str) -> None:
         self._x("DELETE FROM sessions WHERE hash=?", (h,))
+        self._drop_orphan_device_tokens()          # its device keys stop working anyway (checked on use); tidy now
 
     def end_session_by_prefix(self, uid: str, prefix: str) -> int:
-        return self._x("DELETE FROM sessions WHERE user_id=? AND substr(hash,1,12)=?", (uid, prefix))
+        n = self._x("DELETE FROM sessions WHERE user_id=? AND substr(hash,1,12)=?", (uid, prefix))
+        self._drop_orphan_device_tokens()
+        return n
 
     def end_other_sessions(self, uid: str, keep: str | None) -> int:
-        return self._x("DELETE FROM sessions WHERE user_id=? AND hash<>?", (uid, keep or ""))
+        n = self._x("DELETE FROM sessions WHERE user_id=? AND hash<>?", (uid, keep or ""))
+        self._drop_orphan_device_tokens()
+        return n
 
     # ---------- invites ----------
     def new_invite(self, person: str | None, role: str, by: str) -> str:
@@ -305,21 +330,95 @@ class Auth:
         return tok, next(t for t in self.tokens() if t["id"] == tid)
 
     def tokens(self) -> list[dict]:
+        """The owner's API keys (device keys are listed by device_tokens)."""
         return [dict(zip(("id", "name", "role", "person", "created", "last_used"), r))
-                for r in self._q("SELECT id,name,role,person,created,last_used FROM tokens ORDER BY created")]
+                for r in self._q("SELECT id,name,role,person,created,last_used FROM tokens WHERE kind='api' ORDER BY created")]
 
     def revoke_token(self, tid: str) -> int:
         return self._x("DELETE FROM tokens WHERE id=?", (tid,))
 
     def token_principal(self, tok: str) -> Principal | None:
-        r = self._q("SELECT id,name,role,person,last_used FROM tokens WHERE hash=?", (_h(tok),))
+        r = self._q("SELECT id,name,role,person,last_used,kind,user_id,session,scope FROM tokens WHERE hash=?", (_h(tok),))
         if not r:
             return None
-        tid, name, role, person, last = r[0]
+        tid, name, role, person, last, kind, uid, session, scope = r[0]
         now = time.time()
+        if kind == "device":
+            # alive only while the session that made it is, for the same account and the same side; the account's role
+            # now (not when the key was made) decides what the snapshot shows and whether it may change anything
+            u = self._q("SELECT u.role,u.person,s.expires FROM users u JOIN sessions s ON s.user_id=u.id "
+                        "WHERE u.id=? AND s.hash=?", (uid, session or ""))
+            if not u or now > u[0][2] or not person or u[0][1] != person or scope not in DEVICE_SCOPES:
+                self._x("DELETE FROM tokens WHERE id=?", (tid,))
+                return None
+            role = u[0][0]
         if not last or now - last > 300:
             self._x("UPDATE tokens SET last_used=? WHERE id=?", (now, tid))
+        if kind == "device":
+            return Principal("device", tid, name, role, person, scope=scope, user_id=uid)
         return Principal("token", tid, name, role, person)
+
+    # ---------- device keys (widget, tile, watch) ----------
+    def new_device_token(self, uid: str, session: str, person: str, label: str, scope: str) -> tuple[str, dict]:
+        """A limited key for one of this person's own devices, tied to the session making it. Making one again for the
+        same session and scope replaces the old one, so re-minting never piles keys up."""
+        if scope not in DEVICE_SCOPES:
+            raise ValueError("unknown scope")
+        label = label.strip()[:60] or ("Watch" if scope == "watch" else "Phone widget")
+        tok = "et_d_" + secrets.token_urlsafe(30)
+        tid = "t_" + secrets.token_hex(5)
+        role = (self.user(uid) or {}).get("role") or "viewer"          # for the record; the live role is used on each call
+        with self.store._lock, self.store._db:
+            self.store._db.execute("DELETE FROM tokens WHERE kind='device' AND user_id=? AND session=? AND scope=?",
+                                   (uid, session, scope))
+            self.store._db.execute("INSERT INTO tokens(id,hash,name,role,person,created,created_by,kind,user_id,session,scope) "
+                                   "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                                   (tid, _h(tok), label, role, person, time.time(), uid, "device", uid, session, scope))
+        return tok, next(t for t in self.device_tokens(uid, session) if t["id"] == tid)
+
+    def _drop_orphan_device_tokens(self) -> None:
+        self._x("DELETE FROM tokens WHERE kind='device' AND (session IS NULL OR session NOT IN (SELECT hash FROM sessions))")
+
+    def device_tokens(self, uid: str | None = None, current_session: str | None = None) -> list[dict]:
+        """Device keys for one account (or everyone's, for the owner), newest first."""
+        self._drop_orphan_device_tokens()
+        sql = ("SELECT t.id,t.name,t.scope,t.person,t.created,t.last_used,t.user_id,u.username,t.session FROM tokens t "
+               "LEFT JOIN users u ON u.id=t.user_id WHERE t.kind='device'")
+        rows = self._q(sql + (" AND t.user_id=?" if uid else "") + " ORDER BY t.created DESC", (uid,) if uid else ())
+        return [{"id": r[0], "name": r[1], "scope": r[2], "person": r[3], "created": r[4], "last_used": r[5],
+                 "user_id": r[6], "username": r[7], "this_device": bool(current_session) and r[8] == current_session}
+                for r in rows]
+
+    def revoke_device_token(self, tid: str, uid: str | None = None) -> int:
+        """Revoke a device key: the account's own (uid given) or anyone's (the owner: uid None)."""
+        if uid:
+            return self._x("DELETE FROM tokens WHERE id=? AND kind='device' AND user_id=?", (tid, uid))
+        return self._x("DELETE FROM tokens WHERE id=? AND kind='device'", (tid,))
+
+    # ---------- live tickets ----------
+    def new_ticket(self, p: Principal) -> str:
+        """A single-use ticket for opening the live WebSocket as `p`, valid TICKET_S seconds, kept in memory only."""
+        t = secrets.token_urlsafe(24)
+        now = time.time()
+        with self._tickets_lock:
+            if len(self._tickets) > 200:
+                self._tickets = {k: v for k, v in self._tickets.items() if v[0] > now}
+                while len(self._tickets) > 500:                       # a flood: the oldest go first
+                    self._tickets.pop(next(iter(self._tickets)))
+            self._tickets[_h(t)] = (now + TICKET_S, p)
+        return t
+
+    def take_ticket(self, t: str) -> Principal | None:
+        """Use up a ticket: it's removed in the same step it's read, so it works once. For an account, the session it
+        was made with must still be signed in."""
+        with self._tickets_lock:
+            got = self._tickets.pop(_h(t), None)
+        if got is None or time.time() > got[0]:
+            return None
+        p = got[1]
+        if p.kind == "user":
+            return self._session_by_hash(p.session or "")
+        return p
 
     # ---------- request → principal ----------
     def principal(self, headers: dict[str, str]) -> Principal | None:
@@ -367,9 +466,40 @@ FLASH = re.compile(r"^/flash(/extend|/stop)?$")
 ADJUST = re.compile(r"^/(adjust(/clear)?|tonight)$")
 
 
+# Device keys: exactly the calls the native surfaces make, on the key's own person only (paths after /api/people/{pid}).
+# watch = the Wear tile (EmberTileService); phone = the home-screen widget, the Quick Settings tile, the flash
+# notification and the notification buttons (EmberWidget, FlashTileService, FlashNotifier, EmberPush.act). Health
+# uploads, phone context, watch heart rate and push registration run on the phone with its own session instead.
+_WATCH_OWN = frozenset({("POST", "/flash"), ("POST", "/flash/extend"), ("POST", "/flash/stop"),
+                        ("POST", "/adjust"), ("POST", "/adjust/clear"), ("POST", "/tonight")})
+DEVICE_SCOPES: dict[str, frozenset] = {
+    "watch": _WATCH_OWN,
+    "phone": _WATCH_OWN | {("POST", "/feedback"), ("POST", "/away-check")},
+}
+DEVICE_READS = frozenset({("GET", "/api/snapshot")})
+DEVICE_PET_ANSWER = re.compile(r"^/pet-question/[A-Za-z0-9]{1,40}$")      # phone: "was that the pet?" from a notification
+
+
+def device_allowed(p: Principal, method: str, path: str) -> bool:
+    if (method, path) in DEVICE_READS:
+        return True
+    own = DEVICE_SCOPES.get(p.scope or "")
+    m = PERSON_PATH.match(path)
+    if own is None or not m or not p.person or m.group(1) != p.person:
+        return False
+    rest = m.group(2) or ""
+    return (method, rest) in own or (p.scope == "phone" and method == "POST" and bool(DEVICE_PET_ANSWER.match(rest)))
+
+
 def authorize(p: Principal, method: str, path: str, partner_shares) -> str | None:
     """None if allowed, else a short reason. `partner_shares(pid)` → (can_flash, can_adjust) for that person."""
-    if p.role == "owner":
+    if p.kind == "device":
+        if not device_allowed(p, method, path):
+            return "This device key can't do that. Open the app instead."
+        if p.role == "owner":
+            return None
+        # a sleeper's or viewer's key: their account's usual rules apply as well (a viewer's watch can only look)
+    elif p.role == "owner":
         return None
     read = method in ("GET", "HEAD", "OPTIONS")
     if any(rx.match(path) for rx in OWNER_ONLY):
@@ -384,8 +514,9 @@ def authorize(p: Principal, method: str, path: str, partner_shares) -> str | Non
         if m and p.person != m.group(1) and (m.group(2) or "").startswith(PRIVATE_READS):
             return "That's their own sleep and phone data."      # health, location and habits stay with their person
         return None
-    if path.startswith(("/api/auth/me", "/api/notify/me")):
-        return None                                       # your own password, devices and notifications, any role
+    if path.startswith(("/api/auth/me", "/api/notify/me")) or path == "/api/live/ticket":
+        return None                                       # your own password, devices and notifications, any role;
+                                                          # a ticket for the live feed shows only what you can read
     if p.role == "viewer":
         return "This account can only look."
     if path == "/api/household/swap-sides":

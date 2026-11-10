@@ -219,7 +219,9 @@ def test_setup_only_from_home(tmp_path):
     with TestClient(create_app(cfg)) as c:
         r = c.post("/api/auth/setup", json={"username": "mallory", "password": PW}, headers={"CF-Connecting-IP": "93.184.216.34"})
         assert r.status_code == 403 and c.get("/api/auth/state").json()["setup_needed"]
-        assert c.post("/api/auth/setup", json={"username": "alex", "password": PW}, headers={"CF-Connecting-IP": "192.168.1.50"}).status_code == 200
+        # a home address claimed in a forwarding header isn't enough (a visitor can send one); directly at home is
+        assert c.post("/api/auth/setup", json={"username": "alex", "password": PW}, headers={"CF-Connecting-IP": "192.168.1.50"}).status_code == 403
+        assert c.post("/api/auth/setup", json={"username": "alex", "password": PW}).status_code == 200
 
 
 def test_app_signs_in_with_a_bearer_session(tmp_path):

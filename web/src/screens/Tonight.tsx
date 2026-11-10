@@ -336,19 +336,21 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
           {canAdjust && n.override && <button className="item" onClick={() => run(`${base}/adjust/clear`)}>Undo the change<small>back to the rhythm</small></button>}
           {canAdjust && !n.started && (n.state === "waiting" || n.state === "away") && <button className="item" onClick={() => run(`${base}/tonight`, { action: "start_now" })}>Start the rhythm now<small>for reading in bed</small></button>}
           {!canAdjust && <p className="mute" style={{ fontSize: 13, padding: "8px 0" }}>{target.name} hasn't shared control of their side. They can turn it on in their Settings → Sharing.</p>}
-          {canAdjust && (n.state === "paused"
-            ? <button className="item" onClick={() => run(`${base}/tonight`, { action: "resume" })}>Resume now<small>paused until {clock(n.pause_until, snap.tz)}</small></button>
-            : <button className="item" onClick={() => run(`${base}/tonight`, { action: "pause", minutes: 60 })}>Pause for an hour<small>{whose} side off, then resumes</small></button>)}
-          {canAdjust && (n.skip
-            ? <button className="item" onClick={() => run(`${base}/tonight`, { action: "resume" })}>Turn {whose} side back on<small /></button>
-            : <button className="item" onClick={() => run(`${base}/tonight`, { action: "skip" })}>Turn {whose} side off tonight<small>back on tomorrow</small></button>)}
           {canAdjust && n.context?.early_start && target.schedule && target.schedule.wake > n.context.early_start - 2700 && (() => {
             const w = n.context!.early_start! - 45 * 60;                 // warm wake 45 min before the early start
             return <button className="item" onClick={() => run(`${base}/context`, { wake: w })}>Wake up earlier tonight<small>early start at {clock(n.context!.early_start!, snap.tz)} · warm wake from {clock(w - 30 * 60, snap.tz)}</small></button>;
           })()}
+          {(canAdjust || target.id === me.id || isOwner) && <div className="k" style={{ padding: "10px 2px 0" }}>Not sleeping here?</div>}
+          {/* shortest to longest: an hour, tonight, a few days */}
+          {canAdjust && (n.state === "paused"
+            ? <button className="item" onClick={() => run(`${base}/tonight`, { action: "resume" })}>Resume now<small>paused until {clock(n.pause_until, snap.tz)}</small></button>
+            : <button className="item" onClick={() => run(`${base}/tonight`, { action: "pause", minutes: 60 })}>Pause for an hour<small>{whose} side turns off, then back on by itself</small></button>)}
+          {canAdjust && (n.skip
+            ? <button className="item" onClick={() => run(`${base}/tonight`, { action: "resume" })}>Turn {whose} side back on<small /></button>
+            : <button className="item" onClick={() => run(`${base}/tonight`, { action: "skip" })}>Off tonight<small>{whose} side stays off until tomorrow evening</small></button>)}
           {(target.id === me.id || isOwner) && (n.away
             ? <button className="item" onClick={() => run(`${base}/away`, { away: false })}>{target.id === me.id ? "I'm back" : `${target.name} is back`}<small>{whose} nights run again from now</small></button>
-            : <button className="item" onClick={() => { run(`${base}/away`, { away: true }); say(target.id === me.id ? "You're marked away. Your side stays off until you're back." : `${target.name} is marked away. Their side stays off until they're back.`); }}>Away for a few days<small>{whose} side stays off, tonight too, and Autopilot's learning pauses until back</small></button>)}
+            : <button className="item" onClick={() => { run(`${base}/away`, { away: true }); say(target.id === me.id ? "You're marked away. Your side stays off until you're back." : `${target.name} is marked away. Their side stays off until they're back.`); }}>Away for a few days<small>{whose} side stays off until {target.id === me.id ? "you tap I'm back" : "marked back"}</small></button>)}
           {isOwner && <button className="item" onClick={() => { setSheet(false); setGuestSheet(true); }}>Guest mode<small>lend a side, or the whole bed, to a guest</small></button>}
           <button className="item" onClick={() => setSheet(false)}>Cancel<small /></button>
       </Sheet>}

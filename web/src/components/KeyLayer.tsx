@@ -75,7 +75,7 @@ function moveNav(dir: 1 | -1): boolean {
 }
 
 const ROUTE_HINTS: Record<string, string> = {
-  "/": "↑↓ warmer/cooler · H hot · C cold · O off · S more · V whose · ? keys",
+  "/": "↑↓ warmer/cooler · H hot flash · C cold flash · O off · S more · V whose · ? keys",
   "/rhythm": "J/K phase · ←→ temperature · Enter open · 1–4 tabs · ? keys",
   "/sleep": "←→ nights · 1–4 tabs · ? keys",
   "/settings": "J/K move · Enter change · 1–4 tabs · ? keys",
@@ -220,7 +220,7 @@ export default function KeyLayer({ compact, easy, setSimpleOn, welcome = false }
   }, []);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const hint = welcome ? "Enter next · ← back · S skip · 1 Simple · 2 Full"
-    : easy ? (loc.pathname === "/" && me?.night.guest ? "Guest side · ↑↓ temperature · O on/off · 1 2 3 tabs · ? keys" : loc.pathname === "/" ? "↑↓ warmer/cooler · H hot · C cold · O off · F feel · 1 2 3 tabs · ? keys" : "1 Home · 2 Schedule · 3 Me · ? keys")
+    : easy ? (loc.pathname === "/" && me?.night.guest ? "Guest side · ↑↓ temperature · O on/off · 1 2 3 tabs · ? keys" : loc.pathname === "/" ? "↑↓ warmer/cooler · H hot flash · C cold flash · O off · F feel · 1 2 3 tabs · ? keys" : "1 Home · 2 Schedule · 3 Me · ? keys")
     : loc.pathname === "/" && me?.night.guest ? "Guest side · ↑↓ temperature · O on/off · 1–4 tabs · ? keys"
     : ROUTE_HINTS[loc.pathname] ?? "? keys";
   return <>

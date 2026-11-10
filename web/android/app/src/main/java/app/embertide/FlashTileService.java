@@ -28,7 +28,7 @@ public class FlashTileService extends TileService {
         new Thread(() -> {
             String msg;
             try {
-                Ember.call(getApplicationContext(), "POST", "/api/people/" + Ember.person(this) + "/flash", "{\"kind\":\"hot\",\"source\":\"tile\"}");
+                Ember.deviceCall(getApplicationContext(), "POST", "/api/people/" + Ember.person(this) + "/flash", "{\"kind\":\"hot\",\"source\":\"tile\"}");
                 EmberWidget.refreshAll(getApplicationContext());
                 msg = "Hot flash started";
             } catch (Exception e) {

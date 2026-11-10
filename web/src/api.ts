@@ -168,13 +168,19 @@ export function useLive() {
   const wsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
     let stop = false, retry: number | undefined, poll: number | undefined, lastMsg = Date.now();
-    const connect = () => {
-      const proto = location.protocol === "https:" ? "wss" : "ws";
-      const base = appServer();
-      const ws = new WebSocket(base ? `${base.replace(/^http/, "ws")}/api/live?token=${encodeURIComponent(appToken())}` : `${proto}://${location.host}/api/live`);
+    let gen = 0, fails = 0;                                // gen: which connect attempt is current (a pause moves it on)
+    const again = () => {
+      // poll meanwhile, and try again a little later each time it fails (3 s, 6 s, 12 s … up to 30 s)
+      if (!poll) poll = window.setInterval(() => api.get<Snapshot>("/api/snapshot").then(setSnap).catch(() => {}), 4000);
+      fails++;
+      clearTimeout(retry);
+      retry = window.setTimeout(connect, Math.min(30_000, 3000 * 2 ** Math.min(fails - 1, 4)));
+    };
+    const open = (url: string) => {
+      const ws = new WebSocket(url);
       wsRef.current = ws;
       let closed = false;                                  // this connection only: a late close from an old one does nothing
-      ws.onopen = () => { if (closed) return; setConnected(true); if (poll) { clearInterval(poll); poll = undefined; } };
+      ws.onopen = () => { if (closed) return; fails = 0; setConnected(true); if (poll) { clearInterval(poll); poll = undefined; } };
       ws.onmessage = (e) => { if (closed) return; lastMsg = Date.now(); try { setSnap(JSON.parse(e.data)); } catch { /* ignore */ } };
       ws.onclose = (ev) => {
         if (closed) return;
@@ -182,16 +188,28 @@ export function useLive() {
         setConnected(false);
         if (stop) return;
         if (ev.code === 4401) { window.dispatchEvent(new Event("et-signed-out")); return; }
-        if (!poll) poll = window.setInterval(() => api.get<Snapshot>("/api/snapshot").then(setSnap).catch(() => {}), 4000);
-        retry = window.setTimeout(connect, 3000);
+        again();                                           // 4400 (ticket used up or late) lands here too: a new ticket
       };
       detach = () => { closed = true; ws.onopen = ws.onmessage = ws.onclose = null; };
+    };
+    const connect = () => {
+      if (stop) return;
+      const base = appServer();
+      if (!base) {                                         // browser / PWA: same origin, the cookie signs the socket in
+        open(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/api/live`);
+        return;
+      }
+      // the app: a fresh single-use ticket for every connection, so the session itself never goes in a URL
+      const mine = ++gen;
+      api.post<{ ticket: string }>("/api/live/ticket")
+        .then(r => { if (!stop && mine === gen) open(`${base.replace(/^http/, "ws")}/api/live?ticket=${encodeURIComponent(r.ticket)}`); })
+        .catch(() => { if (!stop && mine === gen) again(); });   // a signed-out session is reported by api itself (401)
     };
     let detach = () => {};
     // battery: no live connection while the app is in the background. Close it 30 s after the app is hidden and
     // reconnect (with a fresh snapshot) as soon as it is shown again.
     let hideTimer: number | undefined;
-    const pause = () => { stop = true; clearTimeout(retry); clearInterval(poll); poll = undefined; detach(); wsRef.current?.close(); wsRef.current = null; setConnected(false); };
+    const pause = () => { stop = true; gen++; fails = 0; clearTimeout(retry); clearInterval(poll); poll = undefined; detach(); wsRef.current?.close(); wsRef.current = null; setConnected(false); };
     const onVis = () => {
       if (document.visibilityState === "hidden") { clearTimeout(hideTimer); hideTimer = window.setTimeout(pause, 30_000); return; }
       clearTimeout(hideTimer);

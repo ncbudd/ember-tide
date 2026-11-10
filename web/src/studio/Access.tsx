@@ -9,6 +9,7 @@ import { useAuth } from "../auth";
 import { weightUnit } from "../format";
 import { useApp } from "../ctx";
 import type { Snapshot } from "../types";
+import { type DeviceKey, deviceKeyName } from "../screens/Account";
 
 interface User { id: string; username: string; role: string; person: string | null; created: number }
 interface Invite { id: string; person: string | null; role: string; created: number; expires: number }
@@ -29,6 +30,7 @@ export default function Access() {
   const [usersLoaded, setUsersLoaded] = useState(false);
   const [invites, setInvites] = useState<Invite[]>([]);
   const [tokens, setTokens] = useState<Token[]>([]);
+  const [devKeys, setDevKeys] = useState<DeviceKey[]>([]);
   const [invPerson, setInvPerson] = useState<string | null>(null);
   const [invRole, setInvRole] = useState("sleeper");
   const [link, setLink] = useState<string | null>(null);
@@ -44,6 +46,7 @@ export default function Access() {
     api.get<User[]>("/api/auth/users").then(u => { setUsers(u); setUsersLoaded(true); }).catch(() => {});
     api.get<Invite[]>("/api/auth/invites").then(setInvites).catch(() => {});
     api.get<Token[]>("/api/auth/tokens").then(setTokens).catch(() => {});
+    api.get<DeviceKey[]>("/api/auth/tokens/devices").then(setDevKeys).catch(() => setDevKeys([]));
   };
   useEffect(() => { if (auth.isOwner && auth.state.enabled) load(); }, [auth.isOwner, auth.state.enabled]);
   // pick the side nobody has an account for yet, once, after the account list arrives; after that the choice is yours
@@ -193,6 +196,16 @@ export default function Access() {
               <td style={{ textAlign: "right" }}>{confirm === t.id
                 ? <><button className="pill" style={{ borderColor: "var(--bad)", color: "var(--bad)" }} onClick={async () => { await api.del(`/api/auth/tokens/${t.id}`); setConfirm(null); say(`Revoked ${t.name}`); load(); }}>Revoke?</button>{" "}<button className="pill" onClick={() => setConfirm(null)}>Keep</button></>
                 : <button className="pill" onClick={() => setConfirm(t.id)}>Revoke</button>}</td></tr>)}
+          </tbody></table>
+          <span className="k" style={{ marginTop: 6 }}>Phone widgets and watches</span>
+          <span className="mute" style={{ fontSize: 13 }}>Each phone makes these by itself after sign-in. They can only show that person's side and change its temperature, flashes and tonight, and they end when that phone signs out.</span>
+          <table className="t"><thead><tr><th>Whose</th><th>For</th><th>Last used</th><th /></tr></thead><tbody>
+            {devKeys.length === 0 && <tr><td colSpan={4} className="mute">None yet.</td></tr>}
+            {devKeys.map(k => <tr key={k.id}><td>{k.username ?? "?"}<br /><small className="mute">{pname(k.person)}</small></td><td>{deviceKeyName(k)}</td>
+              <td className="mute">{k.last_used ? day(k.last_used) : "never"}</td>
+              <td style={{ textAlign: "right" }}>{confirm === k.id
+                ? <><button className="pill" style={{ borderColor: "var(--bad)", color: "var(--bad)" }} onClick={async () => { await api.del(`/api/auth/tokens/${k.id}`); setConfirm(null); say(`Revoked ${k.username ?? ""}'s ${deviceKeyName(k).toLowerCase()} key`); load(); }}>Revoke?</button>{" "}<button className="pill" onClick={() => setConfirm(null)}>Keep</button></>
+                : <button className="pill" onClick={() => setConfirm(k.id)}>Revoke</button>}</td></tr>)}
           </tbody></table>
         </div>
       </div>

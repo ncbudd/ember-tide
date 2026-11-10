@@ -268,7 +268,7 @@ export default function Autopilot() {
               <span className="chip" style={{ cursor: "default" }}><i style={{ display: "inline-block", width: 10, height: 2, background: "var(--acc)", verticalAlign: "middle" }} /> plan</span>
               <span className="chip" style={{ cursor: "default" }}><i style={{ display: "inline-block", width: 10, height: 2, background: "var(--text)", opacity: .5, verticalAlign: "middle" }} /> bed</span>
               <span className="chip" style={{ cursor: "default" }}>◆ Autopilot</span><span className="chip" style={{ cursor: "default" }}>◇ replay</span>{(night?.recheck?.moments?.length ?? 0) > 0 && <span className="chip" style={{ cursor: "default" }}>↺ re-check</span>}
-              <span className="chip" style={{ cursor: "default" }}>▲ too hot · ▼ too cold</span><span className="chip" style={{ cursor: "default" }}>❄ ☼ flash · ± your change</span>
+              <span className="chip" style={{ cursor: "default" }}>▲ too hot · ▼ too cold</span><span className="chip" style={{ cursor: "default" }}>❄ hot · ☼ cold flash · ± your change</span>
             </div>
             {sel && <div className="box" style={{ borderColor: STATUS_COLOR[sel.status] }}><DecisionText d={sel} dd={dd} deg={deg} full /></div>}
             {night && night.decisions.length > 0 && <ShowMore items={night.decisions} limit={8} noun="moments" render={shown => <table className="t"><thead><tr><th>Time</th><th>Stage</th><th>What</th><th>Why</th></tr></thead><tbody>

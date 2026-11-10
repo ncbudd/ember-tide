@@ -109,7 +109,7 @@ async def test_lying_there_long_with_the_radar_refusing_offers_to_start_once(tmp
     assert n.e(n.p1).s.started
 
 
-async def test_no_offer_while_away_or_after_midnight(tmp_path, monkeypatch):
+async def test_no_offer_while_away(tmp_path, monkeypatch):
     from embertide.engine import away
     from embertide.notify import Notifier
     n = Night(tmp_path, "2026-11-05T23:00", echo=False)
@@ -120,14 +120,51 @@ async def test_no_offer_while_away_or_after_midnight(tmp_path, monkeypatch):
     n.present("left", True)
     await n.step(100)
     assert not _offers(n)
-    (tmp_path / "b").mkdir()
-    m = Night(tmp_path / "b", "2026-11-06T00:10", echo=False)
-    m.c.notifier = Notifier(m.c, None)
-    seen2 = radar(m, monkeypatch)
-    seen2["left"], seen2["right"] = 0, 0
-    m.present("left", True)
-    await m.step(100)
-    assert not _offers(m) and (m.c.snapshot()["people"][0]["night"]["settle"] or {}).get("offer_start")
+
+
+async def test_a_bedtime_after_midnight_still_gets_the_offer(tmp_path, monkeypatch):
+    from embertide.notify import Notifier
+    n = Night(tmp_path, "2026-11-06T00:10", echo=False)
+    n.c.notifier = Notifier(n.c, None)
+    seen = radar(n, monkeypatch)
+    seen["left"], seen["right"] = 0, 0
+    n.present("left", True)
+    await n.step(100)
+    assert len(_offers(n)) == 1 and not n.e(n.p1).s.started
+
+
+async def test_no_offer_in_the_last_hour_before_wake(tmp_path, monkeypatch):
+    from datetime import datetime, timedelta
+    from embertide.notify import Notifier
+    probe = Night(tmp_path / "probe", "2026-11-06T00:10", echo=False)
+    await probe.step(1)
+    wake = datetime.fromtimestamp(probe.c.snapshot()["people"][0]["schedule"]["wake"], probe.c.clock.tz)
+    start = (wake - timedelta(minutes=80)).strftime("%Y-%m-%dT%H:%M")
+    n = Night(tmp_path / "late", start, echo=False)
+    n.c.notifier = Notifier(n.c, None)
+    seen = radar(n, monkeypatch)
+    seen["left"], seen["right"] = 0, 0
+    n.present("left", True)
+    await n.step(90)
+    assert not _offers(n) and (n.c.snapshot()["people"][0]["night"]["settle"] or {}).get("offer_start")
+
+
+async def test_the_offer_can_be_switched_off(tmp_path, monkeypatch):
+    from embertide.notify import Notifier
+    n = Night(tmp_path, "2026-11-05T23:00", echo=False)
+    n.c.notifier = Notifier(n.c, None)
+    n.p1.settings.notify.not_started = False
+    seen = radar(n, monkeypatch)
+    seen["left"], seen["right"] = 0, 0
+    n.present("left", True)
+    await n.step(100)
+    assert not _offers(n) and (n.c.snapshot()["people"][0]["night"]["settle"] or {}).get("offer_start")
+
+
+def test_old_saved_prefs_load_with_the_offer_on():
+    from embertide.models import NotifyPrefs
+    assert NotifyPrefs.model_validate({"morning": False, "left_on": True}).not_started is True
+    assert NotifyPrefs().not_started is True
 
 
 async def test_after_a_restart_one_radar_sample_doesnt_decide(tmp_path, monkeypatch):

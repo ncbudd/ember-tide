@@ -14,6 +14,7 @@ export const NOTIFY_TYPES: readonly (readonly [NotifyKey, string, string])[] = [
   ["away_precool", "Pre-cool is due and I'm not home", "with buttons: wait an hour, off tonight, start anyway"],
   ["empty_side", "My side is pre-cooled but empty", "in the evening; after midnight it waits for the morning"],
   ["left_on", "I turned my side on and left it empty", "after 20 min with nobody in it, with a Turn it off button"],
+  ["not_started", "Ask to start my side if the bed isn't sure it's me", "after about 40 min lying down, with a Start now button"],
   ["pet_question", "Was the pet on the bed?", "daytime only; a question from the night comes with the morning summary"],
   ["problems", "Bed or sensor trouble", "the bed can't be reached or a sensor stops updating"],
 ];

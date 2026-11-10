@@ -108,8 +108,8 @@ function Home() {
             <button onClick={() => act(`${base}/flash/extend`)}>5 more minutes</button>
             <button onClick={() => act(`${base}/flash/stop`)}>That's enough</button>
           </> : <>
-            <button className="hot" onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> I'm hot</button>
-            <button className="cold" onClick={() => act(`${base}/flash`, { kind: "cold" })}><Icon name="sun" className="fl-ico" /> I'm cold</button>
+            <button className="hot" onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> Hot flash</button>
+            <button className="cold" onClick={() => act(`${base}/flash`, { kind: "cold" })}><Icon name="sun" className="fl-ico" /> Cold flash</button>
           </>}
         </div>
         <div className="sa-steps">
@@ -124,7 +124,7 @@ function Home() {
         {resumable ? <button className="btn" onClick={() => act(`${base}/tonight`, { action: "resume" })}>Turn back on</button>
           : n.override?.manual ? <button className="btn" onClick={() => act(`${base}/adjust/clear`)}>Turn off</button>
           : idle ? <button className="btn" onClick={() => act(`${base}/adjust`, { temp_c: first, until: "next_phase" })}>Turn on now</button>
-          : <button className="btn" onClick={() => act(`${base}/tonight`, { action: "skip" })}>Turn off tonight</button>}
+          : <button className="btn" onClick={() => act(`${base}/tonight`, { action: "skip" })}>Off tonight</button>}
       </div>
     </div>
   );
