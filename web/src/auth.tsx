@@ -1,6 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { api, appServer, declineSecureAddress, forgetAppServer, isApp, learnServerId, rememberServerId, secureAddressOffer, setAppSession, switchToSecureAddress } from "./api";
 import Sheet from "./components/Sheet";
+import { pushBack } from "./components/back";
+import { BrandMark, PersonaScene, usePauseWhenHidden } from "./components/FirstRunArt";
 import { nativeBars, nativeSignedOut, pushBeforeSignOut } from "./native";
 
 interface Principal { kind: "user" | "token" | "open"; id: string; name: string; role: "owner" | "sleeper" | "viewer"; person: string | null }
@@ -14,14 +16,16 @@ export function useAuth(): AuthCtx {
   return c;
 }
 
-function Shell({ children }: { children: ReactNode }) {
+function Shell({ children, hero = false }: { children: ReactNode; hero?: boolean }) {
   useEffect(() => { nativeBars("#100e12", false); }, []);       // the sign-in screens are always dark
+  usePauseWhenHidden();
   return (
-    <div className="app authapp">
+    <div className={`app authapp${hero ? " au-hero" : ""}`}>
+      <PersonaScene persona="neutral" mode="brand" />
       {/* Computers get a web page: this brand panel on the left, the form in a card. Phones and the app hide it. */}
       <aside className="authside" aria-hidden>
         <div className="authside-top">
-          <div className="brandmark"><span className="e" /><span className="t" /></div>
+          <BrandMark size="sm" />
           <span className="authside-name">Ember &amp; Tide</span>
         </div>
         <div className="authside-copy">
@@ -29,20 +33,34 @@ function Shell({ children }: { children: ReactNode }) {
           <p>Each of you gets your own temperature through the night, starting when you get into bed.</p>
         </div>
         <svg className="authside-waves" viewBox="0 0 600 220" preserveAspectRatio="none">
-          <path d="M0 70 C80 70 110 150 190 150 S320 120 380 128 S500 150 540 110 S590 40 600 36" fill="none" stroke="var(--cool)" strokeWidth="3" strokeLinecap="round" />
-          <path d="M0 110 C70 110 120 175 200 172 S330 150 390 160 S500 170 545 135 S590 80 600 74" fill="none" stroke="var(--warm)" strokeWidth="3" strokeLinecap="round" opacity=".85" />
+          <path d="M0 70 C80 70 110 150 190 150 S320 120 380 128 S500 150 540 110 S590 40 600 36" fill="none" stroke="var(--cool)" strokeWidth="3" strokeLinecap="round" pathLength={1} />
+          <path d="M0 110 C70 110 120 175 200 172 S330 150 390 160 S500 170 545 135 S590 80 600 74" fill="none" stroke="var(--warm)" strokeWidth="3" strokeLinecap="round" opacity=".85" pathLength={1} />
         </svg>
         <p className="authside-foot">Runs on your own server at home.</p>
       </aside>
       <div className="screen authscreen">
-        <div className="authcard">
-          <div className="brandmark" aria-hidden><span className="e" /><span className="t" /></div>
+        <div className={`authcard${hero ? " hero" : ""}`}>
+          <BrandMark size={hero ? "lg" : "md"} />
           <h1 className="brand">Ember &amp; Tide</h1>
           {children}
         </div>
       </div>
     </div>
   );
+}
+
+/** Step dots and a Back button for a short run of sign-in screens. */
+function AuthSteps({ at, count, onBack }: { at: number; count: number; onBack?: () => void }) {
+  return <div className="au-steps">
+    {onBack ? <button type="button" className="au-back" onClick={onBack}><Chevron />Back</button> : <span />}
+    <span className="wl-dots" aria-label={`Step ${at + 1} of ${count}`}>
+      {Array.from({ length: count }, (_, k) => <i key={k} className={k === at ? "on" : k < at ? "past" : ""} />)}
+    </span>
+  </div>;
+}
+
+export function Chevron() {
+  return <svg className="chev" viewBox="0 0 24 24" aria-hidden><path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function Field({ label, type = "text", value, set, auto, hint }: { label: string; type?: string; value: string; set: (v: string) => void; auto: string; hint?: string }) {
@@ -88,26 +106,63 @@ function Login({ done }: { done: () => void }) {
 function Setup({ people, done }: { people: { id: string; name: string }[]; done: () => void }) {
   const [u, setU] = useState(""), [p, setP] = useState(""), [p2, setP2] = useState("");
   const [person, setPerson] = useState<string | null>(people[0]?.id ?? null);
+  // three short screens: hello, your side, the owner account (the account is made on the last one, as before)
+  const [step, setStep] = useState(0);
+  const [dir, setDir] = useState<"f" | "b">("f");
+  const go = (to: number) => { setDir(to > step ? "f" : "b"); setStep(to); };
+  useEffect(() => (step > 0 ? pushBack(() => go(step - 1)) : undefined), [step]);   // eslint-disable-line react-hooks/exhaustive-deps     // Android back: one screen at a time
   const { busy, err, submit } = useSubmit(async () => {
     if (p !== p2) throw new Error("The two passwords don't match.");
     const r = await api.post<{ token?: string }>("/api/auth/setup", { username: u.trim(), password: p, person });
     if (r.token) setAppSession(null, r.token);
     done();
   });
+  const choices: { id: string | null; name: string }[] = [...people, { id: null, name: "Neither" }];
+  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    const k = (choices.findIndex(c => c.id === person) + d + choices.length) % choices.length;
+    setPerson(choices[k].id);
+    (e.currentTarget.querySelectorAll<HTMLElement>("[role=radio]")[k])?.focus();
+  };
+  if (step === 0) return (
+    <Shell hero>
+      <div className="au-step" data-dir={dir} key="hello">
+        <p className="au-tag">Two sides of the bed.<br />One calm night.</p>
+        <p className="mute au-lead">Each of you gets your own temperature through the night, starting when you get into bed.</p>
+        <button type="button" className="btn pri big au-go" onClick={() => go(1)}>Get started</button>
+        <p className="faint au-foot">Runs on your own server at home.</p>
+      </div>
+    </Shell>
+  );
   return (
     <Shell>
-      <p className="mute">Welcome. Make the first account. It becomes the owner, who can set up devices and invite the other sleeper.</p>
-      <form className="authform" onSubmit={submit}>
-        <Field label="Username" value={u} set={setU} auto="username" hint="Letters, numbers, dots or dashes." />
-        <Field label="Password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters. A short sentence works well." />
-        <Field label="Password again" type="password" value={p2} set={setP2} auto="new-password" />
-        <div className="field"><span>Which side is yours?</span>
-          <div className="seg">{people.map(x => <button type="button" key={x.id} aria-pressed={person === x.id} onClick={() => setPerson(x.id)}>{x.name}</button>)}
-            <button type="button" aria-pressed={person === null} onClick={() => setPerson(null)}>Neither</button></div>
-          <small className="mute">You can rename people later in Settings.</small></div>
-        {err && <p className="err" role="alert">{err}</p>}
-        <button className="btn pri big" disabled={busy || !u || !p || !p2}>{busy ? "Setting up…" : "Create account"}</button>
-      </form>
+      <AuthSteps at={step} count={3} onBack={() => go(step - 1)} />
+      {step === 1 ? <div className="au-step" data-dir={dir} key="side">
+        <h2 className="au-title">Which side is yours?</h2>
+        <p className="mute">As you lie in bed. You can rename people later in Settings.</p>
+        <div className="au-sides" role="radiogroup" aria-label="Which side is yours?" onKeyDown={onKey}>
+          <div className="au-bed">
+            <span className="au-head" aria-hidden>Headboard</span>
+            {people.map(x => <button type="button" key={x.id} role="radio" aria-checked={person === x.id} tabIndex={person === x.id ? 0 : -1}
+              className="au-half" onClick={() => setPerson(x.id)}><span className="au-pillow" aria-hidden /><b>{x.name}</b>{person === x.id && <span className="au-tick" aria-hidden>✓</span>}</button>)}
+          </div>
+          <button type="button" role="radio" aria-checked={person === null} tabIndex={person === null ? 0 : -1} className="au-neither"
+            onClick={() => setPerson(null)}>Neither<small className="mute">I don't sleep in this bed</small></button>
+        </div>
+        <button type="button" className="btn pri big" onClick={() => go(2)}>Next</button>
+      </div> : <div className="au-step" data-dir={dir} key="account">
+        <h2 className="au-title">Make the owner account</h2>
+        <p className="mute">The owner can set up devices and invite the other sleeper.</p>
+        <form className="authform" onSubmit={submit}>
+          <Field label="Username" value={u} set={setU} auto="username" hint="Letters, numbers, dots or dashes." />
+          <Field label="Password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters. A short sentence works well." />
+          <Field label="Password again" type="password" value={p2} set={setP2} auto="new-password" />
+          {err && <p className="err" role="alert">{err}</p>}
+          <button className="btn pri big" disabled={busy || !u || !p || !p2}>{busy ? "Setting up…" : "Create account"}</button>
+        </form>
+      </div>}
     </Shell>
   );
 }

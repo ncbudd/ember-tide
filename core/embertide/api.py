@@ -283,7 +283,7 @@ def build_router(app_state) -> APIRouter:
             away.start(c, pid, now, by=by, until=b.until)
             e = c.engine_for(pid)
             if e.s.started and e.s.state in ("waiting", "rhythm", "out_of_bed_hold", "out_of_bed"):
-                e.s.started, e.s.in_bed = False, None          # started by whatever lay there: not their night
+                e.s.started, e.s.in_bed, e.s.reanchor = False, None, None   # started by whatever lay there: not their night
         else:
             away.end(c, pid, now, "back", by=by)
         return await refresh(pid)

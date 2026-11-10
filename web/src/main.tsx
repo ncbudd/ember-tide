@@ -9,6 +9,7 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import { installGlobalErrorReporting } from "./errors";
 import { registerServiceWorker } from "./pwa";
 import "./theme.css";
+import "./firstrun.css";
 import "./compact.css";
 
 // A computer opening the site lands in Studio (the power tools). Phones, tablets, the installed home-screen app and

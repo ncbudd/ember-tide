@@ -656,6 +656,9 @@ class Autopilot:
         usual = self.room_usual(p, start)
         started = [x for x in evs_all if x["kind"] == "rhythm_started"]
         in_bed = min((x.get("in_bed") or x["ts"]) for x in started) if started else start
+        again = [x["in_bed"] for x in evs_all if x["kind"] == "rhythm_restarted" and x.get("in_bed") and start - 4 * 3600 <= x["in_bed"] <= end]
+        if again:
+            in_bed = max(again)                       # given up early and started again: the night is from the new start
         out: list[dict] = []
         hist: list[dict] = []
         last_logged = -1e18

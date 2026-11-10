@@ -3,7 +3,7 @@ only to recognise readings that are the pet rather than a person (engine/pets.py
 
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, ValidationError
 
 from .models import Pet
@@ -27,6 +27,26 @@ def build_pets_router(state) -> APIRouter:
     @r.get("/pets")
     async def get_pets():
         return view()
+
+    @r.get("/pets/learned")
+    async def pets_learned(request: Request):
+        """What has been learned about each pet. Same reach as the pets list; the owner (or sign-in off) sees every
+        visit and held stay, the partner and view-only accounts only those on their own side."""
+        from .engine import petq
+        who = request.scope.get("state", {}).get("principal")
+        mine = None if who is None or who.role == "owner" or who.kind == "open" else (who.person or "")
+        c = ctl()
+        return {"pets": petq.pet_report(c, c.clock.now_ts(), mine)}
+
+    @r.delete("/pets/{pet_id}/learned")
+    async def forget_pet(pet_id: str):
+        """Owner only (auth: every non-read /api/pets call): forget one pet's signature and its waiting stays."""
+        from .engine import petq
+        c = ctl()
+        if not any(p.id == pet_id for p in c.household.pets):
+            raise HTTPException(404, "No such pet.")
+        petq.forget_pet(c.store, c.household, pet_id)
+        return {"pets": petq.pet_report(c, c.clock.now_ts())}
 
     @r.put("/pets")
     async def put_pets(b: PetsBody):

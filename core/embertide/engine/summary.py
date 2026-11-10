@@ -82,8 +82,24 @@ def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | Non
     else:
         pm = []
     burst: dict | None = None
+    # the night was given up early and started again (engine/night.py): the start that was given up isn't the
+    # night's start; the story says when it started again and since when they'd been up
+    restart = max((e for e in evs if e["kind"] == "rhythm_restarted" and e.get("in_bed")), key=lambda e: e["ts"], default=None)
     for e in evs:
         k = e["kind"]
+        if restart is not None:
+            if k == "rhythm_started" and (e.get("restarted") or e["ts"] < restart["ts"]):
+                continue
+            if k == "rhythm_restarted" and e is not restart:
+                continue
+        if k == "rhythm_restarted":
+            up = e.get("up_since")
+            clk = datetime.fromtimestamp(up, tz).strftime("%I:%M %p").lstrip("0") if up else None
+            out.append({"kind": k, "ts": e["in_bed"], "source": e.get("source"), "in_bed": e["in_bed"],
+                        "was_in_bed": e.get("was_in_bed"), "up_since": up,
+                        "text": f"Started again from the beginning (you'd been up since {clk})" if clk
+                        else "Started again from the beginning"})
+            continue
         if k == "adjust":
             if burst and e["ts"] - burst["end"] <= 600 and burst.get("phase") == e.get("phase"):
                 burst["end"] = e["ts"]
@@ -232,6 +248,18 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
     if cur:
         runs.append(cur)
     real = [x for x in runs if x[-1]["ts"] - x[0]["ts"] >= min_run] or runs
+    # a night given up early and started again (engine/night.py, event rhythm_restarted): the stretch(es) before it
+    # aren't the night. In bed counts from the new start; the earlier time is kept only as a short note
+    earlier = None
+    restart = max((e for e in events if e["kind"] == "rhythm_restarted" and e.get("in_bed")), key=lambda e: e["ts"], default=None)
+    if restart is not None:
+        before = [x for x in real if x[-1]["ts"] < restart["in_bed"] - 120]
+        if len(before) < len(real):
+            ids = {id(x) for x in before}
+            real = [x for x in real if id(x) not in ids]
+        was, up = restart.get("was_in_bed"), restart.get("up_since")
+        if was and up and up > was:                   # (often before this summary's window: from the event itself)
+            earlier = {"at": was, "minutes": round((up - was) / 60)}
     occ = [r for x in real for r in x]
     in_bed_s = sum(dur[id(r)] for r in occ)
     first_in = occ[0]["ts"] if occ else None
@@ -293,6 +321,7 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
     out = {
         **base, "has_data": True,
         "in_bed_at": first_in, "out_at": last_out, "in_bed_min": round(in_bed_s / 60),
+        "earlier_in_bed": earlier,                # {"at", "minutes"}: in bed earlier, before the night started again
         # got in 2 h or more after the usual bedtime: an unusual night (Autopilot doesn't learn your normal from it)
         "late_by_min": (round((first_in - usual_bed) / 60) if first_in and usual_bed and first_in - usual_bed >= LATE_S else None),
         "settled_min": round(settled_s / 60), "fell_asleep_est": fell,

@@ -160,6 +160,7 @@ a{color:var(--acc)}
 @media (pointer:coarse){.app input,.app select,.app textarea{font-size:16px}}
 .sheet button.item{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);background:none;padding:14px 2px;font-size:15px;cursor:pointer}
 .sheet button.item:last-child{border-bottom:0}
+.app:not(.compact) .sheet button.item{min-height:44px}
 .sheet button.item small{color:var(--mute);font-size:12.5px}
 
 /* forms */
@@ -788,6 +789,12 @@ table.t td{overflow-wrap:anywhere}
 .pet-sum-btns{display:flex;align-items:center;gap:8px;margin-left:auto}
 .pet-sum-btns .btn{min-height:44px;min-width:76px}
 .pet-rm{color:var(--bad);border-color:var(--bad)}
+.pet-learned{flex:1 1 100%;display:grid;gap:6px;border-top:1px solid var(--line);padding-top:8px;font-size:13px}
+.pet-learned p{margin:0}
+.pet-l-note,.pet-l-wait{color:var(--mute)}
+.pet-l-k{margin-top:2px}
+.pet-l-visits{margin:0;padding-left:18px;display:grid;gap:2px}
+.pet-l-forget{justify-self:start;min-height:44px}
 
 /* Collapsible sections (phone Settings, Simple app Me): header = name · summary · chevron, a full-width tap target */
 .fold{display:grid}

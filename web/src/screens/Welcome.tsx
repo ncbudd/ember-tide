@@ -1,6 +1,8 @@
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { api } from "../api";
-import { useAuth } from "../auth";
+import { Chevron, useAuth } from "../auth";
+import { pushBack } from "../components/back";
+import { BrandMark, FinishMark, PersonaArt, PersonaScene, type SceneMode, usePauseWhenHidden } from "../components/FirstRunArt";
 import { useApp } from "../ctx";
 import { colorKey, COLORS, personaColor, weight, weightUnit } from "../format";
 import { askNotifications, pushEnable } from "../native";
@@ -30,7 +32,16 @@ export function needsWelcome(me: PersonView | undefined, enabled: boolean, myPer
 type Persona = "ember" | "tide" | "neutral";
 type ApMode = "off" | "suggest" | "act";
 interface Src { id: string; name: string; role: string; person: string | null; zone: string | null; enabled: boolean }
-interface Step { key: string; title: string; body: ReactNode; save?: () => Promise<unknown>; summary?: string; nextLabel?: string }
+interface Step { key: string; title: string; eyebrow?: string; body: ReactNode; save?: () => Promise<unknown>; summary?: string; nextLabel?: string }
+
+const PERSONAS: { k: Persona; name: string; line: string; temp: string; tempC: string }[] = [
+  { k: "ember", name: "Ember", line: "I run cold", temp: "Starts warmer, around 72–78°F", tempC: "Starts warmer, around 22–26°C" },
+  { k: "tide", name: "Tide", line: "I run hot", temp: "Starts cooler, around 63–68°F", tempC: "Starts cooler, around 17–20°C" },
+  { k: "neutral", name: "In between", line: "It varies", temp: "Starts in the middle, around 68–72°F", tempC: "Starts in the middle, around 20–22°C" },
+];
+/** "Starts cooler, around 63–68°F" with the range kept on one line */
+const tempText = (s: string): ReactNode => { const m = s.match(/^(.*) (\S+–\S+)$/); return m ? <>{m[1]} <span className="nw">{m[2]}</span></> : s; };
+const reducedMotion = () => window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
 
 const NOTIFY: [keyof PersonSettings["notify"], string, string][] = [
   ["left_on", "My side was left on with nobody in it", "With a Turn it off button"],
@@ -51,6 +62,10 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
   const s0 = me.settings;
   const done0 = useRef(new Set(s0.setup_steps ?? []));
   const [i, setI] = useState(0);
+  const [dir, setDir] = useState<"f" | "b">("f");           // which way the next screen slides in
+  const [leaving, setLeaving] = useState(false);             // the last screen fading into Tonight
+  const go = (to: number) => { setDir(to < i ? "b" : "f"); setI(to); };
+  usePauseWhenHidden();
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   // choices
@@ -118,15 +133,53 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
     act: ["Act", "Makes small, safe changes during the night and tells you in the morning."],
   };
   const brandName = BRANDS.find(b => b.id === wearable)?.name;
+  // arrow keys move through Ember / Tide / In between like any radio group (and don't also mean Back / Next)
+  const personaKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
+    if (!d) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const order = PERSONAS.map(x => x.k);
+    const next = order[(order.indexOf(persona) + d + order.length) % order.length];
+    setPersona(next);
+    const group = e.currentTarget;
+    window.requestAnimationFrame(() => group.querySelector<HTMLElement>(`[data-persona="${next}"]`)?.focus());
+  };
 
   const all: Step[] = [
     { key: "hi", title: "Welcome", nextLabel: "Let's start", body: <>
-      <div className="brandmark wl-mark" aria-hidden><span className="e" /><span className="t" /></div>
+      <div className="wl-brand"><BrandMark size="lg" /><span className="wl-brandname">Ember &amp; Tide</span></div>
       <h1>Hi {me.name}</h1>
       <p className="wl-lead">Your side of the bed follows a gentle temperature plan through the night, starting when you get in.</p>
       <p className="mute">A few quick questions set it up for you. Every one can be skipped and changed later in Settings.</p>
     </> },
-    { key: "you", title: "This is you", summary: `${name.trim() || me.name} · ${sideLower(side)} · °${units}`,
+    // the persona comes first: its colours then carry through the rest of setup
+    { key: "persona", title: "Warm or cool", summary: persona === "ember" ? "Ember, runs cold" : persona === "tide" ? "Tide, runs hot" : "In between",
+      save: () => api.put(`/api/people/${me.id}/profile`, { persona, persona_temps: persona !== me.persona }).then(() => {}),
+      body: <>
+        <h1>How do you usually sleep?</h1>
+        <p className="mute">This picks your starting temperatures. It learns from there.</p>
+        <div className="wl-pgroup" role="radiogroup" aria-label="How you sleep" onKeyDown={personaKey}>
+          <div className="wl-pgrid">
+            {PERSONAS.slice(0, 2).map(x => (
+              <button key={x.k} type="button" role="radio" aria-checked={persona === x.k} tabIndex={persona === x.k ? 0 : -1}
+                className={`wl-pcard pc-${x.k}`} data-persona={x.k} onClick={() => setPersona(x.k)}>
+                <PersonaArt kind={x.k} />
+                <span className="pc-name">{x.name}<span className="pc-tick" aria-hidden>✓</span></span>
+                <span className="pc-line">{x.line}</span>
+                <span className="pc-temp">{tempText(units === "C" ? x.tempC : x.temp)}</span>
+              </button>))}
+          </div>
+          <button type="button" role="radio" aria-checked={persona === "neutral"} tabIndex={persona === "neutral" ? 0 : -1}
+            className="wl-pmid" data-persona="neutral" onClick={() => setPersona("neutral")}>
+            <PersonaArt kind="neutral" />
+            <span className="pm-text"><span className="pc-name">{PERSONAS[2].name}<span className="mute"> · {PERSONAS[2].line}</span></span>
+              <span className="pc-temp">{tempText(units === "C" ? PERSONAS[2].tempC : PERSONAS[2].temp)}</span></span>
+            <span className="pc-tick" aria-hidden>✓</span>
+          </button>
+        </div>
+      </> },
+    { key: "you", title: "This is you", eyebrow: "About you", summary: `${name.trim() || me.name} · ${sideLower(side)} · °${units}`,
       save: async () => {
         if (name.trim() && name.trim() !== me.name) await api.put(`/api/people/${me.id}/profile`, { name: name.trim() });
         await patch({ units, color });
@@ -171,21 +224,6 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
         </button>
       </div>
     </> },
-    { key: "persona", title: "Warm or cool", summary: persona === "ember" ? "Ember, runs cold" : persona === "tide" ? "Tide, runs hot" : "In between",
-      save: () => api.put(`/api/people/${me.id}/profile`, { persona, persona_temps: persona !== me.persona }).then(() => {}),
-      body: <>
-        <h1>How do you usually sleep?</h1>
-        <p className="mute">This picks your starting temperatures. It learns from there.</p>
-        <div className="wl-cards" role="radiogroup" aria-label="How you sleep">
-          {([["ember", "Ember", "I run cold", "Starts warmer, around 72–78°F", "var(--warm)"], ["tide", "Tide", "I run hot", "Starts cooler, around 63–68°F", "var(--cool)"],
-             ["neutral", "In between", "It varies", "Starts in the middle, around 68–72°F", "var(--acc)"]] as const).map(([k, n, l, d, c]) => (
-            <button key={k} role="radio" aria-checked={persona === k} className="wl-card wl-persona" onClick={() => setPersona(k)}>
-              <span className="wl-orb" aria-hidden style={{ background: c }} />
-              <span className="wl-name">{n} <span className="mute" style={{ fontWeight: 400 }}>· {l}</span></span>
-              <span className="mute">{d}</span>
-            </button>))}
-        </div>
-      </> },
     { key: "workdays", title: "Work days", summary: workDaysText(workDays), save: () => patch({ work_days: workDays }), body: <>
       <h1>Which days do you work?</h1>
       <p className="mute">The days you get up for something fixed: work, school, anything early. The night before one of them can have an earlier bedtime.</p>
@@ -205,7 +243,7 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
         </div>}
         <p className="faint" style={{ fontSize: 13 }}>Getting into bed early or late is fine: the night starts when you're actually in bed.</p>
       </> },
-    { key: "autopilot", title: "Autopilot", summary: apText[ap][0], save: () => patch({ autopilot: { ...s0.autopilot, mode: ap } }), body: <>
+    { key: "autopilot", title: "Autopilot", eyebrow: "Learning", summary: apText[ap][0], save: () => patch({ autopilot: { ...s0.autopilot, mode: ap } }), body: <>
       <h1>Autopilot</h1>
       <p className="wl-lead">For your first 7 nights it just watches, to learn what a normal night looks like for you.</p>
       <p className="mute">After that it stays quiet while you're inside your normal, and only speaks up when something's clearly off.</p>
@@ -257,13 +295,14 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
   // skip steps already done in an earlier run (the first and last always show)
   const steps = all.filter(st => st.key === "hi" || !done0.current.has(st.key));
   const finishStep: Step = { key: "done", title: "You're set", nextLabel: saving ? "Saving…" : "Start", body: <>
+    <FinishMark />
     <h1>You're set</h1>
     <p className="wl-lead">Sleep well{name.trim() ? `, ${name.trim()}` : ""}.</p>
     <ul className="wl-sum">
       {all.filter(st => st.summary).map(st => {
         const at = steps.findIndex(x => x.key === st.key);
         return <li key={st.key}><span><small className="mute">{st.title}</small><br />{st.summary}</span>
-          {at >= 0 ? <button className="link" onClick={() => setI(at)}>Edit</button> : <span className="faint">in Settings</span>}</li>;
+          {at >= 0 ? <button className="link" onClick={() => go(at)} aria-label={`Edit ${st.title.toLowerCase()}`}>Edit</button> : <span className="faint">in Settings</span>}</li>;
       })}
       {(myCalendars.length > 0 || household.length > 0) && <li><span><small className="mute">Already set up in this home</small><br />
         {[myCalendars.length ? `your calendar (${myCalendars.map(x => x.name).join(", ")})` : "", household.length ? `${household.length} device${household.length > 1 ? "s" : ""}` : ""].filter(Boolean).join(" · ")}</span>
@@ -271,19 +310,22 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
     </ul>
     {owner
       ? <p className="mute">More tools, and a full explanation of everything, are in{" "}
-        <a href="/studio/help" onClick={async e => { e.preventDefault(); await finish(); location.href = "/studio/help"; }}>Studio → Help</a>.</p>
-      : <p className="mute">Questions? <a href="/studio/help" onClick={async e => { e.preventDefault(); await finish(); location.href = "/studio/help"; }}>Studio → Help</a> explains everything in plain words.</p>}
+        <a href="/studio/help" onClick={async e => { e.preventDefault(); await finish(false); location.href = "/studio/help"; }}>Studio → Help</a>.</p>
+      : <p className="mute">Questions? <a href="/studio/help" onClick={async e => { e.preventDefault(); await finish(false); location.href = "/studio/help"; }}>Studio → Help</a> explains everything in plain words.</p>}
   </> };
   const flow = [...steps, finishStep];
   const cur = flow[Math.min(i, flow.length - 1)];
   const last = cur.key === "done";
 
-  async function finish() {
+  async function finish(fade = true) {
     setSaving(true);
     try { await patch({ welcomed: true, setup_steps: [...done.current].slice(0, 30) }); } catch { /* offline: it shows again next time */ }
     (window as unknown as { __etWelcome?: boolean }).__etWelcome = false;
     setSaving(false);
-    onDone();
+    if (!fade) { onDone(); return; }
+    // a short, calm fade, then Tonight comes up underneath (App plays its arrival)
+    setLeaving(true);
+    window.setTimeout(onDone, reducedMotion() ? 160 : 460);
   }
   const next = async () => {
     if (last) return finish();
@@ -294,28 +336,37 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
       catch (e) { setSaving(false); setErr(`Couldn't save that: ${(e as Error).message}. You can skip it and change it later in Settings.`); return; }
       setSaving(false);
     } else if (cur.key !== "hi") done.current.add(cur.key);
-    setI(i + 1);
+    go(i + 1);
   };
+  const back = () => { setErr(null); go(i - 1); };
   const body = useRef<HTMLDivElement>(null);
   useEffect(() => { body.current?.scrollTo?.({ top: 0 }); body.current?.focus({ preventScroll: true }); }, [i]);
+  // Android back (and Backspace / Esc on a keyboard): one screen back at a time, nothing while saving
+  useEffect(() => (i > 0 && !saving && !leaving ? pushBack(back) : undefined), [i, saving, leaving]);   // eslint-disable-line react-hooks/exhaustive-deps
 
+  // the scene: both colours on the first screen, then the chosen person's, moving only where it matters
+  const sceneMode: SceneMode = cur.key === "hi" ? "brand" : cur.key === "persona" ? "hero" : last ? "done" : "quiet";
+  const eyebrow = cur.key === "hi" || last ? null : cur.eyebrow ?? cur.title;
   return (
-    <div className="screen wl" role="dialog" aria-modal="true" aria-label="First-time setup">
+    <div className={`screen wl${leaving ? " leaving" : ""}`} data-pp={persona} role="dialog" aria-modal="true" aria-label="First-time setup">
+      <PersonaScene persona={cur.key === "hi" ? "neutral" : persona} mode={sceneMode} />
       <div className="wl-top">
-        <span className="wl-dots" aria-label={`Step ${i + 1} of ${flow.length}: ${cur.title}`}>
+        <span className="wl-dots" role="img" aria-label={`Step ${i + 1} of ${flow.length}: ${cur.title}`}>
           {flow.map((st, k) => <i key={st.key} className={k === i ? "on" : k < i ? "past" : ""} />)}
         </span>
-        {!last && <button className="link" data-key="s" disabled={saving} onClick={() => setI(flow.length - 1)}>Skip setup</button>}
+        {!last && <button className="link wl-skipall" data-key="s" disabled={saving} onClick={() => go(flow.length - 1)}>Skip setup</button>}
       </div>
       <div className="wl-body" ref={body} tabIndex={-1}>
-        <section key={cur.key} className={`wl-step wl-${cur.key}`}>{cur.body}
+        <section key={cur.key} className={`wl-step wl-${cur.key}`} data-dir={dir}>
+          {eyebrow && <p className="wl-eyebrow">{eyebrow}</p>}
+          {cur.body}
           {err && <p className="warn-text" role="alert">{err}</p>}
         </section>
       </div>
       <div className="wl-nav">
-        {i > 0 ? <button className="btn wl-back" data-key="arrowleft" disabled={saving} onClick={() => { setErr(null); setI(i - 1); }}>Back</button> : <span />}
-        {!last && cur.key !== "hi" && <button className="link wl-skip" disabled={saving} onClick={() => { setErr(null); setI(i + 1); }}>Skip</button>}
-        <button className="btn pri wl-next" data-key="enter arrowright" disabled={saving} onClick={next}>{saving && !last ? "Saving…" : cur.nextLabel ?? "Next"}</button>
+        {i > 0 ? <button className="btn wl-back" data-key="arrowleft" disabled={saving} onClick={back}><Chevron />Back</button> : <span />}
+        {!last && cur.key !== "hi" && <button className="link wl-skip" disabled={saving} onClick={() => { setErr(null); go(i + 1); }}>Skip</button>}
+        <button className="btn pri wl-next" data-key="enter arrowright" disabled={saving || leaving} onClick={next}>{saving && !last ? "Saving…" : cur.nextLabel ?? "Next"}</button>
       </div>
     </div>
   );

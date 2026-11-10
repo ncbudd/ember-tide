@@ -14,6 +14,7 @@ Stored in kv `pet_questions` (latest 60). Readings are kept as 30 s averages, on
 from __future__ import annotations
 
 import math
+import time
 import uuid
 from datetime import datetime, timedelta
 
@@ -58,12 +59,15 @@ def pet_sigs(store) -> dict:
     return store.get("pet_sigs") or {}
 
 
-def learn_pet(store, pet_id: str, readings: list[list[float]]) -> dict:
+def learn_pet(store, pet_id: str, readings: list[list[float]], at: float | None = None) -> dict:
     sigs = pet_sigs(store)
     hr = [r[1] for r in readings if r[1] is not None and HR_BOUNDS[0] <= r[1] <= HR_BOUNDS[1]]
     br = [r[2] for r in readings if len(r) > 2 and r[2] is not None and BR_BOUNDS[0] <= r[2] <= BR_BOUNDS[1]]
     s = _merge(sigs.get(pet_id), hr, "hr")
     s = _merge(s, br, "br")
+    if hr or br:                                      # for the Pets summary: how many stays, and when it last changed
+        s["stays"] = s.get("stays", 0) + 1
+        s["updated"] = round(at if at is not None else time.time())
     sigs[pet_id] = s
     store.put("pet_sigs", sigs)
     return s
@@ -416,5 +420,71 @@ def signature_summary(store, household) -> list[dict]:
                     "hr": round(v["hr"][0]) if v and v.get("hr") else None,
                     "br": round(v["br"][0]) if v and v.get("br") else None})
     return out
+
+
+# ---------- what has been learned about each pet (read-only, for the Pets section) ----------
+RECENT_VISITS = 10
+
+
+def _person_band(controller, p, now: float) -> dict | None:
+    try:
+        lr = controller.autopilot.learning(p, now)
+        band = (controller.autopilot.baseline(p, now) or {}).get("band") if lr["have"] >= max(1, lr["need"]) else None
+    except Exception:  # noqa: BLE001
+        band = None
+    return person_range(band, learned_range(controller.store, p.id)) if band else None
+
+
+def pet_report(controller, now: float, mine: str | None = None) -> list[dict]:
+    """Per pet: the learned signature (typical heart rate / breathing with spread, readings, stays, last update),
+    whether it tells the pet from the people in the house, the latest confirmed visits ("Yes" answers, also those a
+    partner's answer or a fixed night settled) and stays held while someone is away. `mine` = a person id: only that
+    person's visits and held stays (the other side is theirs to see, like their nights); None = everyone's."""
+    from . import away
+    store, hh = controller.store, controller.household
+    sigs = pet_sigs(store)
+    qs = [q for q in questions(store) if q["status"] == "answered" and q.get("answer") == "yes" and (mine is None or q["person"] == mine)]
+    out = []
+    for p in hh.pets:
+        raw = sigs.get(p.id) or {}
+        v = sig_view(raw)
+        sig = None
+        if v:
+            sig = {"hr": round(v["hr"][0]) if v.get("hr") else None, "hr_sd": round(v["hr"][1], 1) if v.get("hr") else None,
+                   "br": round(v["br"][0]) if v.get("br") else None, "br_sd": round(v["br"][1], 1) if v.get("br") else None,
+                   "readings": v["n"], "minutes": round(v["n"] / 2), "stays": raw.get("stays"), "updated": raw.get("updated")}
+        # told apart from the people it could be mistaken for: their own learned range, else a sleeping adult's
+        people = [x for x in hh.people if p.side in ("either", "both", x.zone)] or [None]
+        same = None if not v else any(not distinct(v, _person_band(controller, x, now) if x else None) for x in people)
+        visits = []
+        for q in qs:
+            if q.get("answered_pet") != p.id or not q["spans"]:
+                continue
+            sp = q["spans"]
+            visits.append({"start": sp[0]["start"], "end": sp[-1]["end"], "zone": q["zone"],
+                           "seconds": round(sum(max(0, s["end"] - s["start"]) for s in sp))})
+        visits.sort(key=lambda x: x["start"], reverse=True)
+        held = []
+        for x in hh.people:
+            if mine is None or x.id == mine:
+                held += [s for s in (store.get(away._spans_key(x.id)) or []) if s.get("pet") == p.id]
+        out.append({"id": p.id, "name": p.name, "learned": sig, "distinct": None if same is None else not same,
+                    "visits": visits[:RECENT_VISITS],
+                    "waiting": {"count": len(held), "next_at": min((s["end"] + away.LEARN_AFTER_S for s in held), default=None)},
+                    "partial": mine is not None})
+    return out
+
+
+def forget_pet(store, household, pet_id: str) -> None:
+    """Drop what has been learned about one pet: its signature, and its stays still waiting to be learned."""
+    from . import away
+    sigs = pet_sigs(store)
+    if sigs.pop(pet_id, None) is not None:
+        store.put("pet_sigs", sigs)
+    for x in household.people:
+        spans = store.get(away._spans_key(x.id)) or []
+        keep = [s for s in spans if s.get("pet") != pet_id]
+        if len(keep) != len(spans):
+            store.put(away._spans_key(x.id), keep)
 
 

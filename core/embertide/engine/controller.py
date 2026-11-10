@@ -107,7 +107,7 @@ class Controller:
 
     # what the bed has seen on a side tonight (someone got in, the night started, they got up): it belongs to whoever
     # is lying on that side, so it moves to the person who now has it when two people swap sides
-    SIDE_FIELDS = ("started", "in_bed", "presence_since", "absent_since", "unknown_since")
+    SIDE_FIELDS = ("started", "in_bed", "presence_since", "absent_since", "unknown_since", "started_by", "out_since", "reanchor")
 
     def swap_sides(self) -> None:
         """Swap which side each of the two people sleeps on (POST /api/household/swap-sides).

@@ -126,7 +126,7 @@ export default function Settings() {
       {petsOpen && <Sheet onClose={() => setPetsOpen(false)} role="dialog" aria-label="Pets on the bed">
         <div className="k">Pets on the bed</div>
         <p className="mute" style={{ fontSize: 13 }}>Their readings are recognised and ignored: they won't start a night or be used by Autopilot.</p>
-        <PetsEditor weightUnit={weightUnit(s)} showIgnore compact onCount={setPetCount} />
+        <PetsEditor weightUnit={weightUnit(s)} showIgnore compact learned onCount={setPetCount} />
       </Sheet>}
 
       <SettingsWorkDays value={s.work_days ?? [0, 1, 2, 3, 4]} onChange={v => upd({ work_days: v })} />

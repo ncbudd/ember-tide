@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../api";
 import { kgTo, toKg, type WeightUnit } from "../format";
 import { sideTitle } from "./BedSidePicker";
+import PetLearned, { type PetReport } from "./PetLearned";
 
 /** Pets that get on the bed: used only so a cat or dog isn't mistaken for a person (it won't start a night,
  *  end an out-of-bed hold, or feed Autopilot). Owner-only to change. Shared by the welcome, phone Settings and
@@ -22,8 +23,10 @@ const sideText = (k: typeof SIDE_KEYS[number]) => k === "either" ? "Either side"
 const OFTEN = { yes: "Most nights", sometimes: "Sometimes", no: "Never on the bed" } as const;
 const blank = (): Draft => ({ name: "", kind: "dog", weight: "", size: null, sizeSet: false, sleeps_on_bed: "sometimes", side: "either" });
 
-export default function PetsEditor({ weightUnit, showIgnore = false, compact = false, onCount }:
-  { /** the viewer's lb / kg (format.weightUnit) */ weightUnit: WeightUnit; showIgnore?: boolean; compact?: boolean; onCount?: (n: number) => void }) {
+export default function PetsEditor({ weightUnit, showIgnore = false, compact = false, learned = false, onCount }:
+  { /** the viewer's lb / kg (format.weightUnit) */ weightUnit: WeightUnit; showIgnore?: boolean; compact?: boolean;
+    /** show what has been learned about each pet (phone Settings and Studio; not the first-run screens) */ learned?: boolean;
+    onCount?: (n: number) => void }) {
   const lb = weightUnit === "lb";
   const [pets, setPets] = useState<Pet[] | null>(null);
   const [ignore, setIgnore] = useState(true);
@@ -32,11 +35,16 @@ export default function PetsEditor({ weightUnit, showIgnore = false, compact = f
   const [confirmRm, setConfirmRm] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
+  const [reports, setReports] = useState<Record<string, PetReport>>({});
+  const loadReports = () => {
+    if (learned) api.get<{ pets: PetReport[] }>("/api/pets/learned").then(r => setReports(Object.fromEntries(r.pets.map(x => [x.id, x])))).catch(() => {});
+  };
 
   useEffect(() => {
     api.get<{ pets: Pet[]; ignore: boolean }>("/api/pets")
       .then(r => { setPets(r.pets); setIgnore(r.ignore); onCount?.(r.pets.length); })
       .catch(() => setPets([]));
+    loadReports();
   }, []);
 
   const weightText = (kg: number) => lb ? `${Math.round(kgTo(kg, "lb"))} lb` : `${Math.round(kg * 10) / 10} kg`;
@@ -56,7 +64,7 @@ export default function PetsEditor({ weightUnit, showIgnore = false, compact = f
     setBusy(true); setStatus("Saving…");
     try {
       const r = await api.put<{ pets: Pet[]; ignore: boolean }>("/api/pets", { ignore: ign, pets: next });
-      setPets(r.pets); onCount?.(r.pets.length);
+      setPets(r.pets); onCount?.(r.pets.length); loadReports();
       setStatus("Saved");
       window.setTimeout(() => setStatus(s => (s === "Saved" ? null : s)), 1500);
       return true;
@@ -76,6 +84,16 @@ export default function PetsEditor({ weightUnit, showIgnore = false, compact = f
   const remove = async (i: number) => {
     if (!pets) return;
     if (await send(pets.filter((_, j) => j !== i))) { setConfirmRm(null); if (form?.index === i) setForm(null); }
+  };
+  const forget = async (id: string) => {
+    setBusy(true);
+    try {
+      const r = await api.del<{ pets: PetReport[] }>(`/api/pets/${id}/learned`);
+      setReports(Object.fromEntries(r.pets.map(x => [x.id, x])));
+      setStatus("Forgotten");
+      window.setTimeout(() => setStatus(s => (s === "Forgotten" ? null : s)), 1500);
+    } catch (e) { setStatus(`Couldn't forget: ${(e as Error).message}`); }
+    finally { setBusy(false); }
   };
   const open = (index: number | null) => { setForm({ index, d: index == null ? blank() : toDraft(pets![index]) }); setTried(false); setConfirmRm(null); };
   const edit = (patch: Partial<Draft>) => setForm(f => (f ? { ...f, d: { ...f.d, ...patch } } : f));
@@ -138,6 +156,7 @@ export default function PetsEditor({ weightUnit, showIgnore = false, compact = f
             : <span className="pet-sum-btns">
               <button type="button" className="btn" disabled={busy} onClick={() => setConfirmRm(i)}>Remove</button>
               <button type="button" className="btn" disabled={busy} onClick={() => open(i)} aria-label={`Edit ${p.name}`}>Edit</button></span>}
+          {learned && p.id && reports[p.id] && <PetLearned r={reports[p.id]} canForget busy={busy} onForget={() => void forget(p.id!)} />}
         </div>
       ))}
       <div className="pet-actions">

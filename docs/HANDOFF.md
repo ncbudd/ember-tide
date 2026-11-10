@@ -291,6 +291,14 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   asleep 03:00, deep ~03:17, late ~04:58, warm wake 06:30 as usual). A little late keeps the usual layout. The
   `rhythm_started` event carries `fitted`; summaries mark `late_by_min` (≥ 2 h after bedtime); Autopilot doesn't
   learn from nights that started 2 h+ later than the person's own median in-bed time. Pre-cooling an empty side still follows "Pre-cool an empty side until" (window_end).
+- A night given up early starts again (night.py `_given_up_early`): a night started by presence, then out of bed
+  60 min+ without a break (`REANCHOR_AWAY_S`), having got up within 45 min of the start (`REANCHOR_IN_BED_S`), or
+  within 90 min when up before the usual bedtime (`REANCHOR_EVENING_IN_BED_S`), and not in the last 2 h before wake:
+  getting back in un-starts it (`NightState.reanchor`, persisted with the night) and it starts through the usual start (settle gate, confirm,
+  away, skip, pause) from the beginning. Events `rhythm_started` (`restarted`) + `rhythm_restarted` (`in_bed`,
+  `was_in_bed`, `up_since`); summaries count in bed from the new start (`earlier_in_bed` note), the story says
+  "Started again from the beginning (you'd been up since …)". A next-phase change from the given-up night ends; a
+  whole-night change carries. A 3 AM hour up after hours asleep resumes as always.
 - Restarts / power cuts (controller._restore): nights are persisted with `_saved_at`; downtime doesn't count towards
   an out-of-bed hold; presence is judged afresh, and when both pads come back with identical readings the side whose
   night is running is the real one (PresenceFilter.prefer, `_tie_echo`). No telemetry from a frozen frame while the

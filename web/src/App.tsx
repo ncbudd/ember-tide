@@ -76,6 +76,9 @@ function PhoneApp() {
   const lostServer = useSustained(!connected, 5000);
   const [simpleOn, setSimpleOn] = useState(false);
   const [welcomeDone, setWelcomeDone] = useState(false);
+  // right after first-time setup, Tonight rises in once (the class goes away so later screens just appear)
+  const [arrive, setArrive] = useState(false);
+  useEffect(() => { if (!arrive) return; const t = window.setTimeout(() => setArrive(false), 1200); return () => clearTimeout(t); }, [arrive]);
   const auth = useAuth();
   const theme = useTheme(me?.settings);
   const easy = me?.settings.app_mode === "simple";          // the Simple app: Home, Schedule, Me
@@ -85,7 +88,7 @@ function PhoneApp() {
   useEffect(() => { nativeBars(look === "light" ? "#f3ece3" : look === "amoled" ? "#000000" : "#100e12", look === "light"); }, [look]);
   if (!snap) return <div className="app"><div className="screen" style={{ justifyContent: "center", textAlign: "center" }}><h1 style={{ fontFamily: "var(--brand)" }}>Ember &amp; Tide</h1><p className="mute">Connecting…</p></div></div>;
   return (
-    <div className={`app ${lay.className}${compact ? " compact" : ""} ${simpleOn && !easy ? (me?.settings.simple_red ? "amoled night" : "amoled") : theme === "light" ? "light" : ""}`} style={lay.style}>
+    <div className={`app ${lay.className}${compact ? " compact" : ""}${arrive ? " arrive" : ""} ${simpleOn && !easy ? (me?.settings.simple_red ? "amoled night" : "amoled") : theme === "light" ? "light" : ""}`} style={lay.style}>
       {compact && me && !easy && !simpleOn && (welcomeDone || !needsWelcome(me, auth.state.enabled, auth.me?.person)) && (
         <nav className="ctabs" aria-label="Main">
           <NavLink end to="/"><kbd>1</kbd>Tonight</NavLink><NavLink to="/rhythm"><kbd>2</kbd>Rhythm</NavLink><NavLink to="/sleep"><kbd>3</kbd>Sleep</NavLink><NavLink to="/settings"><kbd>4</kbd>More</NavLink>
@@ -94,7 +97,7 @@ function PhoneApp() {
       {lostServer && <div className="banner">Reconnecting to your server…</div>}
       {!snap.system.online && <div className="banner">The bed isn't reporting right now. What you see may be out of date.</div>}
       <ErrorBoundary full name="phone" resetKey={`${loc.pathname}|${easy}|${simpleOn}`}>
-      {me && !welcomeDone && needsWelcome(me, auth.state.enabled, auth.me?.person) ? <Welcome me={me} onDone={() => setWelcomeDone(true)} /> :
+      {me && !welcomeDone && needsWelcome(me, auth.state.enabled, auth.me?.person) ? <Welcome me={me} onDone={() => { setWelcomeDone(true); setArrive(true); }} /> :
        !me ? <WhoAmI /> : easy ? <SimpleApp /> : (
         <Routes>
           <Route path="/" element={<Tonight setSimpleOn={setSimpleOn} />} />

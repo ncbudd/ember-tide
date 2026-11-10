@@ -148,6 +148,7 @@ export function eventText(e: { kind: string; source?: string | null; [k: string]
     case "adjust_cleared": return "Back to the rhythm";
     case "adjust_ended": return "Change ended, back to the rhythm";
     case "rhythm_started": return e.reason ? "Night started on schedule" : "In bed · night started";
+    case "rhythm_restarted": return "Back in bed · night started again from the beginning";
     case "rhythm_changed": return "Rhythm edited";
     case "tonight_skip": return "Turned off for the night";
     case "tonight_resume": return "Turned back on";

@@ -54,6 +54,10 @@ class NightState:
     phase_id: str | None = None
     base_c: float | None = None
     target_c: float | None = None
+    started_by: str | None = None        # "presence" | "schedule" | "hand": how tonight's night started
+    out_since: float | None = None       # when the current time out of bed began (absent_since, never moved by a restart)
+    # a night given up early that waits to start again from the beginning: {"in_bed": the old anchor, "up_since": ...}
+    reanchor: dict | None = None
     events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -142,6 +146,7 @@ class NightEngine:
             self.s.skip, self.s.skip_next, self.s.pause_until = False, False, None
         elif action == "start_now":
             self.s.skip, self.s.started, self.s.in_bed = False, True, now
+            self._began(now, "hand")
         elif action in ("pause", "delay"):
             self.s.pause_until = now + (minutes or 60) * 60
             self._end_flash(now, source)
@@ -220,6 +225,12 @@ class NightEngine:
         sched = rhythm.schedule
         n = resolve(rhythm, d, self.tz, in_bed=self.s.in_bed, wake=self.s.wake_override)
         self.night = n
+        if self._given_up_early(now, n, sched, present, active):
+            # back in bed after giving the night up early (a false start in the evening): it starts again from the
+            # beginning, through the same start as a first one, instead of resuming hours along its timeline
+            self._start_again(now)
+            n = resolve(rhythm, d, self.tz, in_bed=None, wake=self.s.wake_override)
+            self.night = n
 
         # presence bookkeeping
         if active is not None:
@@ -230,13 +241,15 @@ class NightEngine:
                 self.s.presence_since = None
             elif self.s.in_bed is not None and self.s.in_bed >= active - 900 and now > self.s.in_bed:
                 self.s.in_bed = now
-            self.s.absent_since = None
+            self.s.absent_since = self.s.out_since = None
         elif present:
             self.s.presence_since = self.s.presence_since or now
-            self.s.absent_since = None
+            self.s.absent_since = self.s.out_since = None
         elif present is False:
             self.s.presence_since = None
             if self.s.started:
+                if self.s.absent_since is None:
+                    self.s.out_since = now
                 self.s.absent_since = self.s.absent_since or now
         away = bool(getattr(self, "away", False))      # away for a while (engine/away.py): nothing starts it
         if (not self.s.started and not away and self.start_gate is not False and sched.start_on_presence and present
@@ -248,7 +261,9 @@ class NightEngine:
             n = resolve(rhythm, d, self.tz, in_bed=self.s.in_bed, wake=self.s.wake_override)
             self.night = n
             late = fitted_late(rhythm, d, self.tz, self.s.in_bed, self.s.wake_override)
-            self._ev(now, "rhythm_started", in_bed=self.s.in_bed, **({"fitted": True} if late else {}))
+            self._ev(now, "rhythm_started", in_bed=self.s.in_bed, **({"fitted": True} if late else {}),
+                     **({"restarted": True} if self.s.reanchor else {}))
+            self._began(now, "presence")
             o = self.s.override
             if o and o.until == "next_phase":
                 # a change made while settling in is meant for the night you're starting, not the phase that just ended
@@ -256,6 +271,7 @@ class NightEngine:
                 o.phase_id = ph.id if ph else o.phase_id
         if not self.s.started and not away and not sched.start_on_presence and now >= n.bedtime:
             self.s.started, self.s.in_bed = True, n.bedtime
+            self._began(now, "schedule")
         if present is None and active is None:
             self.s.unknown_since = self.s.unknown_since or now
         else:
@@ -269,7 +285,9 @@ class NightEngine:
             self.s.started, self.s.in_bed = True, n.bedtime
             n = resolve(rhythm, d, self.tz, in_bed=self.s.in_bed, wake=self.s.wake_override)
             self.night = n
-            self._ev(now, "rhythm_started", in_bed=self.s.in_bed, reason="no presence data, started on schedule")
+            self._ev(now, "rhythm_started", in_bed=self.s.in_bed, reason="no presence data, started on schedule",
+                     **({"restarted": True} if self.s.reanchor else {}))
+            self._began(now, "schedule")
 
         base: float | None
         phase = None
@@ -333,6 +351,48 @@ class NightEngine:
 
         self.s.target_c = None if target is None else round(target, 2)
         return self.s.target_c
+
+    # ---------- a night given up early starts again ----------
+    # Lying down briefly in the evening (testing a sensor, a short rest) starts the night and anchors the rhythm there.
+    # Getting up and staying up means that start was false: when they come back the night starts again from the
+    # beginning instead of resuming hours along (straight into "Deep", the cool "Fall asleep" skipped). A night that
+    # was really under way (a 3 AM hour up after hours asleep) resumes as always.
+    REANCHOR_AWAY_S = 60 * 60          # out of bed (as the bed saw it) at least this long without a break
+    REANCHOR_IN_BED_S = 45 * 60        # and they'd got up within this long of the night's start
+    REANCHOR_EVENING_IN_BED_S = 90 * 60  # or within this long, when they got up before their usual bedtime
+    REANCHOR_BEFORE_WAKE_S = 2 * 3600  # never in the last 2 h before wake
+
+    def _given_up_early(self, now: float, n: ResolvedNight, sched, present: bool | None, active: float | None) -> bool:
+        s = self.s
+        if not (s.started and s.started_by == "presence" and sched.start_on_presence and s.in_bed is not None
+                and s.absent_since is not None):
+            return False
+        if not (present or active is not None) or getattr(self, "away", False):
+            return False                              # not back (yet), or away: nothing starts
+        if now - s.absent_since < self.REANCHOR_AWAY_S or now >= n.wake - self.REANCHOR_BEFORE_WAKE_S:
+            return False
+        left = s.out_since if s.out_since is not None else s.absent_since
+        stayed = left - s.in_bed                      # from the night's start until they got up, short trips included
+        return stayed < self.REANCHOR_IN_BED_S or (left < n.bedtime and stayed < self.REANCHOR_EVENING_IN_BED_S)
+
+    def _start_again(self, now: float) -> None:
+        s = self.s
+        s.reanchor = {"in_bed": s.in_bed, "up_since": s.out_since if s.out_since is not None else s.absent_since}
+        o = s.override
+        if o and o.until == "next_phase" and not o.manual and o.phase_id is not None:
+            # made for a phase of the night that was given up: that phase is over
+            s.override = None
+            self._ev(now, "adjust_ended", reason="night started again")
+        s.started, s.in_bed, s.started_by = False, None, None
+        s.absent_since = s.out_since = s.presence_since = None
+
+    def _began(self, now: float, by: str) -> None:
+        """The night has just started (any way): note how, and whether it started again after being given up."""
+        self.s.started_by = by
+        r = self.s.reanchor
+        if r:
+            self.s.reanchor = None
+            self._ev(now, "rhythm_restarted", in_bed=self.s.in_bed, was_in_bed=r.get("in_bed"), up_since=r.get("up_since"))
 
     def _lead(self, n: ResolvedNight, now: float, base: float | None, ph) -> float | None:
         """Start a phase's change earlier in a cool room (warming) or a warm room (cooling), by the time this side's

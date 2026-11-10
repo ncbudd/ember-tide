@@ -141,7 +141,7 @@ function momentBase(m: Moment, units: "F" | "C"): [string, string, string?] {
     case "tonight_pause": return ["‖", "Paused for an hour"];
     case "tonight_start_now": return ["▸", "Started manually"];
     case "rhythm_changed": return ["✎", (m.count as number) > 1 ? `Rhythm edited ${m.count}×` : "Rhythm edited"];
-    case "rhythm_restarted": return ["◐", "Back in bed · rhythm picked up again"];
+    case "rhythm_restarted": return ["◐", m.text ?? "Back in bed · rhythm picked up again"];
     case "home_changed": return m.home === false ? ["↗", "Left home", m.why || "pre-cool waits while you're out"]
       : m.home === true ? ["⌂", "Back home", m.why || undefined] : ["·", "Home or away not known", m.why || undefined];
     case "pet": return ["∴", m.text ?? "Looked like a pet on the bed",

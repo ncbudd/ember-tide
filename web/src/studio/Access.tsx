@@ -98,7 +98,7 @@ export default function Access() {
     summary={petCount == null ? undefined : petCount === 0 ? "none listed" : `${petCount} pet${petCount === 1 ? "" : "s"} · readings ignored`}>
     <span className="mute" style={{ fontSize: 13 }}>A cat or dog on the bed can look like a person to the sensors. List them and their readings are ignored.
       <Tip label="What ignoring a pet means" text={`A light weight on a bed scale, or a fast cat or small-dog heartbeat on the bed sensor, won't start a night, won't end an out-of-bed hold, and isn't used by Autopilot. Nothing about your pets is kept beyond a short note in the night's story ("looked like Biscuit, ignored").`} /></span>
-    <PetsEditor weightUnit={weightUnit(me?.settings ?? snap.people[0]?.settings)} showIgnore onCount={setPetCount} />
+    <PetsEditor weightUnit={weightUnit(me?.settings ?? snap.people[0]?.settings)} showIgnore learned onCount={setPetCount} />
   </Fold>;
   const header = <div><div className="k">Configure</div><h1 style={{ fontSize: 32 }}>People &amp; access</h1>
     <p className="mute" style={{ fontSize: 13 }}>Who can sign in, and keys for Home Assistant, dials and scripts.</p></div>;
