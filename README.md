@@ -81,7 +81,7 @@ Studio, the power tools on a computer or tablet:
 
 **Apps and integrations**
 - **Android app** with a resizable home-screen **widget**, a Quick Settings **Hot flash tile**, native notifications, optional phone sources
-  and **Health Connect** sync. **Wear OS tile** for tonight and flashes.
+  and **Health Connect** sync. **Wear OS app, tile and complication** for tonight, temperature and flashes.
 - **iPhone**: the web app as a Home Screen app, with notifications (iOS 16.4 or newer). A native app is planned.
 - **Home Assistant** over MQTT discovery: a thermostat per side, flash buttons, phase and in-bed sensors, per-phase temperatures. **Voice**
   works through Home Assistant's assistants.
@@ -110,7 +110,7 @@ flowchart LR
   dial <--> ha
   srv <-->|HTTPS or LAN| phone[Phone app<br/>widget, tile, Health Connect]
   srv <--> studio[Studio and web app]
-  phone <--> watch[Wear OS tile]
+  phone <--> watch[Wear OS app and tile]
   srv -.->|"only if you turn it on"| push[(Push: FCM, ntfy)]
   srv -.->|"only if you connect it"| cloud[(Wearable clouds:<br/>Oura, Withings, ...)]
 ```
@@ -128,7 +128,7 @@ SQLite file.
   personal key instead (slower, needs the internet).
 - **Optional:** a mmWave presence radar and a bed scale (the most reliable presence signals), room temperature and humidity sensors,
   Home Assistant, the bedside dial (Elecrow CrowPanel with ESP32-S3, see `core/embertide/dial/`), an Android phone (app, Health Connect),
-  a watch or ring (Pixel, Galaxy, Oura, Withings, WHOOP, Polar, Garmin through Health Connect), a Wear OS watch for the tile, an iPhone for
+  a watch or ring (Pixel, Galaxy, Oura, Withings, WHOOP, Polar, Garmin through Health Connect), a Wear OS watch for the app and tile, an iPhone for
   the web app.
 
 ## Quick start

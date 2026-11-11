@@ -1,8 +1,8 @@
-# The Android app, widget, tile and Wear OS tile
+# The Android app, widget, tile and Wear OS app
 
 The Android app is the phone web app wrapped with [Capacitor](https://capacitorjs.com/), plus native parts: a home-screen
 widget, a Quick Settings tile ("Hot flash"), Health Connect sync, native notifications, and optional phone sources (home Wi-Fi,
-location, calendar, next alarm, charging). A Wear OS tile shows tonight and starts a flash from the watch.
+location, calendar, next alarm, charging). A Wear OS app, tile and watch-face complication control your side from the watch.
 
 Everything below is optional except the app itself; the phone web app at your server's address works without any of it.
 
@@ -14,7 +14,7 @@ Each release has its apps on the repository's **Releases** page, signed with the
 |---|---|
 | `ember-tide-<version>-android-google-push.apk` | **Most people.** Notifications arrive through Google push (nothing else to install). It uses the project's own Firebase project, so your server needs that project's key to send to it: see [Which server can use which app](#which-server-can-use-which-app) below. |
 | `ember-tide-<version>-android-no-google.apk` | Your phone has no Google services (GrapheneOS, LineageOS, a Huawei phone), or you would rather not use Google. Notifications come through **ntfy** (UnifiedPush) or Web Push. Works with any server. |
-| `ember-tide-<version>-wear-os.apk` | You have a Wear OS watch and want the tile and the night heart rate. Install it **in addition to** a phone app. |
+| `ember-tide-<version>-wear-os.apk` | You have a Wear OS watch and want the watch app, tile and night heart rate. Install it **in addition to** a phone app. |
 | `SHA256SUMS.txt` | To check that a download is intact. |
 
 The two phone apps are the same app: same name, same id (`app.embertide`), same signing key. They differ only in how notifications
@@ -158,7 +158,7 @@ Settings, From this phone: home Wi-Fi, distance to a saved home spot, calendar (
 watch connected, bedside dial. Each switch asks for its own permission when you turn it on. Location and Wi-Fi ask for
 "Allow all the time". None of it is required; the bed's own sensors do the main work.
 
-## Wear OS tile
+## Wear OS app and tile
 
 The watch app shares the phone app's id and signs in by itself over the Wear data layer once the phone app is signed in.
 
@@ -169,8 +169,24 @@ adb -s <watch-serial> install -r ember-tide-<version>-wear-os.apk
 ```
 
 Turn on the watch's developer options and ADB over Wi-Fi to get a serial (`adb pair` then `adb connect`). Then on the watch,
-swipe to the tile list, Add tile, **Ember & Tide**. The tile shows tonight and a flash button; the app's "Heart rate at night" screen
-asks for its sensor permission and sends heart rate to the phone only while your night is on.
+swipe to the tile list, Add tile, **Ember & Tide**.
+
+**The watch app** (open Ember & Tide from the app list) is a bed-control screen for your side, built for a round screen and the
+rotary crown:
+
+- Your name, what your side is doing in plain words ("Deep · 81°", "Pre-conditioning", "Off tonight", "Not in bed yet") and the next
+  change ("Warm wake at 9:00 AM"), in your colour.
+- The temperature with **−** and **+** (°F or °C as you set them, within the limits the server enforces). Tap the number, then turn the crown.
+  Taps and turns are gathered for half a second and sent once.
+- **Hot flash** and **Cold flash**. While one runs you see the minutes left, **+5 min** and **Stop**.
+- **Off tonight** (asks you to tap again), **Resume** and **Turn on now**, with the same rules as the tile's power button.
+- Your partner's side as one read-only line, only if the server sends it.
+- **Heart rate at night**: shows whether the permission is allowed and opens the explanation and permission steps. Heart rate goes to the
+  phone only while your night is on, and only if you switched it on in the phone app.
+- If the watch isn't signed in it says "Sign in on your phone"; if the server can't be reached, "Can't reach your bed right now" with Try again.
+  The screen refreshes when you open it and every 30 seconds while it is on screen, and stops when it isn't. Every change also refreshes the tile and complication.
+
+**The tile** shows tonight, a Hot flash button and the on/off button (during a flash: +5 and Stop).
 
 ## Updating the app
 

@@ -101,7 +101,7 @@ web/                      React + Vite + TypeScript (one bundle: phone app + Stu
       EmberPush.kt / EmberPushPlugin.kt / EmberFcmService.kt / EmberCrypto.kt   app notifications (FCM + UnifiedPush)
       EmberWear.kt        pushes sign-in to the watch over the Wear Data Layer
     app/src/debug/        HealthTestData receiver (fake night into Health Connect; adb only)
-    wear/                 Wear OS tile app (same appId): EmberTileService, PhoneLinkService, WearApi
+    wear/                 Wear OS app (same appId): MainActivity (Compose screen) + BedModel + WatchLogic (tested), EmberTileService, PhoneLinkService, WearApi
 docs/                     LOCAL.md (running the topper locally), this file
 Dockerfile                web build stage + Python image; serves web from the core on one port
 ```

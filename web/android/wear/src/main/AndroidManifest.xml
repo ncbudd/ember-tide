@@ -53,8 +53,8 @@
             </intent-filter>
         </service>
 
-        <!-- "Heart rate at night": explanation + permission (the watch app's only screen) -->
-        <activity android:name=".HeartRateActivity" android:exported="true" android:label="Ember &amp; Tide"
+        <!-- the watch app: bed control for your side (and "Heart rate at night" as a step inside it) -->
+        <activity android:name=".MainActivity" android:exported="true" android:label="Ember &amp; Tide"
             android:taskAffinity="" android:theme="@android:style/Theme.DeviceDefault">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

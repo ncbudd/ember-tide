@@ -7,7 +7,10 @@ COPY web/ ./
 RUN npm run build
 
 FROM python:3.12-slim
-LABEL org.opencontainers.image.title="Ember & Tide" \n      org.opencontainers.image.description="Local-first controller for a dual-zone mattress topper" \n      org.opencontainers.image.source="https://github.com/Ncbudd/ember-tide" \n      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
+LABEL org.opencontainers.image.title="Ember & Tide" \
+      org.opencontainers.image.description="Local-first controller for a dual-zone mattress topper" \
+      org.opencontainers.image.source="https://github.com/Ncbudd/ember-tide" \
+      org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 WORKDIR /app
 COPY core/ /app/core
 RUN pip install --no-cache-dir /app/core
