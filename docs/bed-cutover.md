@@ -12,12 +12,12 @@ This is unofficial and not supported by the maker. Read the [disclaimer](../READ
 
 ## Before you start
 
-- Ember & Tide and a broker are running (the [Compose file](install.md#1-docker-compose-recommended) does both), and the machine
+- Ember & Tide and a broker are running (the [Compose file](install.md#a-the-compose-file-and-the-broker) does both), and the machine
   has a fixed address, for example `192.168.1.20`. Set a DHCP reservation for it.
 - Give the **bed hub** a DHCP reservation too (it makes it easy to find in your router and to block its internet later).
 - `ET_BED=orion-mqtt` and `ET_MQTT_URL=mqtt://mosquitto:1883` (or your broker's address) are set on the server.
 - The broker accepts anonymous connections on port 1883 for `orion/+/in` and `orion/+/out`. The example in
-  `deploy/mosquitto/` does. Use Mosquitto 2.0.20 (see [install](install.md#1-docker-compose-recommended)).
+  `deploy/mosquitto/` does. Use Mosquitto 2.0.20 (see [install](install.md#a-the-compose-file-and-the-broker)).
 
 ## 1. Add the DNS record
 

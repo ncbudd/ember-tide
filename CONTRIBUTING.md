@@ -60,3 +60,9 @@ python scripts/publish_check.py       # no secrets, no private words
 ## Reporting problems and asking for hardware support
 
 Use the issue templates (bug, feature, hardware support). For a security problem follow [SECURITY.md](SECURITY.md) and don't open a public issue.
+
+## Licence of contributions
+
+Ember & Tide is under the [PolyForm Noncommercial License 1.0.0](LICENSE). By sending a pull request you agree that
+your contribution is licensed under the same terms, and that the project owner may also offer it under other terms
+(for example a separately agreed commercial licence), so the project can stay in one piece.

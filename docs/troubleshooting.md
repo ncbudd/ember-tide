@@ -19,6 +19,34 @@ words what the bed and each sensor are doing.
    inside the same Compose project, not `localhost`). If you have several beds, set `ET_ORION_SERIAL`.
 7. Watch for messages directly: `docker compose exec mosquitto mosquitto_sub -t 'orion/+/out' -C 3`.
 
+## Platform pitfalls
+
+### Port 1883 is already in use
+
+The bed can only talk to port 1883, so the machine that answers the bed's DNS name must own it. If `docker compose up` says
+"port is already allocated" or "address already in use" for 1883, another program holds it: often another Mosquitto
+(a Home Assistant add-on on the same machine, an Unraid or Synology container, a package install). Either stop that one, give *it* another host port,
+or run Ember & Tide on a different machine and point the DNS record there. Do not change the left side of `"1883:1883"` for the bed's broker.
+The web port is different: if 8790 is taken, change the left number (`"8791:8790"`) and use that port in the address.
+
+### The data folder cannot be written (Synology, Unraid, NAS)
+
+Symptoms: the app restarts over and over, and `docker compose logs embertide` mentions "unable to open database file" or "permission denied".
+The container runs as root, so the usual cause is the folder itself: the `data` folder was not created, the path in the Compose file is wrong
+(a relative `./data` in a stack tool that keeps the file elsewhere; use the full path), or the share is read-only or has a restrictive ACL.
+On Unraid, use `/mnt/user/appdata/embertide/data` and check the share is not read-only. On Synology, create the folder inside a shared folder such as
+`docker`, and check Control Panel, Shared Folder, Permissions. Create the `data` folder yourself before starting, and keep it off network mounts that do not support file locking.
+
+### Docker will not start in a Proxmox LXC
+
+Docker inside an LXC needs the container feature **Nesting** (Container, Options, Features; add **keyctl** if offered). Without it you see
+permission errors when containers start. Turn it on, restart the container, and start the stack again. If it still fails, use a small VM instead.
+
+### Other devices cannot reach the app on Windows
+
+Windows blocks incoming connections by default. Allow Docker Desktop on private networks when asked, or open TCP 8790 and 1883 for your Private network
+(commands in [install](install.md#windows-and-mac)). Make sure the network profile is Private, not Public, and that the computer does not sleep.
+
 ## Both sides say "unknown" (or someone is shown as not in bed while lying there)
 
 - The bed isn't reporting: see above. The status line on Tonight says "The bed isn't answering right now".

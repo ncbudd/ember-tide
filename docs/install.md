@@ -1,103 +1,569 @@
 # Installing Ember & Tide
 
-Pick the way that suits you. Everything runs as one small server on your home network; phones, tablets, the
-watch tile and Home Assistant all talk to it.
+This guide takes you from nothing to a running server, one small step at a time. You do not need to be an expert.
+If a word is new, the [glossary](#glossary) at the end explains it in one line.
 
-| I want to... | Read |
+## Before you start
+
+Ember & Tide is one small program (the **server**) that runs on a computer at home that is always on. Your phone,
+a tablet, Home Assistant and the bed's hub all talk to it over your home network.
+
+You need:
+
+- [ ] **A computer that stays on all the time.** A NAS, a mini PC, a Raspberry Pi 4 or newer, or a spare laptop.
+- [ ] **Docker** on that computer (the guide shows how to get it), or a NAS that already has it.
+- [ ] **About 10 minutes** for the server, and another 10 for the bed.
+- [ ] **For the real bed only:** an Orion Sleep topper, and a router (or DNS server) where you can add one local DNS record.
+- [ ] A **fixed address** for the server on your network. See [Give the server a fixed address](#give-the-server-a-fixed-address).
+
+You can install the server first and look around with the built-in **simulator**, and connect the bed later.
+Nothing here updates itself, and nothing needs an account with anyone.
+
+## Which way should I install?
+
+Pick the row that matches what you already own. If you are unsure, use the Linux or Raspberry Pi steps; they work almost everywhere.
+
+| I have... | Go to |
 |---|---|
-| Try it without a bed, or run it for real, in Docker Compose | [1. Docker Compose](#1-docker-compose-recommended) |
-| Use plain `docker run` | [2. Plain Docker](#2-plain-docker) |
-| Work on the code | [3. From source](#3-run-from-source-for-development) |
-| Portainer, Synology, QNAP, TrueNAS, home-server distributions | [4. NAS and container managers](#4-nas-and-container-managers) |
-| Reach it away from home, or use iPhone notifications | [5. HTTPS: reverse proxy or tunnel](#5-https-reverse-proxy-or-tunnel) |
-| Home Assistant | [6. Home Assistant](#6-home-assistant) |
-| Connect the bed itself | [Bed cutover](bed-cutover.md) |
-| Android app, widget, Wear OS tile | [Android](android.md) |
-| iPhone | [7. iPhone](#7-iphone-home-screen-app) |
-| First sign-in and setup | [8. First run](#8-first-run) |
-| Upgrade, back up, restore | [9. Upgrading, backups, restoring](#9-upgrading-backups-restoring) |
-| Every setting | [Configuration](configuration.md) |
-| Something is wrong | [Troubleshooting](troubleshooting.md) |
+| **Unraid** | [Unraid](#unraid) |
+| **Synology** (DSM 7.2 or newer) | [Synology](#synology) |
+| **TrueNAS SCALE** | [TrueNAS SCALE](#truenas-scale) |
+| **Proxmox** | [Proxmox](#proxmox) |
+| A **Raspberry Pi**, a mini PC or any **Linux** machine | [Docker Compose on Linux or a Raspberry Pi](#docker-compose-on-linux-or-a-raspberry-pi) |
+| A **Windows** PC or a **Mac** | [Windows and Mac](#windows-and-mac) |
+| **Portainer** | [Portainer](#portainer) |
+| **CasaOS**, **Umbrel**, **Cosmos**, **Runtipi** or similar | [CasaOS and similar](#casaos-umbrel-and-similar) |
+| **Home Assistant OS** (a Pi or a VM running only Home Assistant) | [Home Assistant](#home-assistant) |
+| Just curiosity, no bed | [Try it without a bed](#try-it-without-a-bed) |
+| I write code | [Advanced: plain Docker and running from source](#advanced-plain-docker-and-running-from-source) |
 
-Plan for about 15 minutes for the server, plus 10 for the bed. You can do the server first with the built-in
-simulator and connect the bed later.
-
-## What you need
-
-- A machine that is on all the time at home: a mini PC, a NAS, a Raspberry Pi 4 or newer, or a spare laptop. It
-  needs Docker (Compose v2) or Python 3.12.
-- For the real bed: an Orion Sleep topper, a router or DNS server where you can add one local DNS record, and a
-  fixed address (DHCP reservation) for the machine running the broker. See [Bed cutover](bed-cutover.md).
-- Optional: Home Assistant, a bed strip or radar, scales, a watch or ring, the bedside dial. None of them is required.
+Every method ends the same way: open the app, do the [first-run setup](#b-first-run-setup-in-the-app), then
+[point the bed at your server](#c-point-the-bed-at-your-server).
 
 ---
 
-## 1. Docker Compose (recommended)
+## The parts every method shares
+
+Read this section once. The platform sections below send you back here instead of repeating it.
+
+### A. The Compose file and the broker
+
+Ember & Tide ships a Compose file, `docker-compose.example.yml`. **Compose** is a text file that tells Docker which programs to start.
+Ours starts two:
+
+| Service | Image | What it does |
+|---|---|---|
+| `embertide` | built from this folder (web app and server in one image) | the app, Studio and the API on port **8790**. Its data is the folder `./data`. |
+| `mosquitto` | `eclipse-mosquitto:2.0.20` | the **MQTT broker** the bed talks to, on port **1883**. Settings are in `deploy/mosquitto/`. |
+
+There is no ready-made image on a public registry yet, so Docker **builds the image from the project folder** the first time.
+That takes a few minutes. It needs the whole project folder, not just the one file.
+
+**Get the project folder.** Either of these gives you the same thing:
 
 ```bash
-git clone https://github.com/Ncbudd/ember-tide.git      # or unpack a release
-cd ember-tide
+git clone https://github.com/Ncbudd/ember-tide.git
+```
+
+or download the project as a ZIP from the repository page and unpack it. The folder should look like this:
+
+```text
+ember-tide/
+  Dockerfile
+  docker-compose.example.yml
+  deploy/mosquitto/mosquitto.conf
+  deploy/mosquitto/acl
+  core/  web/  docs/ ...
+```
+
+**Make your copy of the Compose file.** From inside the folder:
+
+```bash
 cp docker-compose.example.yml docker-compose.yml
 ```
 
-Edit `docker-compose.yml` and set your time zone in both `TZ` and `ET_TZ` (for example `Europe/London`).
-Schedules are local time, so a wrong zone means a wrong bedtime. Then:
+**Set your time zone** in `docker-compose.yml`, in both places (`TZ` and `ET_TZ`), for example `Europe/London` or `America/Chicago`
+(the [list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)). Schedules use local time, so a wrong
+zone means a wrong bedtime.
+
+**Start it:**
 
 ```bash
 docker compose up -d --build
-docker compose ps            # both services should say "healthy" after about a minute
+docker compose ps
 ```
 
-Open `http://<machine-address>:8790` from a phone or computer **on your home network**. You will be asked to create the owner account
-(see [First run](#8-first-run)). With the default `ET_BED: sim`, you are looking at a simulated bed: use
-**Studio → Simulator** to jump to bedtime, speed up the clock and put people in or out of bed.
+After a minute or two, `docker compose ps` should show both services as **healthy**.
 
-What the example file starts:
+**Check that it worked.** Open `http://<server-ip>:8790` on a phone or computer on your home network
+(for example `http://192.168.1.10:8790`). You should see the welcome screen asking you to create the owner account.
+For a plain yes or no, open `http://<server-ip>:8790/healthz`; you should see a short reply with the version.
 
-| Service | Image | Purpose |
-|---|---|---|
-| `embertide` | built from this folder (web app and server in one image) | the app, Studio and the API on port 8790; data in `./data` |
-| `mosquitto` | `eclipse-mosquitto:2.0.20` | the MQTT broker the bed talks to, on port 1883, with an access list |
+**Why the broker matters.** The bed's hub can only talk to a broker on port **1883**, and it cannot log in.
+So the Compose file publishes the broker on the machine's own port 1883, and allows anonymous connections, but only on
+the bed's two topics (`orion/<serial>/in` and `orion/<serial>/out`, set in `deploy/mosquitto/acl`).
+Two rules follow from that:
 
-The broker configuration lives in `deploy/mosquitto/` (`mosquitto.conf` and `acl`, both commented). It allows
-anonymous clients on port 1883, but only on the bed's two topics, `orion/<serial>/in` and `orion/<serial>/out`.
-That is how the bed's local protocol works (the bed has no broker password), so keep the port on your LAN.
+- **The machine's port 1883 must be free.** Another broker already using it is the most common problem
+  ([fix](troubleshooting.md#port-1883-is-already-in-use)).
+- **Keep 1883 on your home network.** Never forward it on your router.
 
-**Pin the broker version.** Use Mosquitto **2.0.20**. Version 2.0.21 changed keep-alive handling in a way the bed's
-firmware does not like, and the bed disconnects now and then. The example file pins the tag; when you want to try a newer
-one, change it, watch `docker compose logs mosquitto` for a day, and go back if the bed keeps reconnecting.
+If you use the broker for the bed, keep the Mosquitto version at **2.0.20**. Version 2.0.21 changed keep-alive handling in a way the bed's
+firmware does not like, and the bed drops off now and then. The example file already pins the right one.
 
-To use a real bed, edit the two lines in `docker-compose.yml` as the comments say (`ET_BED: orion-mqtt` and
-`ET_MQTT_URL: mqtt://mosquitto:1883`), run `docker compose up -d`, and follow [Bed cutover](bed-cutover.md).
+**Other choices in the same file** (each is a comment in the file; change it, then run `docker compose up -d` again):
 
-No bed at all but you have an Orion account? Use the cloud driver instead: `ET_BED: orion-cloud` and
-`ET_ORION_API_KEY` (create the key in the Orion web app). It polls about every 10 seconds, needs the internet, and
-leaves the official app working. You can then delete the `mosquitto` service.
+| I want... | In the file |
+|---|---|
+| The simulator (the default) | leave `ET_BED: sim` |
+| The real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883` |
+| The maker's cloud with a personal key, no broker | `ET_BED: orion-cloud` and `ET_ORION_API_KEY`; you can delete the `mosquitto` service |
+| A different web port | change the **left** number in `"8790:8790"`, for example `"8791:8790"` |
+| Secrets out of the file | put them in a `.env` file and add `env_file: .env` ([details](configuration.md#environment-variables)) |
 
-Already have a broker you want to use? Delete the `mosquitto` service and the `depends_on` block, and set
-`ET_MQTT_URL` to it (credentials can go in the URL: `mqtt://user:password@192.168.1.10:1883`). The bed still needs a
-listener on port 1883 without a login, so the same advice about topics applies; copy the two `topic` lines from
-`deploy/mosquitto/acl` into that broker's access list.
+Every setting is described in [configuration.md](configuration.md).
 
-## 2. Plain Docker
+**Where the paths are not "next to the file."** Some tools (Unraid, Portainer, TrueNAS, CasaOS) store your pasted Compose text
+somewhere of their own, so the relative paths `.` and `./data` would point to the wrong place. On those, use full paths. Using
+`/srv/embertide` as the example project folder:
+
+| In the Compose file | Change it to |
+|---|---|
+| `build: .` | `build: /srv/embertide/ember-tide` |
+| `./data:/data` | `/srv/embertide/data:/data` |
+| `./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` | `/srv/embertide/ember-tide/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` |
+| `./deploy/mosquitto/acl:/mosquitto/config/acl:ro` | `/srv/embertide/ember-tide/deploy/mosquitto/acl:/mosquitto/config/acl:ro` |
+
+Each platform section says which folder to use in place of `/srv/embertide`.
+
+**Already have a broker?** Delete the `mosquitto` service and the `depends_on:` block, and set `ET_MQTT_URL` to your broker.
+The bed still needs a listener on port 1883 without a login; copy the two `topic` lines from `deploy/mosquitto/acl` into that broker's access list.
+
+### B. First-run setup in the app
+
+1. On a device at home, open `http://<server-ip>:8790`. You should see the welcome screen.
+2. Create the **owner** account (a username and a password). This only works from your home network, on the server's own
+   address, never through a proxy or tunnel. That is on purpose.
+3. Follow the short setup: one question per screen, each skippable and changeable later (name, how you sleep, units, work days,
+   bedtime and wake time, Autopilot, notifications, watch or ring). **Settings, Run first-time setup again** brings it back.
+4. Invite the other sleeper: **Studio, People & access** makes a one-time link. Nothing to install on their side.
+5. Add things you own (radar, scales, room sensors, calendar, bedside dial) in **Studio, Devices & calibration**, whenever you like.
+
+The first seven nights are a **calibration week**: Autopilot watches and stays quiet, then it starts suggesting small, explained changes.
+
+Locked out later? On the server, run `docker exec -it ember-tide python -m embertide reset-password <username>`. It prints a one-time link, valid for 24 hours.
+
+### C. Point the bed at your server
+
+When the server works with the simulator and you are ready for the real bed:
+
+1. In `docker-compose.yml`, switch to the bed lines: `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`. Then run `docker compose up -d`.
+   (On a pasted-in stack, edit the stack and redeploy.)
+2. Add one local DNS record so the bed's usual name points at your server, and power-cycle the bed.
+
+[Bed cutover](bed-cutover.md) shows both steps for UniFi, Pi-hole, AdGuard Home, dnsmasq, OpenWrt and OPNsense, how to check it
+worked, how to block the hub's internet, and how to **roll back** at any time.
+
+### D. HTTPS: phones away from home and iPhone notifications
+
+At home, plain `http://` is fine. You need HTTPS to reach the app away from home, to install the iPhone Home Screen app,
+or to use browser notifications (they only work on secure addresses). **Never port-forward the web port to the internet.**
+Whatever you choose, set two things on the server (in the `environment:` part of the Compose file):
+
+- `ET_PUBLIC_URL: https://sleep.example.com`, which is how phones reach it. Notification buttons call back to this address.
+- `ET_TRUST_PROXY: "on"`, so sign-in limits see the visitor's real address.
+
+The live view uses a WebSocket (`/api/live`), so a proxy must pass upgrade headers. Easiest options, from simplest:
+
+- **A private VPN such as Tailscale or WireGuard.** No public address at all; `http://` over the VPN works for everything except browser notifications.
+- **Caddy** (gets its own certificate, handles WebSockets):
+
+  ```caddyfile
+  sleep.example.com {
+      reverse_proxy 192.168.1.10:8790
+  }
+  ```
+
+- **nginx:**
+
+  ```nginx
+  server {
+      listen 443 ssl http2;
+      server_name sleep.example.com;
+      ssl_certificate     /etc/ssl/sleep.example.com/fullchain.pem;
+      ssl_certificate_key /etc/ssl/sleep.example.com/privkey.pem;
+
+      location / {
+          proxy_pass http://192.168.1.10:8790;
+          proxy_http_version 1.1;
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header Upgrade $http_upgrade;       # WebSocket for the live view
+          proxy_set_header Connection "upgrade";
+          proxy_read_timeout 3600s;
+      }
+  }
+  ```
+
+- **Cloudflare Tunnel** (or Tailscale Funnel): install `cloudflared` on the server, create a tunnel, add a public hostname such as
+  `sleep.example.com` with the service `http://192.168.1.10:8790`, set the two variables above, and restart the container. You can add
+  Cloudflare Access as a second lock; the app has its own sign-in either way.
+
+**iPhone.** The iPhone uses the web app as a Home Screen app (a native app is planned, see `docs/IOS-PLAN.md`):
+
+1. Serve the app over HTTPS and set `ET_PUBLIC_URL`.
+2. In Safari, open the address, sign in, then Share, **Add to Home Screen**.
+3. Open Ember & Tide **from its Home Screen icon**, then More, Settings, Notifications, and turn notifications on for this phone.
+
+This needs iOS 16.4 or newer. Not possible from a web app on iPhone: Apple Health, background location and Bluetooth scanning for the bedside dial.
+Use the bed's own sensors, a cloud wearable account (Oura, Withings, WHOOP, Polar) or a calendar feed instead. For Android, see [android.md](android.md).
+
+### E. Updating and backups
+
+**Nothing updates by itself.** To update, in the project folder:
+
+```bash
+git pull                              # or unpack the new release over the folder
+docker compose up -d --build
+```
+
+On a pasted-in stack (Unraid, Portainer, ...), update the project folder the same way, then use that tool's
+**Update stack** or **Compose Up** button (with "rebuild" if it offers one). Read `CHANGELOG.md` first. The database upgrades its own
+tables on start. Rolling back means checking out the old version and running the same command; it works unless the newer version added data
+the older one cannot read, so **take a backup before every update.**
+
+**What to back up:** the data folder (`./data`, or `/data` inside the container). It holds:
+
+| File | What |
+|---|---|
+| `embertide.db` (plus `embertide.db-wal` and `-shm` while running) | all settings, rhythms, nights, accounts, devices |
+| `vapid-private.pem` | the Web Push key. If lost, phones have to turn notifications on again |
+| `fcm-service-account.json` | only if you set up Google push (your own file) |
+
+The easy, safe backup stops the app for a moment:
+
+```bash
+docker compose stop embertide
+cp -a data data-backup-$(date +%F)
+docker compose start embertide
+```
+
+A live copy also works: `sqlite3 data/embertide.db ".backup 'backup.db'"`. Studio, Data export gives you your nights as files too.
+
+**Restore:** stop the container, replace the contents of `./data` with the backup (including any `-wal` and `-shm` files that were copied
+with it), start it again. Phones stay signed in. Keep one copy on another machine; the database holds sleep data, so treat the copy like the original.
+
+---
+
+## Docker Compose on Linux or a Raspberry Pi
+
+Works on Raspberry Pi OS (64-bit), Debian, Ubuntu, Fedora and most others.
+
+1. **Install Docker**, if it is not there yet. Check with `docker compose version`; if you see a version number, skip to step 2.
+
+   ```bash
+   curl -fsSL https://get.docker.com | sh
+   sudo usermod -aG docker $USER
+   ```
+
+   Log out and back in so the group change takes effect. Then `docker compose version` should print a version.
+
+2. **Get the project** into a folder you will keep, for example your home folder:
+
+   ```bash
+   cd ~
+   git clone https://github.com/Ncbudd/ember-tide.git
+   cd ember-tide
+   ```
+
+   No `git`? Install it with `sudo apt install git`, or download the ZIP as described in [A](#a-the-compose-file-and-the-broker).
+
+3. **Copy the Compose file and set your time zone** (both `TZ` and `ET_TZ`):
+
+   ```bash
+   cp docker-compose.example.yml docker-compose.yml
+   nano docker-compose.yml
+   ```
+
+   In `nano`, save with `Ctrl+O`, Enter, then leave with `Ctrl+X`.
+
+4. **Start it:**
+
+   ```bash
+   docker compose up -d --build
+   docker compose ps
+   ```
+
+   The first build takes a few minutes (on a Pi it can take ten). You should now see both services, and after a minute both say **healthy**.
+
+5. **Open it.** Find the machine's address with `hostname -I`, then open `http://<server-ip>:8790`. You should see the welcome screen.
+   Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
+
+To read the log: `docker compose logs -f embertide` (press `Ctrl+C` to stop watching). The data is in the `data` folder next to the Compose file.
+
+## Unraid
+
+Unraid has no Community Applications template for Ember & Tide yet, so you use the **Compose Manager** plugin, which runs a Compose file from the Docker tab.
+
+**Before you start:** make sure nothing else on the server uses host port **1883** (an existing Mosquitto container, for example) or **8790**.
+Open the Docker tab and look at the Port Mappings column.
+
+1. **Install Compose Manager.** In Unraid, open **Apps** (Community Applications), search for **Compose Manager**, click **Install**.
+   You should now see a **Compose** section under the Docker tab.
+2. **Get the project into appdata.** Open the Unraid **Terminal** (the `>_` icon, top right) and run:
+
+   ```bash
+   mkdir -p /mnt/user/appdata/embertide
+   cd /mnt/user/appdata/embertide
+   git clone https://github.com/Ncbudd/ember-tide.git
+   mkdir -p data
+   ```
+
+   If the terminal says `git: command not found`, download the ZIP from the repository page on another computer, copy it into the
+   `appdata` share over the network (`\\<server-name>\appdata`), and unpack it so that the folder `/mnt/user/appdata/embertide/ember-tide` contains
+   `Dockerfile` and `deploy`. You should now see `Dockerfile` when you run `ls /mnt/user/appdata/embertide/ember-tide`.
+3. **Add a stack.** On the Docker tab, scroll to **Compose**, click **Add New Stack**, name it `embertide`, and click **OK**.
+   Click the gear icon beside the stack, then **Edit Stack**, then **Compose File**.
+4. **Paste the Compose file.** Open `docker-compose.example.yml` from the project (you can `cat` it in the terminal), copy it all and paste it in. Then make these changes
+   (this is the "full paths" table from [A](#a-the-compose-file-and-the-broker), with the Unraid folder filled in):
+
+   - `build: .` becomes `build: /mnt/user/appdata/embertide/ember-tide`
+   - `./data:/data` becomes `/mnt/user/appdata/embertide/data:/data`
+   - the two Mosquitto lines become `/mnt/user/appdata/embertide/ember-tide/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` and `/mnt/user/appdata/embertide/ember-tide/deploy/mosquitto/acl:/mosquitto/config/acl:ro`
+   - set `TZ` and `ET_TZ` to your time zone
+
+   Click **Save Changes**.
+5. **Compose Up.** Click **Compose Up** beside the stack. A window shows the build; the first time it takes a few minutes. When it says it is done, close it.
+   You should now see two new containers in the Docker list, `ember-tide` and `ember-tide-mosquitto`, both started.
+6. **Open it.** Open `http://<unraid-ip>:8790` (the address you use for the Unraid web page, with `:8790`). You should see the welcome screen.
+   Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
+
+**Good to know on Unraid**
+
+- **Port clash.** If something else already uses port 8790, change only the **left** number in `"8790:8790"`, for example `"8791:8790"`, and open
+  `http://<unraid-ip>:8791`. Do not change the broker's `"1883:1883"`: the bed can only use port 1883, so the Unraid server must own it. If another
+  container holds 1883, stop it or give *that* one a different host port.
+- **About networking.** The broker uses Docker's normal bridge network and publishes port 1883 on the Unraid server's address, which is
+  the same address the bed's DNS record points at. You do not need host networking. The app reaches the broker by its service name (`mosquitto`).
+- **Appdata.** Everything you need to back up is `/mnt/user/appdata/embertide/data`. Include it in your appdata backup.
+  If the database cannot be written, see [permissions](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas).
+- **Logs.** Click the container's icon on the Docker tab, then **Logs**. Or in the terminal: `docker logs -f ember-tide` and `docker logs ember-tide-mosquitto`.
+- **Updating.** In the terminal, `cd /mnt/user/appdata/embertide/ember-tide && git pull`, then **Compose Up** again on the stack (see [E](#e-updating-and-backups)).
+
+## Synology
+
+Needs **DSM 7.2 or newer** with **Container Manager** (install it from Package Center). On older DSM, the package is called Docker and has no Project feature.
+
+1. **Make the folders.** In **File Station**, open the shared folder `docker` (create it in Control Panel, Shared Folder, if it is missing), then create the folder
+   `embertide` inside it. You should now have `/volume1/docker/embertide`.
+2. **Put the project in that folder.** On your computer, download the project ZIP from the repository page and unpack it. Upload the unpacked folder's
+   contents into `docker/embertide` with File Station (drag and drop). `Dockerfile`, `docker-compose.example.yml` and the folder `deploy` should now sit directly in `docker/embertide`.
+3. **Rename and edit the Compose file.** In File Station, rename `docker-compose.example.yml` to `docker-compose.yml`. Right-click it, **Open with Text Editor**, set `TZ` and `ET_TZ` to your time zone, and save.
+4. **Create the project.** Open **Container Manager**, **Project**, **Create**. Project name `embertide`. Path: click Set Path and choose `/volume1/docker/embertide`.
+   Source: **Use existing docker-compose.yml** (it detects your file). Click **Next**, skip the web portal page, **Next**, then **Done**.
+5. **Wait for the build.** The first time it takes several minutes. You should now see the project `embertide` as **Running**, with two containers.
+6. **Open it.** Open `http://<nas-ip>:8790`. You should see the welcome screen. Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
+
+**Good to know on Synology**
+
+- The data is `/volume1/docker/embertide/data`. Add it to Hyper Backup.
+- Port 1883 is normally free on a Synology. If you also run Mosquitto, Home Assistant or similar there, see
+  [port 1883 in use](troubleshooting.md#port-1883-is-already-in-use).
+- If the app reports it cannot open its database, see [permissions](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas).
+- **Logs:** Container Manager, **Container**, click `ember-tide`, **Log**.
+- **Updating:** upload the new project files over the folder, then Project, `embertide`, **Action**, **Build** (it rebuilds and restarts).
+- If the NAS firewall is on (Control Panel, Security, Firewall), allow TCP ports 8790 and 1883 from your home network.
+
+## TrueNAS SCALE
+
+TrueNAS SCALE changed how apps work in 24.10 (it moved to Docker), and the Apps screens differ between versions. Use whatever your version offers for a
+custom app from YAML, and keep to this short recipe. The result is the same Compose file.
+
+1. **Make a dataset** for it (Datasets, Add Dataset), for example `apps/embertide`, and note its path, such as `/mnt/tank/apps/embertide`.
+2. **Get the project there.** Open **System, Shell** (or SSH) and run:
+
+   ```bash
+   cd /mnt/tank/apps/embertide
+   git clone https://github.com/Ncbudd/ember-tide.git
+   mkdir -p data
+   ```
+
+3. **Build the image once**, so the YAML does not need a build step:
+
+   ```bash
+   cd ember-tide
+   docker build -t ember-tide .
+   ```
+
+4. **Install via YAML.** In **Apps**, choose **Discover Apps**, then **Custom App** (on 25.04 and later: **Install via YAML**). Paste the contents of
+   `docker-compose.example.yml`, then change it with the table in [A](#a-the-compose-file-and-the-broker): replace `build: .` with `image: ember-tide` and use the
+   full dataset paths for the data folder and the two Mosquitto files (for example `/mnt/tank/apps/embertide/ember-tide/deploy/mosquitto/acl`). Set your time zone and save.
+5. **Open it.** Open `http://<truenas-ip>:8790`. You should see the welcome screen. Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
+
+On TrueNAS, the web interface itself uses ports 80 and 443, so 8790 and 1883 are normally free. If the Apps screens in your version do not
+accept Compose YAML, use a small VM or the Proxmox-style Debian machine described below and follow the Linux steps instead. For updates, run `git pull` and
+`docker build -t ember-tide .` again, then restart the app.
+
+## Proxmox
+
+The cleanest way is a small Debian machine just for this, with Docker inside it. Either kind works:
+
+- **A VM** (simplest, fewest surprises): create a Debian 12 VM with 1 CPU core, 1 GB of RAM and 8 GB of disk, install Debian with SSH, and go on to step 3.
+- **An LXC container** (lighter): create a Debian 12 container (Create CT) with 1 core, 1 GB of RAM, 8 GB of disk, **Unprivileged container ticked**, and a network
+  bridge with a fixed address (or a DHCP reservation).
+
+1. **For an LXC only: turn on nesting.** Docker needs it. Select the container, **Options, Features, Edit**, tick **Nesting** (and **keyctl** if offered), and OK.
+   Start the container. If you forget, Docker fails with permission errors ([LXC fix](troubleshooting.md#docker-will-not-start-in-a-proxmox-lxc)).
+2. **Open the container's console** (or SSH in) as root.
+3. **Install the basics and Docker:**
+
+   ```bash
+   apt update && apt install -y curl git
+   curl -fsSL https://get.docker.com | sh
+   ```
+
+4. **Follow the Linux steps** from step 2 of [Docker Compose on Linux or a Raspberry Pi](#docker-compose-on-linux-or-a-raspberry-pi). You should now see both services healthy.
+5. **Open it** at `http://<machine-ip>:8790`. Give the VM or container a fixed address, since the bed's DNS record will point at it.
+
+## Portainer
+
+Portainer can run the Compose file as a **stack**. Because our file builds from source, it needs the project folder on the Docker host first.
+
+1. **Put the project on the Docker host.** On the host's terminal:
+
+   ```bash
+   sudo mkdir -p /srv/embertide && cd /srv/embertide
+   sudo git clone https://github.com/Ncbudd/ember-tide.git
+   sudo mkdir -p data
+   ```
+
+2. In Portainer, choose your environment, **Stacks, Add stack**. Name it `embertide`.
+3. Choose **Web editor** and paste the contents of `docker-compose.example.yml`.
+4. Change the paths with the table in [A](#a-the-compose-file-and-the-broker) (`build: /srv/embertide/ember-tide`, data folder `/srv/embertide/data`, and the two
+   Mosquitto files under `/srv/embertide/ember-tide/deploy/mosquitto/`). Set `TZ` and `ET_TZ`.
+   Prefer not to build in Portainer? Run `sudo docker build -t ember-tide .` once in the project folder and use `image: ember-tide` in place of `build:`.
+5. Click **Deploy the stack**. You should now see the stack with two running containers.
+6. **Open it** at `http://<host-ip>:8790`. Logs: Containers, `ember-tide`, **Logs**.
+
+To update: `git pull` in `/srv/embertide/ember-tide`, then in Portainer open the stack and click **Update the stack** (turn on re-pull and re-build if offered; with
+the `image:` method, rebuild the image first).
+
+## CasaOS, Umbrel and similar
+
+These are friendly front ends for Docker. Ember & Tide is not in their app stores, so use their custom install.
+
+- **CasaOS:** open the SSH terminal (or the CasaOS terminal), get the project as in the [Portainer](#portainer) steps, then in the CasaOS dashboard choose
+  **App Store, Custom Install, Import** and paste the Compose file after changing the paths and using `image: ember-tide`
+  (run `docker build -t ember-tide .` in the project folder first). Open the app at `http://<casaos-ip>:8790`.
+- **Cosmos, Runtipi, Yacht and similar:** they accept a Compose file in the same way. Use the same recipe: project folder on the host, build the image once, paste the file with full paths.
+- **Umbrel:** apps come from its own store and a custom Compose file is not supported without extra work. The simplest route is to run Ember & Tide on another machine
+  with the Linux steps.
+
+Whichever you use, the web port is **8790** and the broker must own the host's port **1883**.
+
+## Home Assistant
+
+**Home Assistant OS has no Ember & Tide add-on.** Run Ember & Tide on another machine (any section above), and connect the two over MQTT. Home Assistant stays exactly as it is.
+
+Ember & Tide publishes each person's side to Home Assistant through MQTT discovery: a thermostat, flash buttons, the current phase, next change, an in-bed sensor,
+and a number for each phase's temperature. No custom integration is needed.
+
+1. In Home Assistant, install and start the **Mosquitto broker** add-on (Settings, Add-ons) and add the **MQTT** integration.
+2. Create a Home Assistant user for Ember & Tide (Settings, People, Users, Add user) so it has its own login.
+3. Give Ember & Tide the address. Either set `ET_HA_MQTT_URL: mqtt://user:password@192.168.1.5:1883` in the Compose file (use Home Assistant's address and the user from step 2),
+   or open **Studio, Integrations, Home Assistant** in the app and fill it in there.
+4. You should now see entities within seconds: `climate.embertide_<name>` and friends. **Publish again** and **Remove from Home Assistant** are on the same Studio page.
+
+Voice works through Home Assistant: expose the climate entity and flash buttons to your assistant ("set Alex's side to 68"). The ESPHome bedside dial also
+goes through Home Assistant; **Studio, Integrations** (Dials) shows the generated configuration.
+
+**Keep two brokers.** The bed's broker (this project's Mosquitto, anonymous, only the two `orion/...` topics) and Home Assistant's add-on broker (with logins) are separate
+on purpose. The bed cannot log in, and you do not want an anonymous listener on the broker that holds your Home Assistant logins. So do not point the bed at the Home
+Assistant add-on, and do not put Home Assistant's login on the bed's broker. If you already run Mosquitto elsewhere and want it to serve the bed, add an anonymous listener
+on port 1883 limited to `orion/+/in` and `orion/+/out`, as in `deploy/mosquitto/mosquitto.conf` and `deploy/mosquitto/acl`.
+
+If both brokers would sit on one machine and both want port 1883, give the Home Assistant one another host port; the bed can only use 1883.
+
+## Windows and Mac
+
+Docker Desktop is fine for **trying it out**. For the real bed, the computer must stay on, awake and connected, with a fixed address. A small always-on machine is better for that.
+
+1. **Install Docker Desktop** from docker.com, open it once, and wait until it says it is running. (On Windows, accept the WSL 2 option if it asks.)
+2. **Get the project.** Download the ZIP from the repository page and unpack it, or use `git clone` if you have Git. Open a terminal (PowerShell on Windows, Terminal on Mac) in that folder.
+3. **Copy the Compose file and set your time zone:**
+
+   ```bash
+   cp docker-compose.example.yml docker-compose.yml        # Windows PowerShell: copy docker-compose.example.yml docker-compose.yml
+   ```
+
+   Open `docker-compose.yml` in a text editor and set `TZ` and `ET_TZ`.
+4. **Start it:**
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+5. **Open it** at `http://localhost:8790` on that computer. You should see the welcome screen. From a phone, use the computer's address (below).
+
+**Windows firewall.** Other devices can only reach the app if Windows allows it. When Windows asks "allow Docker Desktop on private networks?", say yes. Or, in an
+administrator PowerShell, open the two ports for your home network:
+
+```powershell
+New-NetFirewallRule -DisplayName "Ember & Tide web" -Direction Inbound -Protocol TCP -LocalPort 8790 -Profile Private -Action Allow
+New-NetFirewallRule -DisplayName "Ember & Tide broker" -Direction Inbound -Protocol TCP -LocalPort 1883 -Profile Private -Action Allow
+```
+
+Your network must be set to **Private** (Settings, Network). Find the computer's address with `ipconfig` (Windows) or System Settings, Network (Mac).
+
+**Mac:** if macOS asks to allow incoming connections for Docker, choose Allow. Also stop the Mac from sleeping (System Settings, Battery or Energy) if it runs the bed.
+
+## Try it without a bed
+
+You do not need the bed to look around. With the default `ET_BED: sim`, the server runs a simulated bed with scripted sleepers.
+
+1. Start the server with any method above.
+2. Open `http://<server-ip>:8790`, create the owner account and finish the short setup.
+3. Open **Studio, Simulator**. You can jump to bedtime, speed up the clock and put people in or out of bed.
+
+To run the clock faster from the start, set `ET_SIM_SPEED` (for example `60` runs a minute per second); it is also a control in Studio, Simulator.
+When you are ready for the real bed, do [C. Point the bed at your server](#c-point-the-bed-at-your-server).
+
+## Give the server a fixed address
+
+The bed's DNS record points at your server's address, so that address must not change. Ask your router to always hand the same address to the server. This is
+called a **DHCP reservation** (or "fixed IP", "static lease" or "address reservation"). Do the same for the bed's hub; it makes the hub easy to find later.
+
+Where to look, in plain words:
+
+- **UniFi:** Client Devices, click the device, Settings, tick **Fixed IP Address**, pick the address, Apply.
+- **eero:** the eero app, Settings, Network Settings, **Reservations & port forwards**, Add a reservation.
+- **TP-Link Deco:** the Deco app, More, Advanced, **Address Reservation**.
+- **Google Wifi or Nest Wifi:** the Google Home app, Wi-Fi, Settings, Advanced networking, **DHCP IP reservations**.
+- **ASUS:** router page, LAN, **DHCP Server**, Manually Assigned IP around the DHCP list.
+- **Anything else:** in the router's page, look for "DHCP reservation", "static lease" or "address binding" under LAN or DHCP.
+
+Use an address outside your router's normal pool if it lets you choose, and write it down; it is the `<server-ip>` used throughout this guide.
+
+## Advanced: plain Docker and running from source
+
+### Plain `docker run`
+
+Without Compose, this runs only the app (the simulator):
 
 ```bash
 docker build -t ember-tide .
 docker run -d --name ember-tide --restart unless-stopped \
   -p 8790:8790 \
   -v ember-tide-data:/data \
-  -e ET_TZ=America/New_York \
+  -e TZ=America/New_York -e ET_TZ=America/New_York \
   ember-tide
 ```
 
-That runs the simulator. For a real bed against a broker you already run, add
-`-e ET_BED=orion-mqtt -e ET_MQTT_URL=mqtt://192.168.1.10:1883`. A named volume (above) or a folder
-(`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`.
+For a real bed against a broker you already run, add `-e ET_BED=orion-mqtt -e ET_MQTT_URL=mqtt://192.168.1.10:1883`. A named volume (above) or a folder
+(`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`. The image listens on `0.0.0.0:8790`, keeps its data in `/data`, and has a health check on `/healthz`.
 
-The image listens on `0.0.0.0:8790` (`ET_HOST`, `ET_PORT`), keeps data in `/data`, and has a health check on
-`/healthz`.
-
-## 3. Run from source (for development)
+### From source (for development)
 
 You need Python 3.12 and [uv](https://docs.astral.sh/uv/), plus Node 20 or newer for the web app.
 
@@ -118,190 +584,24 @@ cd ../core
 ET_AUTH=off ET_TZ=America/New_York ET_DATA_DIR=./data-dev uv run python -m embertide
 ```
 
-Open `http://localhost:8790`. While working on the interface, run `npm run dev` in `web/` instead; it proxies the API to
-port 8790 and reloads on save. `ET_AUTH=off` removes sign-in and is for local testing only. Set `ET_WEB_DIR` if you
-keep the built web app somewhere else. On Windows, use `.venv\Scripts\python.exe -m embertide` and set the variables
-with `$env:NAME = "value"`.
-
-Type checks and builds: `cd web && npx tsc --noEmit -p . && npm run build`.
-
-## 4. NAS and container managers
-
-Any manager that can import a Compose file works; the file is self-contained apart from the `deploy/mosquitto`
-folder and the build context.
-
-- **Home-server distributions with a Docker tab and a Compose plugin**: install the Compose plugin (or use the Docker tab's "Add Container" with the plain-Docker
-  settings above). Put the project under the system appdata share (for example `/mnt/user/appdata/ember-tide/`), with `./data` next to it so the
-  database is on the array or a pool you back up. Give the broker container a fixed LAN address or use the host's;
-  the bed needs to reach port 1883.
-- **Portainer**: Stacks, Add stack, paste the Compose file (or point at the Git repository). Because the stack
-  builds from source, use the "Repository" option so the build context and `deploy/mosquitto` are available, or build
-  the image once on the host and replace `build: .` with `image: ember-tide`. Bind-mount the two Mosquitto files
-  from a host folder.
-- **Synology (Container Manager) and QNAP**: Project, Create, choose the folder that holds the Compose file and
-  `deploy/`. Keep `./data` on a volume that is part of your backup.
-- **TrueNAS and others**: use the plain-Docker command or the Compose import; the only requirements are persistent
-  storage for `/data` and port 1883 reachable by the bed.
-
-If port 1883 is already used on that machine by another broker, either point the bed's DNS record at a different
-machine or give this broker another host port; the bed itself can only use 1883, so the machine that answers the bed's
-DNS name must serve 1883.
-
-## 5. HTTPS: reverse proxy or tunnel
-
-At home, plain `http://` is fine. You need HTTPS when you want to reach the app away from home, install the
-iPhone Home Screen app, or use browser notifications (Web Push only works on secure origins). Never port-forward
-the plain HTTP port to the internet.
-
-Whatever you use, set two things on the server:
-
-- `ET_PUBLIC_URL=https://sleep.example.com`: how phones reach it. Notification buttons ("wait an hour") call back to this.
-- `ET_TRUST_PROXY=on`: so sign-in rate limits see the visitor's address. Forwarding headers are believed only when
-  the connection comes from a private or loopback address (your proxy), and Cloudflare's `CF-Connecting-IP` is read first.
-
-The live view uses a WebSocket (`/api/live`), so the proxy must pass upgrade headers.
-
-**First-time setup is refused through a proxy or tunnel on purpose.** Create the owner account once on the local
-address (`http://192.168.1.20:8790`), then sign in from anywhere.
-
-### Caddy
-
-```caddyfile
-sleep.example.com {
-    reverse_proxy 192.168.1.20:8790
-}
-```
-
-Caddy gets a certificate by itself and handles WebSockets. If Caddy runs on another machine, `ET_TRUST_PROXY=on` still
-works because that machine has a private address.
-
-### nginx
-
-```nginx
-server {
-    listen 443 ssl http2;
-    server_name sleep.example.com;
-    ssl_certificate     /etc/ssl/sleep.example.com/fullchain.pem;
-    ssl_certificate_key /etc/ssl/sleep.example.com/privkey.pem;
-
-    location / {
-        proxy_pass http://192.168.1.20:8790;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Upgrade $http_upgrade;       # WebSocket for the live view
-        proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
-    }
-}
-```
-
-### Cloudflare Tunnel (or Tailscale Funnel and similar)
-
-1. Install `cloudflared` on the server (or as a container next to it) and create a tunnel.
-2. Add a public hostname, for example `sleep.example.com`, with the service `http://embertide:8790` (Compose service name)
-   or `http://192.168.1.20:8790`.
-3. Set `ET_PUBLIC_URL` and `ET_TRUST_PROXY=on`, restart the container.
-4. Optional: put Cloudflare Access (or another login in front) as a second lock. The app has its own sign-in and
-   uses it either way.
-
-A private VPN (Tailscale, WireGuard) is the simplest option if only your own devices need to reach it: no public
-address at all, and `http://` over the VPN is fine for everything except browser notifications.
-
-## 6. Home Assistant
-
-Ember & Tide publishes each person's side to Home Assistant over MQTT discovery: a thermostat, flash buttons, the
-current phase, next change, in-bed sensor, and a number for each phase's temperature. No custom integration is needed.
-
-1. In Home Assistant, install and start the **Mosquitto broker** add-on, and enable the **MQTT** integration.
-   Create a Home Assistant user for Ember & Tide (Settings, People, Users) so it has its own login on that broker.
-2. Give Ember & Tide the address. Either set `ET_HA_MQTT_URL=mqtt://user:password@192.168.1.10:1883` on the server,
-   or open **Studio → Integrations → Home Assistant** and fill it in there.
-3. The entities appear within seconds (`climate.embertide_<name>` and friends). **Publish again** and **Remove from
-   Home Assistant** are in the same place.
-
-Voice works through Home Assistant: expose the climate entity and flash buttons to your assistant ("set Alex's side to 68").
-The ESPHome bedside dial also talks to Home Assistant; see **Studio → Integrations** (Dials) for the generated
-configuration and setup steps, and `core/embertide/dial/` for the shared ESPHome package.
-
-### Two brokers: the bed's and Home Assistant's
-
-The bed's broker (this project's Mosquitto, port 1883, anonymous, only `orion/#`) and Home Assistant's broker (add-on,
-with logins) are separate on purpose. Don't try to share one: the bed cannot log in, and you don't want an anonymous
-listener on the broker that holds your Home Assistant credentials. If Home Assistant already uses port 1883 on the same
-machine, move one of the two brokers to another host port, but remember the bed can only use 1883.
-
-## 7. iPhone (Home Screen app)
-
-The iPhone uses the web app as a Home Screen app. (A native iPhone app is planned, see `docs/IOS-PLAN.md`.)
-
-1. Serve the app over HTTPS ([section 5](#5-https-reverse-proxy-or-tunnel)); set `ET_PUBLIC_URL`.
-2. In Safari, open the address, sign in, then Share, **Add to Home Screen**.
-3. Open Ember & Tide **from its Home Screen icon**. In More, Settings, Notifications, turn on notifications for this phone.
-
-Notifications need iOS 16.4 or newer and only work for the Home Screen app, opened from its icon. The server
-creates its Web Push key itself the first time it is needed (`vapid-private.pem` in the data folder). Not possible from a
-web app on iPhone: Apple Health, background location and Bluetooth scanning for the bedside dial. Use the bed's own
-sensors, a cloud wearable account (Oura, Withings, WHOOP, Polar) or a calendar feed instead.
-
-## 8. First run
-
-1. Open the server's **local address** on a device at home, for example `http://192.168.1.20:8790`. The first visit creates
-   the **owner** account: a username and password.
-2. The owner goes through a short guided setup, one decision per screen, each skippable and changeable later:
-   name, how you sleep (Ember runs cold, Tide runs hot, or in between), colour and units, Simple or Full app, work days
-   and bedtime and wake, Autopilot (Off, Suggest, Act; Suggest is the default), notifications, and your watch or ring.
-   Settings, "Run first-time setup again" brings it back.
-3. Invite the other sleeper: **Studio → People & access** makes a one-time link; nothing to install on their side.
-   They go through the same guided setup for their own side.
-4. Add devices you own in **Studio → Devices & calibration** (radar, scales, room sensors, calendar, bedside dial) when you like.
-5. Put the bed on the network cutover in [Bed cutover](bed-cutover.md) when you are ready; Studio → Bed hub shows its health.
-
-The first seven nights are a **calibration week**: Autopilot learns what a normal night looks like for each person and
-stays quiet. After that it suggests small, explained changes (or makes them, if you chose Act).
-
-Locked out? On the server: `docker exec -it ember-tide python -m embertide reset-password <username>` (or
-`python -m embertide reset-password <username>` from source). It prints a one-time link, valid for 24 hours.
-
-## 9. Upgrading, backups, restoring
-
-**Nothing updates by itself.** To upgrade:
-
-```bash
-cd ember-tide
-git pull                                  # or unpack the new release over the folder
-docker compose up -d --build
-```
-
-The database upgrades its own tables on start. Read `CHANGELOG.md` first. Rolling back means checking out the old
-version and running the same command, which works unless the newer version added data the older one cannot read; take a
-backup before every upgrade.
-
-**What to back up:** the data folder (`./data`, or the `/data` volume). The important files:
-
-| File | What |
-|---|---|
-| `embertide.db` (plus `embertide.db-wal` and `-shm` while running) | all settings, rhythms, nights, accounts, devices |
-| `vapid-private.pem` | the Web Push key; if lost, browsers and iPhones have to turn notifications on again |
-| `fcm-service-account.json` | only if you set up Google push (your own file) |
-
-The database is SQLite in WAL mode, so copy it consistently. Either stop the container for a moment:
-
-```bash
-docker compose stop embertide
-cp -a data data-backup-$(date +%F)
-docker compose start embertide
-```
-
-or take a live copy: `sqlite3 data/embertide.db ".backup 'backup.db'"`. Studio → Data export also gives you your nights as files.
-
-**Restore:** stop the container, replace the contents of `./data` with the backup (all of the files above, including any
-`-wal` and `-shm` files that were copied alongside), start it again. Phones stay signed in because sessions are in the database.
-
-Keep a copy off the machine (another computer, cloud storage you trust). The database holds sleep data; treat the backup
-like the original.
+Open `http://localhost:8790`. While working on the interface, run `npm run dev` in `web/` instead; it proxies the API to port 8790 and reloads on save.
+`ET_AUTH=off` removes sign-in and is for local testing only. Set `ET_WEB_DIR` if you keep the built web app somewhere else. On Windows, use
+`.venv\Scripts\python.exe -m embertide` and set variables with `$env:NAME = "value"`. Type checks and build: `cd web && npx tsc --noEmit -p . && npm run build`.
 
 ---
 
-Next: [connect the bed](bed-cutover.md), [build the Android app](android.md), [configuration reference](configuration.md).
+## Glossary
+
+- **Hub** (or bed hub): the control unit of the Orion topper. It is the thing that connects to your network.
+- **Server**: the Ember & Tide program on your always-on computer. The app and Studio are its web pages.
+- **MQTT**: a very small message system that devices use to talk. The bed sends its readings and receives commands this way.
+- **Broker**: the post office for MQTT messages. The hub and Ember & Tide both talk to it. Ours is Mosquitto, started by the Compose file.
+- **DNS override** (or local DNS record): a line in your router or DNS server that makes a name, here the maker's server name, point at a computer in your home instead.
+- **Compose**: a text file that tells Docker which programs to start and how they are set up.
+- **Container, image**: a container is a program running in Docker; an image is the packaged program it starts from.
+- **Appdata, volume**: the folder on the server where a container keeps what it must not lose. For us it is the `data` folder (the database).
+- **Reservation (DHCP reservation)**: a router setting that always gives the same address to the same device.
+
+---
+
+Next: [connect the bed](bed-cutover.md), [build the Android app](android.md), [every setting](configuration.md), [when something is wrong](troubleshooting.md).

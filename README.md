@@ -131,25 +131,31 @@ SQLite file.
   a watch or ring (Pixel, Galaxy, Oura, Withings, WHOOP, Polar, Garmin through Health Connect), a Wear OS watch for the tile, an iPhone for
   the web app.
 
-## Quick start (Docker Compose)
+## Quick start
 
-```bash
-git clone https://github.com/Ncbudd/ember-tide.git
-cd ember-tide
-cp docker-compose.example.yml docker-compose.yml     # set TZ and ET_TZ to your time zone
-docker compose up -d --build
-```
+Five steps. The [install guide](docs/install.md) has the same steps with what you should see after each one, and sections for Unraid, Synology,
+TrueNAS, Proxmox, Raspberry Pi and Linux, Windows and Mac, Portainer, CasaOS and Home Assistant users.
 
-Open `http://<server-address>:8790` on a phone or computer at home, create the owner account, and follow the short setup. It starts with the
-built-in simulator: in **Studio, Simulator** you can jump to bedtime, speed up the clock and put people in or out of bed. When you are ready for the
-real bed, switch two lines in the Compose file and add one DNS record; [docs/bed-cutover.md](docs/bed-cutover.md) walks through it, including how to
-roll back.
+1. **Pick your platform** in [Which way should I install?](docs/install.md#which-way-should-i-install). You need an always-on computer with Docker.
+2. **Get the project and the Compose file:**
+   ```bash
+   git clone https://github.com/Ncbudd/ember-tide.git
+   cd ember-tide
+   cp docker-compose.example.yml docker-compose.yml     # set TZ and ET_TZ to your time zone
+   ```
+3. **Start it:** `docker compose up -d --build`, then open `http://<server-address>:8790` ([details](docs/install.md#a-the-compose-file-and-the-broker)).
+4. **Set up the app:** create the owner account and follow the short setup ([first-run setup](docs/install.md#b-first-run-setup-in-the-app)). It starts with the
+   built-in simulator, so you can look around in **Studio, Simulator** first.
+5. **Connect the bed** when you are ready: switch two lines in the Compose file and add one DNS record
+   ([point the bed at your server](docs/install.md#c-point-the-bed-at-your-server), [docs/bed-cutover.md](docs/bed-cutover.md), including how to roll back).
+
+All settings are in [docs/configuration.md](docs/configuration.md).
 
 ## Documentation
 
 | Guide | |
 |---|---|
-| [Install](docs/install.md) | Docker Compose, plain Docker, from source, NAS and Portainer, HTTPS with Caddy, nginx or a tunnel, Home Assistant, iPhone, first run, upgrades and backups |
+| [Install](docs/install.md) | Step by step for Unraid, Synology, TrueNAS, Proxmox, Linux and Raspberry Pi, Windows and Mac, Portainer and CasaOS; first run, HTTPS and iPhone, Home Assistant, fixed addresses, updates and backups |
 | [Bed cutover](docs/bed-cutover.md) | The local DNS record, checking the connection, blocking the hub's internet, rolling back, firmware updates |
 | [Android](docs/android.md) | Build the APK, your own Firebase project or no Google at all, Health Connect, widget and tile, Wear OS |
 | [Configuration](docs/configuration.md) | Every environment variable, the data folder, ports |
@@ -192,4 +198,13 @@ Built on community protocol work: tdickman's local MQTT integration, borski's do
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+[PolyForm Noncommercial 1.0.0](LICENSE). In plain words:
+
+- **Free for personal and household use**, and for noncommercial organisations (charities, schools, public research,
+  hobby groups). Use it, change it, share your changes, under the same terms.
+- **No commercial use.** A company may not use, sell, bundle, host or ship this code or anything built from it, in
+  a product or service, without written permission. That includes bed makers and third-party sellers.
+- Shared copies must keep the license and this notice: `Required Notice: Copyright (c) 2026 Ncbudd (https://github.com/Ncbudd/ember-tide)`.
+
+This makes Ember & Tide *source-available*, not "open source" in the OSI sense. For a commercial licence, open an
+issue to get in touch.

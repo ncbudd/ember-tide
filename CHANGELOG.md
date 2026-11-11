@@ -5,6 +5,8 @@ minor versions, and each entry says what to check when upgrading.
 
 ## 0.1.0 (first public release)
 
+- Licensed under the PolyForm Noncommercial License 1.0.0: free for personal and noncommercial use, no commercial use without permission.
+
 The first version intended for other people's homes.
 
 ### Bed control
