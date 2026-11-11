@@ -33,6 +33,7 @@ export default function PhoneNotifications() {
     setBusy(label); setMsg(null);
     try { await f(); if (ok) setMsg(ok); } catch (e) { setMsg((e as Error).message); } finally { setBusy(null); void load(); }
   };
+  const noGoogle = st.google_push === false;      // the no-Google build of the app
   const canFcm = mine.fcm && st.fcm_available;
   const canUp = !!mine.server && st.distributors.length > 0;
   const on = st.registered;
@@ -49,9 +50,13 @@ export default function PhoneNotifications() {
       {!canFcm && !canUp ? (
         !mine.fcm && !mine.server ? <p className="mute" style={{ fontSize: 13, padding: "10px 0" }}>
           Notifications aren't set up on this server yet. The owner turns them on in Studio → Notifications.</p>
+        : mine.fcm && !st.fcm_available && noGoogle ? <p className="mute" style={{ fontSize: 13, padding: "10px 0" }}>
+          Google push isn't part of this build of the app (the no-Google version), and this server sends through Google push only.
+          Install the Google push version of the app, or ask the owner to turn on ntfy in Studio → Notifications.</p>
         : mine.fcm && !st.fcm_available ? <p className="mute" style={{ fontSize: 13, padding: "10px 0" }}>
           This copy of the app was built without Google push. Update the app to get notifications.</p>
         : <>
+          {noGoogle && <p className="mute" style={{ fontSize: 13, padding: "8px 0 0" }}>Google push isn't part of this build of the app, so notifications come through ntfy.</p>}
           <p style={{ fontSize: 14, padding: "8px 0 0" }}>This server delivers notifications through the free ntfy app.</p>
           <p className="mute" style={{ fontSize: 13 }}>Install ntfy, sign in to {mine.server!.replace(/^https?:\/\//, "")} in it, then come back here.</p>
           <div style={{ padding: "4px 0 8px" }}><a className="btn pri" href="https://play.google.com/store/apps/details?id=io.heckel.ntfy" target="_blank" rel="noreferrer">Get ntfy</a></div>

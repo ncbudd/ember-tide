@@ -1,17 +1,18 @@
 # Ember & Tide with its own MQTT broker for the bed.
 #
 #   cp docker-compose.example.yml docker-compose.yml
-#   set your time zone below, then:   docker compose up -d --build
+#   set your time zone below, then:   docker compose up -d
 #   open http://<this-machine>:8790 from a device on your home network
 #
 # It starts with the built-in simulator, so you can look around before touching the bed. To connect the bed,
 # switch to option B below (after the DNS step in docs/install.md) and run `docker compose up -d` again.
-# Ember & Tide never updates itself: pull a newer checkout and run `docker compose up -d --build` when you choose.
+# Ember & Tide never updates itself: when you choose, run `docker compose pull && docker compose up -d`.
 # Full guide: docs/install.md
 
 services:
   embertide:
-    build: .                                   # builds the web app and the server from this checkout
+    image: ghcr.io/ncbudd/ember-tide:latest    # ready-made image (amd64 and arm64). Pin a version, e.g. :0.1.0, if you prefer
+    # build: .                                 # or build it from this checkout instead (then also remove the image line above)
     container_name: ember-tide
     restart: unless-stopped
     ports:

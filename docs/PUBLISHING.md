@@ -57,6 +57,65 @@ files that were removed), review `git status` there, and commit as Ncbudd with a
 - Firebase config (`google-services.json`, service-account JSON) is not in the repo or its history.
 - Demo/test data is generic (Alex, Sam, Rex); no real heart-rate exports, serials or addresses.
 - `python scripts/publish_check.py --history` is clean on the exact commit being published.
-- README, SECURITY.md and LICENSE are accurate; GitHub security reporting is enabled; a container image is
-  built from the public commit if you want one (`docker-compose.example.yml` builds locally until then).
-- Settings: branch protection on `main`, Actions secrets empty (CI needs none).
+- README, SECURITY.md and LICENSE are accurate; GitHub security reporting is enabled; the first release
+  (below) has been made from the public commit, so the image in `docker-compose.example.yml` exists.
+- Settings: branch protection on `main`. CI needs no secrets; only the release workflow uses the ones listed below.
+
+## 4. Releasing a version
+
+A release is one tag. The workflow `.github/workflows/release.yml` does the rest.
+
+1. **CHANGELOG.** Add a section headed `## X.Y.Z` (the text after it, such as "(first public release)", is fine). Its body becomes the release notes.
+   The checks in section 1 must pass.
+2. **Tag and push the tag to the publish repository** (the one made in section 2, not the working repository):
+
+   ```bash
+   cd ../ember-tide-publish
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+
+   Or run the **Release** workflow by hand from the Actions tab and type the version; it then tags the commit it ran on.
+3. **What the workflow produces:**
+   - Python tests, web typecheck and build must pass first.
+   - The server image `ghcr.io/ncbudd/ember-tide`, tagged `X.Y.Z`, `X.Y` and `latest`, for linux/amd64 and linux/arm64, with OCI labels
+     (source, license, version).
+   - Signed Android APKs built with `EMBERTIDE_VERSION=X.Y.Z` and a versionCode that only goes up: `major*10000 + minor*100 + patch`
+     (0.1.0 is 100, 0.2.3 is 203, 1.0.0 is 10000; keep minor and patch under 100). Phone and watch get the same numbers.
+   - A GitHub Release `vX.Y.Z` with `ember-tide-X.Y.Z-android-google-push.apk`, `ember-tide-X.Y.Z-android-no-google.apk`,
+     `ember-tide-X.Y.Z-wear-os.apk` and `SHA256SUMS.txt`, with the CHANGELOG section as the notes.
+   If `GOOGLE_SERVICES_JSON_B64` is missing the Google-push APK is skipped with a warning; if the signing key is missing the build stops.
+4. **Check the result**: the Release page has four files, the image has three tags, and `sha256sum -c SHA256SUMS.txt` passes.
+
+### Secrets (repository Settings, Secrets and variables, Actions)
+
+| Secret | What it is |
+|---|---|
+| `ANDROID_KEYSTORE_B64` | the release keystore file, base64 encoded |
+| `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
+| `ANDROID_KEY_ALIAS` | the key's alias inside it |
+| `ANDROID_KEY_PASSWORD` | the key's password (if the key has its own; otherwise the same as the keystore's) |
+| `GOOGLE_SERVICES_JSON_B64` | `google-services.json` of the Firebase project, base64 encoded (Google-push APK only) |
+
+Set them from the folder that holds the files, without typing a value on the command line (the commands read from files and prompts):
+
+```bash
+base64 -w0 embertide-release.jks | gh secret set ANDROID_KEYSTORE_B64 --repo Ncbudd/ember-tide
+gh secret set ANDROID_KEYSTORE_PASSWORD --repo Ncbudd/ember-tide        # paste at the prompt
+gh secret set ANDROID_KEY_ALIAS --repo Ncbudd/ember-tide
+gh secret set ANDROID_KEY_PASSWORD --repo Ncbudd/ember-tide
+base64 -w0 google-services.json | gh secret set GOOGLE_SERVICES_JSON_B64 --repo Ncbudd/ember-tide
+```
+
+(On macOS use `base64 -i file`; in PowerShell, `[Convert]::ToBase64String([IO.File]::ReadAllBytes("file")) | gh secret set NAME`.)
+The workflow decodes the keystore to a temporary file, never prints a secret, and deletes the file at the end.
+
+**Back up the signing key.** Android only installs an update signed with the same key as the app already on the phone, and the watch app only pairs with a
+phone app signed with the same key. If the keystore is lost, every user has to uninstall and reinstall to move to a new key, and the watch tile has to be set up again.
+Keep the keystore file and its passwords in at least two safe places (a password manager and an offline copy), never in the repository.
+
+### While the repository is private
+
+A private repository's image on ghcr.io is private too, so pulling needs a login first: `docker login ghcr.io -u <github-user>` with a personal
+access token that has the `read:packages` permission. The Release downloads need a signed-in GitHub account with access to the repository.
+Both open up to everyone when the repository and the package are made public (the package's visibility is set separately, in the package settings on GitHub).

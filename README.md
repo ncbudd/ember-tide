@@ -137,13 +137,13 @@ Five steps. The [install guide](docs/install.md) has the same steps with what yo
 TrueNAS, Proxmox, Raspberry Pi and Linux, Windows and Mac, Portainer, CasaOS and Home Assistant users.
 
 1. **Pick your platform** in [Which way should I install?](docs/install.md#which-way-should-i-install). You need an always-on computer with Docker.
-2. **Get the project and the Compose file:**
+2. **Get the Compose file** (the project folder holds it and the broker's settings; the app itself comes as a ready-made image):
    ```bash
    git clone https://github.com/Ncbudd/ember-tide.git
    cd ember-tide
    cp docker-compose.example.yml docker-compose.yml     # set TZ and ET_TZ to your time zone
    ```
-3. **Start it:** `docker compose up -d --build`, then open `http://<server-address>:8790` ([details](docs/install.md#a-the-compose-file-and-the-broker)).
+3. **Start it:** `docker compose up -d` (it pulls `ghcr.io/ncbudd/ember-tide`), then open `http://<server-address>:8790` ([details](docs/install.md#a-the-compose-file-and-the-broker); to build the image yourself, see [Advanced](docs/install.md#advanced-plain-docker-and-running-from-source)).
 4. **Set up the app:** create the owner account and follow the short setup ([first-run setup](docs/install.md#b-first-run-setup-in-the-app)). It starts with the
    built-in simulator, so you can look around in **Studio, Simulator** first.
 5. **Connect the bed** when you are ready: switch two lines in the Compose file and add one DNS record
@@ -157,7 +157,7 @@ All settings are in [docs/configuration.md](docs/configuration.md).
 |---|---|
 | [Install](docs/install.md) | Step by step for Unraid, Synology, TrueNAS, Proxmox, Linux and Raspberry Pi, Windows and Mac, Portainer and CasaOS; first run, HTTPS and iPhone, Home Assistant, fixed addresses, updates and backups |
 | [Bed cutover](docs/bed-cutover.md) | The local DNS record, checking the connection, blocking the hub's internet, rolling back, firmware updates |
-| [Android](docs/android.md) | Build the APK, your own Firebase project or no Google at all, Health Connect, widget and tile, Wear OS |
+| [Android](docs/android.md) | Download the APK (Google push or no Google), build it yourself, your own Firebase project, Health Connect, widget and tile, Wear OS |
 | [Configuration](docs/configuration.md) | Every environment variable, the data folder, ports |
 | [Troubleshooting](docs/troubleshooting.md) | Hub won't connect, unknown sides, echo, push, Home Assistant, Health Connect |
 | [Notifications](docs/notifications.md), [Care](docs/care.md), [Cycle](docs/cycle.md), [Integrations](docs/integrations.md), [Onboarding](docs/onboarding.md), [Settings map](docs/settings-map.md) | How the parts work |

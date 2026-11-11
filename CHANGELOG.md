@@ -46,12 +46,14 @@ The first version intended for other people's homes.
 ### Apps and integrations
 - Web app (phone layout and Studio) served by the same container; sign-in with owner, sleeper and viewer roles, invites, API keys and limited
   device keys.
-- Android app with widget, Quick Settings tile, Health Connect and phone sources; Wear OS tile.
+- Android app with widget, Quick Settings tile, Health Connect and phone sources; Wear OS tile. Two signed builds on the Releases page: one with
+  **Google push** and one with **no Google at all** (ntfy / UnifiedPush or Web Push). Same app id and key, so either installs over the other.
 - Home Assistant over MQTT discovery; ESPHome bedside dial package.
-- Docker image, Compose example with a pinned Mosquitto and an access list, and install, bed cutover, Android, configuration and
+- Ready-made server image `ghcr.io/ncbudd/ember-tide` (amd64 and arm64); the Compose example pulls it. Compose example with a pinned Mosquitto and an access list, and install, bed cutover, Android, configuration and
   troubleshooting guides.
 
 ### Known limits
-- No signed Android release build yet; build the APK yourself.
+- The Google-push app uses the project's own Firebase project, so a server needs that project's key to send to it; other servers use the no-Google app or
+  build the Google-push app with their own Firebase project. A push relay that removes this limit is planned.
 - No native iPhone app yet; the Home Screen web app has no Apple Health or background location.
 - Only the Orion Sleep topper is supported.

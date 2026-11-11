@@ -1,5 +1,6 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
+apply from: '../signing.gradle'
 
 // The Wear OS app: a tile (your side's temperature, Hot flash, on/off) and a watch-face complication. Same application id as the phone app,
 // which Wear's phone-to-watch data link requires; the phone hands it the server address and sign-in.
@@ -10,11 +11,31 @@ android {
         applicationId "app.embertide"
         minSdkVersion 30
         targetSdkVersion 36
-        versionCode 1
-        versionName "1.0"
+        versionCode embertideVersionCode
+        versionName embertideVersionName
+    }
+    // Same signing key as the phone app: the data link only pairs apps signed with the same certificate.
+    signingConfigs {
+        release {
+            def ks = embertideSigning()
+            if (ks != null) {
+                storeFile ks.storeFile
+                storePassword ks.storePassword
+                keyAlias ks.keyAlias
+                keyPassword ks.keyPassword
+            }
+        }
     }
     buildTypes {
-        release { minifyEnabled false }
+        release {
+            minifyEnabled false
+            debuggable false
+            if (embertideSigning() != null) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.lifecycle("Ember & Tide: no release keystore given, so the watch release build is UNSIGNED.")
+            }
+        }
     }
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_21

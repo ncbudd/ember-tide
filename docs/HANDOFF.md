@@ -160,9 +160,9 @@ defaults to claude-opus-5-5, key from ET_LLM_KEY or the SDK's own credentials), 
 ```bash
 cd core && .venv/Scripts/python.exe -m pytest -q            # all; ~3 min
 cd web && npx tsc --noEmit -p . && npm run build
-cd web/android && ./gradlew.bat :app:assembleDebug :wear:assembleDebug --no-daemon -q
-cd web/android && ./gradlew.bat lintDebug --no-daemon -q      # expect 0 errors
-cd web/android && ./gradlew.bat :app:testDebugUnitTest        # EmberCrypto RFC vector
+cd web/android && ./gradlew.bat assembleFullDebug assembleMinimalDebug :wear:assembleDebug --no-daemon -q
+cd web/android && ./gradlew.bat lintMinimalDebug --no-daemon -q   # expect 0 errors
+cd web/android && ./gradlew.bat testFullDebugUnitTest testMinimalDebugUnitTest   # EmberCrypto RFC vector
 npm audit --omit=dev ; uvx pip-audit -r <freeze>              # deps (2 moderate react-router left: needs v7)
 ```
 Simulation lab: tests/lab.py + test_lab_*.py (profiles over many nights, wearable misalignment, fusion, decisions,
@@ -182,12 +182,15 @@ test_notify (triggers, push, FCM, fallback), test_webpush, test_autopilot_suite,
 
 ```bash
 cd web && npm run build && npx cap sync android
-cd android && ./gradlew.bat assembleDebug --no-daemon -q
-adb -s <device> install -r app/build/outputs/apk/debug/app-debug.apk
+cd android && ./gradlew.bat assembleFullDebug assembleMinimalDebug --no-daemon -q
+adb -s <device> install -r app/build/outputs/apk/full/debug/app-full-debug.apk     # or minimal/debug/app-minimal-debug.apk
 adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
 ```
 - `local.properties`: `sdk.dir=C\:/Users/.../Android/Sdk`. JDK 21.
-- `app/google-services.json` (gitignored) enables FCM; without it the app runs and falls back to UnifiedPush.
+- Two flavors (dimension `push`, same id): `full` has Firebase (needs the gitignored `app/google-services.json`; without it Google push is off and the app
+  falls back to UnifiedPush), `minimal` has no Firebase and no FCM service (`src/minimal` holds a stub `EmberFcm`; FCM code is in `src/full`). Release builds
+  are signed from env vars or `-PembertideKeystoreProps=`, versions from `EMBERTIDE_VERSION` / `EMBERTIDE_VERSION_CODE` (`web/android/signing.gradle`);
+  releases are made by `.github/workflows/release.yml` (see docs/PUBLISHING.md section 4).
 - Emulator tips: WebView devtools via `adb forward tcp:9333 localabstract:webview_devtools_remote_<pid>` and a
   small CDP script to evaluate JS; avoid typing while the keyboard suggests words; Git Bash mangles device
   paths (`MSYS_NO_PATHCONV=1`).
@@ -448,7 +451,7 @@ Home Screen app; Oura cloud connection; iPhone/Studio safe-area and narrow-nav f
 ## Next up / open
 
 1. Deploy the 2026-11-07 work to the server; install the new debug APK on the phone.
-2. Signed release build of the Android app (signing key + proguard rules), then reinstall on devices.
+2. Cut the first release with the release workflow (docs/PUBLISHING.md section 4); proguard/minify is still off.
 3. Partner onboarding (invite from More → Invite; push turns on by itself with FCM).
 4. Setup wizard for first-time users (step by step).
 5. Connect real context devices (phone tracker, proximity, calendar, bedroom light) in Studio → Devices.

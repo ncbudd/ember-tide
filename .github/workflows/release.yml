@@ -1,0 +1,241 @@
+name: Release
+
+# Runs when a version tag (v0.1.0, v1.2.3, ...) is pushed, or by hand from the Actions tab with a version.
+# Produces: the server image on ghcr.io (amd64 + arm64), the signed Android APKs (Google push and no-Google), the
+# signed Wear OS APK, SHA256SUMS.txt, and a GitHub Release with all of them. Setup and secrets: docs/PUBLISHING.md.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (for example 0.1.0). The CHANGELOG should have a section for it."
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/ncbudd/ember-tide
+
+jobs:
+  # ---------- (a) tests and web build ----------
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      version_code: ${{ steps.v.outputs.version_code }}
+      major_minor: ${{ steps.v.outputs.major_minor }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Work out the version
+        id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
+          IS_TAG: ${{ github.ref_type == 'tag' }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then v="$INPUT_VERSION"; elif [ "$IS_TAG" = "true" ]; then v="$REF_NAME"; else echo "Run this from a v* tag or give a version."; exit 1; fi
+          v="${v#v}"
+          if ! echo "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then echo "Version must look like 1.2.3 (got '$v')."; exit 1; fi
+          major="${v%%.*}"; rest="${v#*.}"; minor="${rest%%.*}"; patch="${rest#*.}"
+          # versionCode only ever goes up: major*10000 + minor*100 + patch (0.1.0 -> 100, 0.2.3 -> 203, 1.0.0 -> 10000).
+          # Keep minor and patch under 100. Android refuses to install an APK with a lower versionCode over a higher one.
+          if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then echo "minor and patch must stay below 100 for the versionCode scheme."; exit 1; fi
+          code=$(( major * 10000 + minor * 100 + patch ))
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "version_code=$code" >> "$GITHUB_OUTPUT"
+          echo "major_minor=$major.$minor" >> "$GITHUB_OUTPUT"
+          echo "Releasing $v (versionCode $code)"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
+      - name: Install server
+        run: uv pip install --system -e "core[dev]"
+      - name: Server tests
+        working-directory: core
+        run: python -m pytest -q
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Web install, typecheck, build
+        working-directory: web
+        run: |
+          npm ci
+          npx tsc --noEmit -p .
+          npm run build
+
+  # ---------- (b) server image ----------
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Labels
+        id: meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
+        with:
+          images: ${{ env.IMAGE }}
+          flavor: latest=false
+          labels: |
+            org.opencontainers.image.title=Ember & Tide
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.licenses=PolyForm-Noncommercial-1.0.0
+            org.opencontainers.image.version=${{ needs.test.outputs.version }}
+      - name: Build and push (amd64 + arm64)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ needs.test.outputs.version }}
+            ${{ env.IMAGE }}:${{ needs.test.outputs.major_minor }}
+            ${{ env.IMAGE }}:latest
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------- (c) Android apps ----------
+  android:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      EMBERTIDE_VERSION: ${{ needs.test.outputs.version }}
+      EMBERTIDE_VERSION_CODE: ${{ needs.test.outputs.version_code }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Web build and Capacitor sync
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+      - name: Decode the signing key and the Firebase config
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          GOOGLE_SERVICES_B64: ${{ secrets.GOOGLE_SERVICES_JSON_B64 }}
+        run: |
+          set -e
+          if [ -z "$KEYSTORE_B64" ]; then
+            echo "::error::ANDROID_KEYSTORE_B64 is not set. Release APKs must be signed (see docs/PUBLISHING.md)."
+            exit 1
+          fi
+          ks="$RUNNER_TEMP/embertide-release.jks"
+          printf '%s' "$KEYSTORE_B64" | base64 -d > "$ks"
+          echo "ANDROID_KEYSTORE_FILE=$ks" >> "$GITHUB_ENV"
+          if [ -n "$GOOGLE_SERVICES_B64" ]; then
+            printf '%s' "$GOOGLE_SERVICES_B64" | base64 -d > web/android/app/google-services.json
+            echo "HAVE_GOOGLE_SERVICES=1" >> "$GITHUB_ENV"
+          else
+            echo "::warning::GOOGLE_SERVICES_JSON_B64 is not set, so the Google push APK is skipped. The no-Google APK and the watch APK are still built."
+          fi
+      - name: Build the APKs
+        working-directory: web/android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+          tasks="testMinimalDebugUnitTest assembleMinimalRelease :wear:assembleRelease"
+          if [ "$HAVE_GOOGLE_SERVICES" = "1" ]; then tasks="testFullDebugUnitTest assembleFullRelease $tasks"; fi
+          ./gradlew $tasks --no-daemon --stacktrace
+      - name: Name the files
+        run: |
+          set -e
+          v="$EMBERTIDE_VERSION"
+          out=release-files
+          mkdir -p "$out"
+          cp web/android/app/build/outputs/apk/minimal/release/app-minimal-release.apk "$out/ember-tide-$v-android-no-google.apk"
+          cp web/android/wear/build/outputs/apk/release/wear-release.apk "$out/ember-tide-$v-wear-os.apk"
+          if [ "$HAVE_GOOGLE_SERVICES" = "1" ]; then
+            cp web/android/app/build/outputs/apk/full/release/app-full-release.apk "$out/ember-tide-$v-android-google-push.apk"
+          fi
+          ls -l "$out"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: android-apks
+          path: release-files/*.apk
+          if-no-files-found: error
+      - name: Delete the decoded signing key
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/embertide-release.jks" web/android/app/google-services.json
+
+  # ---------- (d) the GitHub Release ----------
+  release:
+    needs: [test, image, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: android-apks
+          path: release-files
+      - name: Checksums and notes
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
+        run: |
+          set -e
+          (cd release-files && sha256sum *.apk > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # Notes: the CHANGELOG section for this version ("## 0.1.0 ..." up to the next "## " heading).
+          awk -v v="$VERSION" '
+            /^## / { if (found) exit; if (index($0, "## " v " ") == 1 || $0 == "## " v) { found = 1; next } }
+            found { print }
+          ' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "See CHANGELOG.md for what changed in $VERSION." > notes.md; fi
+          {
+            echo
+            echo "### Downloads"
+            echo "- \`ember-tide-$VERSION-android-google-push.apk\`: the Android app with Google push (recommended for most phones)."
+            echo "- \`ember-tide-$VERSION-android-no-google.apk\`: the Android app with no Google services (ntfy / UnifiedPush or Web Push)."
+            echo "- \`ember-tide-$VERSION-wear-os.apk\`: the Wear OS tile and heart-rate app."
+            echo "- Server: \`docker pull ghcr.io/ncbudd/ember-tide:$VERSION\` (see docs/install.md)."
+            echo "- \`SHA256SUMS.txt\`: check a download with \`sha256sum -c SHA256SUMS.txt\`."
+          } >> notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ needs.test.outputs.version }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -e
+          tag="v$VERSION"
+          gh release create "$tag" release-files/*.apk release-files/SHA256SUMS.txt \
+            --repo "$REPO" --target "$GITHUB_SHA" --title "Ember & Tide $VERSION" --notes-file notes.md

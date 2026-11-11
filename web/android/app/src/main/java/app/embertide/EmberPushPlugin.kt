@@ -24,7 +24,7 @@ class EmberPushPlugin : Plugin() {
         val want = call.getString("method", "auto")
         Thread {
             val serverFcm = try { org.json.JSONObject(Ember.call(context, "GET", "/api/notify/me/push", null)).optBoolean("fcm") } catch (_: Exception) { false }
-            val useFcm = want == "fcm" || (want == "auto" && serverFcm && EmberPush.fcmAvailable(context))
+            val useFcm = EmberFcm.IN_BUILD && want == "fcm" || (want == "auto" && serverFcm && EmberPush.fcmAvailable(context))
             if (useFcm) {
                 if (EmberPush.method(context) == "up") EmberPush.disable(context)
                 EmberPush.syncFcm(context)
@@ -56,7 +56,8 @@ class EmberPushPlugin : Plugin() {
             // every time the app opens: the server may have dropped this phone (its push address went stale), and
             // registering again is harmless, so don't trust the phone's own "registered" flag
             when (EmberPush.method(context)) {
-                "fcm" -> EmberPush.syncFcm(context)
+                // Google push was on, then the no-Google build was installed over it: forget it, so the card tells the truth
+                "fcm" -> if (EmberFcm.IN_BUILD) EmberPush.syncFcm(context) else EmberPush.disable(context)
                 "up" -> if (p.getString("push_endpoint", null) == null) EmberPush.register(context) else EmberPush.sync(context)
             }
             call.resolve(st())

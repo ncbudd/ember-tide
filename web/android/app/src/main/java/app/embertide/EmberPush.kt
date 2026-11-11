@@ -35,31 +35,13 @@ object EmberPush {
     fun distributors(c: Context): List<String> = UnifiedPush.getDistributors(c)
     fun saved(c: Context): String? = UnifiedPush.getAckDistributor(c) ?: UnifiedPush.getSavedDistributor(c)
 
-    /** Google push works only when the app was built with the Firebase config and the phone has Play services. */
-    fun fcmAvailable(c: Context): Boolean = try {
-        com.google.firebase.FirebaseApp.getApps(c).isNotEmpty() || com.google.firebase.FirebaseApp.initializeApp(c) != null
-    } catch (_: Exception) { false }
+    /** Google push works only in the "full" build, with its Firebase config, on a phone with Play services. */
+    fun fcmAvailable(c: Context): Boolean = EmberFcm.available(c)
 
     fun method(c: Context): String? = Ember.prefs(c).getString("push_method", null)
 
     /** Register this phone with our server for Google push (blocking: call off the main thread). */
-    fun syncFcm(c: Context): String? {
-        if (!Ember.ready(c)) return "not signed in"
-        val p = Ember.prefs(c)
-        return try {
-            val token = com.google.android.gms.tasks.Tasks.await(com.google.firebase.messaging.FirebaseMessaging.getInstance().token)
-            val k = EmberCrypto.keys(c)
-            val body = JSONObject().put("kind", "fcm").put("endpoint", token).put("p256dh", k.publicB64).put("auth", k.authB64)
-                .put("device", "${Build.MANUFACTURER} ${Build.MODEL}".trim().take(60))
-            Ember.call(c, "POST", "/api/notify/me/push", body.toString())
-            p.edit().putString("push_method", "fcm").putString("fcm_token", token).putBoolean(P_REG, true).remove(P_ERR).apply()
-            null
-        } catch (e: Exception) {
-            val msg = errorText(e.message) ?: "couldn't register"
-            p.edit().putString("push_method", "fcm").putBoolean(P_REG, false).putString(P_ERR, msg).apply()
-            msg
-        }
-    }
+    fun syncFcm(c: Context): String? = EmberFcm.sync(c)
 
     /** The server's reason from an "HTTP 4xx {json}" error: FastAPI's detail is a string, or a list of {msg} items. */
     internal fun errorText(raw: String?): String? {
@@ -78,6 +60,7 @@ object EmberPush {
         val p = Ember.prefs(c)
         return JSONObject()
             .put("fcm_available", fcmAvailable(c))
+            .put("google_push", EmberFcm.IN_BUILD)
             .put("allowed", c.getSystemService(NotificationManager::class.java).areNotificationsEnabled())
             .put("method", method(c) ?: JSONObject.NULL)
             .put("distributors", org.json.JSONArray(distributors(c)))
@@ -100,7 +83,7 @@ object EmberPush {
             if (tok != null && Ember.ready(c)) {
                 try { Ember.call(c, "POST", "/api/notify/me/push/remove", JSONObject().put("endpoint", tok).toString()) } catch (_: Exception) {}
             }
-            try { com.google.firebase.messaging.FirebaseMessaging.getInstance().deleteToken() } catch (_: Exception) {}
+            EmberFcm.deleteToken()
             p.edit().remove("fcm_token").remove(P_REG).remove("push_method").remove(P_ERR).apply()
             return
         }

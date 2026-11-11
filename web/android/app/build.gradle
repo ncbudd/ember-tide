@@ -1,6 +1,9 @@
 apply plugin: 'com.android.application'
 apply plugin: 'org.jetbrains.kotlin.android'
 
+// Version numbers and release signing come from the environment or Gradle properties: see ../signing.gradle.
+apply from: '../signing.gradle'
+
 android {
     namespace = "app.embertide"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -8,8 +11,8 @@ android {
         applicationId "app.embertide"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode embertideVersionCode
+        versionName embertideVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -17,9 +20,34 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    // Two builds of the same app (same id and same signing key, so either installs over the other):
+    //   full:    Google push (Firebase Cloud Messaging), plus ntfy/UnifiedPush. Needs app/google-services.json.
+    //   minimal: no Firebase at all; notifications through ntfy/UnifiedPush or Web Push.
+    flavorDimensions "push"
+    productFlavors {
+        full { dimension "push" }
+        minimal { dimension "push" }
+    }
+    signingConfigs {
+        release {
+            def ks = embertideSigning()
+            if (ks != null) {
+                storeFile ks.storeFile
+                storePassword ks.storePassword
+                keyAlias ks.keyAlias
+                keyPassword ks.keyPassword
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
+            debuggable false
+            if (embertideSigning() != null) {
+                signingConfig signingConfigs.release
+            } else {
+                logger.lifecycle("Ember & Tide: no release keystore given, so release builds are UNSIGNED (see docs/PUBLISHING.md).")
+            }
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
@@ -46,9 +74,11 @@ dependencies {
     implementation "androidx.window:window-java:1.3.0"
     implementation "androidx.work:work-runtime-ktx:2.11.2"
     implementation "org.unifiedpush.android:connector:3.3.5"
+    // Watch handoff (Wear data layer). Both builds keep it; every call is wrapped so a phone without Play services just skips it.
     implementation "com.google.android.gms:play-services-wearable:20.0.1"
-    implementation platform("com.google.firebase:firebase-bom:35.1.0")
-    implementation "com.google.firebase:firebase-messaging"
+    // Google push: only the full build carries Firebase.
+    fullImplementation platform("com.google.firebase:firebase-bom:35.1.0")
+    fullImplementation "com.google.firebase:firebase-messaging"
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
@@ -58,11 +88,15 @@ dependencies {
 
 apply from: 'capacitor.build.gradle'
 
-try {
-    def servicesJSON = file('google-services.json')
-    if (servicesJSON.text) {
-        apply plugin: 'com.google.gms.google-services'
+// Firebase config: needed only by the full build. The plugin is applied when app/google-services.json exists, and
+// its work is switched off for the minimal build, which must carry nothing from Firebase. Without the file the full
+// build still compiles; Google push then reports itself unavailable and the app uses ntfy.
+def servicesJSON = file('google-services.json')
+if (servicesJSON.exists() && servicesJSON.length() > 0) {
+    apply plugin: 'com.google.gms.google-services'
+    tasks.configureEach { t ->
+        if (t.name ==~ /process.*Minimal.*GoogleServices/) t.enabled = false
     }
-} catch(Exception e) {
-    logger.info("google-services.json not found, google-services plugin not applied. Push Notifications won't work")
+} else {
+    logger.lifecycle("Ember & Tide: no app/google-services.json, so the full build has Google push switched off.")
 }

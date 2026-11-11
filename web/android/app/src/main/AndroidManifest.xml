@@ -130,7 +130,6 @@
             </intent-filter>
         </receiver>
 
-        <!-- app notifications through Google push (FCM): encrypted messages from our server arrive here -->
         <!-- live watch heart rate: the watch sends a batch every few minutes at night; this relays it to the server -->
         <service android:name=".WatchHrListener" android:exported="true">
             <intent-filter>
@@ -138,15 +137,6 @@
                 <data android:scheme="wear" android:host="*" android:path="/embertide/hr" />
             </intent-filter>
         </service>
-
-        <service android:name=".EmberFcmService" android:exported="false">
-            <intent-filter>
-                <action android:name="com.google.firebase.MESSAGING_EVENT" />
-            </intent-filter>
-        </service>
-        <!-- no analytics or ad id: Firebase is only used to deliver notifications -->
-        <meta-data android:name="firebase_analytics_collection_deactivated" android:value="true" />
-        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
 
         <!-- app notifications: ntfy (the UnifiedPush distributor) hands messages to this service -->
         <service android:name=".EmberPushService" android:exported="false">

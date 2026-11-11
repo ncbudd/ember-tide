@@ -1,0 +1,45 @@
+// Shared by :app and :wear. Version numbers and release signing, from the environment or Gradle properties.
+//
+//   EMBERTIDE_VERSION       versionName, e.g. 0.1.0 (env or -PEMBERTIDE_VERSION=...; default 0.1.0-dev)
+//   EMBERTIDE_VERSION_CODE  versionCode, an integer that only ever goes up (default 1)
+//
+// Release signing, first match wins:
+//   1. ANDROID_KEYSTORE_FILE, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD (environment)
+//   2. -PembertideKeystoreProps=<path to a keystore.properties> with storeFile, storePassword, keyAlias, keyPassword
+//      (storeFile is resolved relative to the properties file's folder)
+// With neither, release builds are unsigned. Never commit a keystore or a password.
+
+def etSetting = { String name, String fallback ->
+    def v = System.getenv(name) ?: (rootProject.findProperty(name) as String)
+    (v != null && v.trim()) ? v.trim() : fallback
+}
+
+ext.embertideVersionName = etSetting('EMBERTIDE_VERSION', '0.1.0-dev')
+ext.embertideVersionCode = etSetting('EMBERTIDE_VERSION_CODE', '1').toInteger()
+
+ext.embertideSigning = {
+    def env = System.getenv()
+    if (env['ANDROID_KEYSTORE_FILE'] && env['ANDROID_KEYSTORE_PASSWORD'] && env['ANDROID_KEY_ALIAS']) {
+        return [storeFile    : new File(env['ANDROID_KEYSTORE_FILE']),
+                storePassword: env['ANDROID_KEYSTORE_PASSWORD'],
+                keyAlias     : env['ANDROID_KEY_ALIAS'],
+                keyPassword  : env['ANDROID_KEY_PASSWORD'] ?: env['ANDROID_KEYSTORE_PASSWORD']]
+    }
+    def path = rootProject.findProperty('embertideKeystoreProps')
+    if (path) {
+        def f = new File(path as String)
+        if (f.isFile()) {
+            def props = new Properties()
+            f.withInputStream { props.load(it) }
+            if (props.getProperty('storeFile') && props.getProperty('storePassword') && props.getProperty('keyAlias')) {
+                def sf = new File(props.getProperty('storeFile'))
+                if (!sf.isAbsolute()) sf = new File(f.parentFile, props.getProperty('storeFile'))
+                return [storeFile    : sf,
+                        storePassword: props.getProperty('storePassword'),
+                        keyAlias     : props.getProperty('keyAlias'),
+                        keyPassword  : props.getProperty('keyPassword') ?: props.getProperty('storePassword')]
+            }
+        }
+    }
+    return null
+}

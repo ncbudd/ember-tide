@@ -53,11 +53,12 @@ Ours starts two:
 
 | Service | Image | What it does |
 |---|---|---|
-| `embertide` | built from this folder (web app and server in one image) | the app, Studio and the API on port **8790**. Its data is the folder `./data`. |
+| `embertide` | the ready-made image `ghcr.io/ncbudd/ember-tide` (web app and server in one image; amd64 and arm64) | the app, Studio and the API on port **8790**. Its data is the folder `./data`. |
 | `mosquitto` | `eclipse-mosquitto:2.0.20` | the **MQTT broker** the bed talks to, on port **1883**. Settings are in `deploy/mosquitto/`. |
 
-There is no ready-made image on a public registry yet, so Docker **builds the image from the project folder** the first time.
-That takes a few minutes. It needs the whole project folder, not just the one file.
+Docker **pulls the ready-made image** the first time, which takes a minute. You still need the project folder for the Compose file and
+the broker's settings in `deploy/mosquitto/`; the app itself is not built on your machine. (To build the image yourself instead, see
+[Advanced: build from source](#advanced-plain-docker-and-running-from-source).)
 
 **Get the project folder.** Either of these gives you the same thing:
 
@@ -89,7 +90,7 @@ zone means a wrong bedtime.
 **Start it:**
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 docker compose ps
 ```
 
@@ -129,7 +130,6 @@ somewhere of their own, so the relative paths `.` and `./data` would point to th
 
 | In the Compose file | Change it to |
 |---|---|
-| `build: .` | `build: /srv/embertide/ember-tide` |
 | `./data:/data` | `/srv/embertide/data:/data` |
 | `./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` | `/srv/embertide/ember-tide/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` |
 | `./deploy/mosquitto/acl:/mosquitto/config/acl:ro` | `/srv/embertide/ember-tide/deploy/mosquitto/acl:/mosquitto/config/acl:ro` |
@@ -224,12 +224,14 @@ Use the bed's own sensors, a cloud wearable account (Oura, Withings, WHOOP, Pola
 **Nothing updates by itself.** To update, in the project folder:
 
 ```bash
-git pull                              # or unpack the new release over the folder
-docker compose up -d --build
+docker compose pull                   # fetches the newest image (or the version you pinned)
+docker compose up -d
 ```
 
-On a pasted-in stack (Unraid, Portainer, ...), update the project folder the same way, then use that tool's
-**Update stack** or **Compose Up** button (with "rebuild" if it offers one). Read `CHANGELOG.md` first. The database upgrades its own
+If you changed `docker-compose.yml` to a pinned tag such as `:0.1.0`, edit the tag first. Update the project folder too (`git pull`, or
+unpack the new release over it) when you want new example files or broker settings.
+
+On a pasted-in stack (Unraid, Portainer, ...), use that tool's **Update stack** or **Compose Up** button with "re-pull image" turned on. Read `CHANGELOG.md` first. The database upgrades its own
 tables on start. Rolling back means checking out the old version and running the same command; it works unless the newer version added data
 the older one cannot read, so **take a backup before every update.**
 
@@ -291,11 +293,11 @@ Works on Raspberry Pi OS (64-bit), Debian, Ubuntu, Fedora and most others.
 4. **Start it:**
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    docker compose ps
    ```
 
-   The first build takes a few minutes (on a Pi it can take ten). You should now see both services, and after a minute both say **healthy**.
+   The first start pulls the image, which takes a minute or two. You should now see both services, and after a minute both say **healthy**.
 
 5. **Open it.** Find the machine's address with `hostname -I`, then open `http://<server-ip>:8790`. You should see the welcome screen.
    Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
@@ -328,13 +330,12 @@ Open the Docker tab and look at the Port Mappings column.
 4. **Paste the Compose file.** Open `docker-compose.example.yml` from the project (you can `cat` it in the terminal), copy it all and paste it in. Then make these changes
    (this is the "full paths" table from [A](#a-the-compose-file-and-the-broker), with the Unraid folder filled in):
 
-   - `build: .` becomes `build: /mnt/user/appdata/embertide/ember-tide`
    - `./data:/data` becomes `/mnt/user/appdata/embertide/data:/data`
    - the two Mosquitto lines become `/mnt/user/appdata/embertide/ember-tide/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` and `/mnt/user/appdata/embertide/ember-tide/deploy/mosquitto/acl:/mosquitto/config/acl:ro`
    - set `TZ` and `ET_TZ` to your time zone
 
    Click **Save Changes**.
-5. **Compose Up.** Click **Compose Up** beside the stack. A window shows the build; the first time it takes a few minutes. When it says it is done, close it.
+5. **Compose Up.** Click **Compose Up** beside the stack. A window shows the image being pulled; the first time it takes a minute or two. When it says it is done, close it.
    You should now see two new containers in the Docker list, `ember-tide` and `ember-tide-mosquitto`, both started.
 6. **Open it.** Open `http://<unraid-ip>:8790` (the address you use for the Unraid web page, with `:8790`). You should see the welcome screen.
    Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
@@ -349,7 +350,7 @@ Open the Docker tab and look at the Port Mappings column.
 - **Appdata.** Everything you need to back up is `/mnt/user/appdata/embertide/data`. Include it in your appdata backup.
   If the database cannot be written, see [permissions](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas).
 - **Logs.** Click the container's icon on the Docker tab, then **Logs**. Or in the terminal: `docker logs -f ember-tide` and `docker logs ember-tide-mosquitto`.
-- **Updating.** In the terminal, `cd /mnt/user/appdata/embertide/ember-tide && git pull`, then **Compose Up** again on the stack (see [E](#e-updating-and-backups)).
+- **Updating.** In the terminal, **Compose Pull**, then **Compose Up** again on the stack (see [E](#e-updating-and-backups)).
 
 ## Synology
 
@@ -362,7 +363,7 @@ Needs **DSM 7.2 or newer** with **Container Manager** (install it from Package C
 3. **Rename and edit the Compose file.** In File Station, rename `docker-compose.example.yml` to `docker-compose.yml`. Right-click it, **Open with Text Editor**, set `TZ` and `ET_TZ` to your time zone, and save.
 4. **Create the project.** Open **Container Manager**, **Project**, **Create**. Project name `embertide`. Path: click Set Path and choose `/volume1/docker/embertide`.
    Source: **Use existing docker-compose.yml** (it detects your file). Click **Next**, skip the web portal page, **Next**, then **Done**.
-5. **Wait for the build.** The first time it takes several minutes. You should now see the project `embertide` as **Running**, with two containers.
+5. **Wait for the download.** The first time it takes a minute or two. You should now see the project `embertide` as **Running**, with two containers.
 6. **Open it.** Open `http://<nas-ip>:8790`. You should see the welcome screen. Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
 
 **Good to know on Synology**
@@ -372,7 +373,7 @@ Needs **DSM 7.2 or newer** with **Container Manager** (install it from Package C
   [port 1883 in use](troubleshooting.md#port-1883-is-already-in-use).
 - If the app reports it cannot open its database, see [permissions](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas).
 - **Logs:** Container Manager, **Container**, click `ember-tide`, **Log**.
-- **Updating:** upload the new project files over the folder, then Project, `embertide`, **Action**, **Build** (it rebuilds and restarts).
+- **Updating:** upload the new project files over the folder, then Project, `embertide`, **Action**, **Pull**, then **Build** (it restarts with the new image).
 - If the NAS firewall is on (Control Panel, Security, Firewall), allow TCP ports 8790 and 1883 from your home network.
 
 ## TrueNAS SCALE
@@ -389,21 +390,15 @@ custom app from YAML, and keep to this short recipe. The result is the same Comp
    mkdir -p data
    ```
 
-3. **Build the image once**, so the YAML does not need a build step:
-
-   ```bash
-   cd ember-tide
-   docker build -t ember-tide .
-   ```
+3. **Nothing to build.** The Compose file uses the ready-made image `ghcr.io/ncbudd/ember-tide`, which TrueNAS pulls itself.
 
 4. **Install via YAML.** In **Apps**, choose **Discover Apps**, then **Custom App** (on 25.04 and later: **Install via YAML**). Paste the contents of
-   `docker-compose.example.yml`, then change it with the table in [A](#a-the-compose-file-and-the-broker): replace `build: .` with `image: ember-tide` and use the
+   `docker-compose.example.yml`, then change it with the table in [A](#a-the-compose-file-and-the-broker): keep the `image:` line and use the
    full dataset paths for the data folder and the two Mosquitto files (for example `/mnt/tank/apps/embertide/ember-tide/deploy/mosquitto/acl`). Set your time zone and save.
 5. **Open it.** Open `http://<truenas-ip>:8790`. You should see the welcome screen. Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
 
 On TrueNAS, the web interface itself uses ports 80 and 443, so 8790 and 1883 are normally free. If the Apps screens in your version do not
-accept Compose YAML, use a small VM or the Proxmox-style Debian machine described below and follow the Linux steps instead. For updates, run `git pull` and
-`docker build -t ember-tide .` again, then restart the app.
+accept Compose YAML, use a small VM or the Proxmox-style Debian machine described below and follow the Linux steps instead. For updates, pull the image again (or change the tag) and restart the app.
 
 ## Proxmox
 
@@ -428,7 +423,7 @@ The cleanest way is a small Debian machine just for this, with Docker inside it.
 
 ## Portainer
 
-Portainer can run the Compose file as a **stack**. Because our file builds from source, it needs the project folder on the Docker host first.
+Portainer can run the Compose file as a **stack**. It needs the project folder on the Docker host for the broker's settings files; the app comes as a ready-made image.
 
 1. **Put the project on the Docker host.** On the host's terminal:
 
@@ -440,23 +435,20 @@ Portainer can run the Compose file as a **stack**. Because our file builds from 
 
 2. In Portainer, choose your environment, **Stacks, Add stack**. Name it `embertide`.
 3. Choose **Web editor** and paste the contents of `docker-compose.example.yml`.
-4. Change the paths with the table in [A](#a-the-compose-file-and-the-broker) (`build: /srv/embertide/ember-tide`, data folder `/srv/embertide/data`, and the two
+4. Change the paths with the table in [A](#a-the-compose-file-and-the-broker) (data folder `/srv/embertide/data`, and the two
    Mosquitto files under `/srv/embertide/ember-tide/deploy/mosquitto/`). Set `TZ` and `ET_TZ`.
-   Prefer not to build in Portainer? Run `sudo docker build -t ember-tide .` once in the project folder and use `image: ember-tide` in place of `build:`.
 5. Click **Deploy the stack**. You should now see the stack with two running containers.
 6. **Open it** at `http://<host-ip>:8790`. Logs: Containers, `ember-tide`, **Logs**.
 
-To update: `git pull` in `/srv/embertide/ember-tide`, then in Portainer open the stack and click **Update the stack** (turn on re-pull and re-build if offered; with
-the `image:` method, rebuild the image first).
+To update: in Portainer open the stack and click **Update the stack** with **Re-pull image** turned on.
 
 ## CasaOS, Umbrel and similar
 
 These are friendly front ends for Docker. Ember & Tide is not in their app stores, so use their custom install.
 
 - **CasaOS:** open the SSH terminal (or the CasaOS terminal), get the project as in the [Portainer](#portainer) steps, then in the CasaOS dashboard choose
-  **App Store, Custom Install, Import** and paste the Compose file after changing the paths and using `image: ember-tide`
-  (run `docker build -t ember-tide .` in the project folder first). Open the app at `http://<casaos-ip>:8790`.
-- **Cosmos, Runtipi, Yacht and similar:** they accept a Compose file in the same way. Use the same recipe: project folder on the host, build the image once, paste the file with full paths.
+  **App Store, Custom Install, Import** and paste the Compose file after changing the paths. Open the app at `http://<casaos-ip>:8790`.
+- **Cosmos, Runtipi, Yacht and similar:** they accept a Compose file in the same way. Use the same recipe: project folder on the host, paste the file with full paths.
 - **Umbrel:** apps come from its own store and a custom Compose file is not supported without extra work. The simplest route is to run Ember & Tide on another machine
   with the Linux steps.
 
@@ -501,7 +493,7 @@ Docker Desktop is fine for **trying it out**. For the real bed, the computer mus
 4. **Start it:**
 
    ```bash
-   docker compose up -d --build
+   docker compose up -d
    ```
 
 5. **Open it** at `http://localhost:8790` on that computer. You should see the welcome screen. From a phone, use the computer's address (below).
@@ -552,7 +544,6 @@ Use an address outside your router's normal pool if it lets you choose, and writ
 Without Compose, this runs only the app (the simulator):
 
 ```bash
-docker build -t ember-tide .
 docker run -d --name ember-tide --restart unless-stopped \
   -p 8790:8790 \
   -v ember-tide-data:/data \
@@ -562,6 +553,17 @@ docker run -d --name ember-tide --restart unless-stopped \
 
 For a real bed against a broker you already run, add `-e ET_BED=orion-mqtt -e ET_MQTT_URL=mqtt://192.168.1.10:1883`. A named volume (above) or a folder
 (`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`. The image listens on `0.0.0.0:8790`, keeps its data in `/data`, and has a health check on `/healthz`.
+
+### Build the image yourself
+
+If you would rather not use the published image (or you changed the code), build it from the project folder and use it in place of the published one:
+
+```bash
+docker build -t ember-tide .
+```
+
+In `docker-compose.yml`, comment out the `image:` line and uncomment `build: .` (or replace `image:` with `image: ember-tide`), then run `docker compose up -d --build`.
+On the pasted-in platforms, use `image: ember-tide` and the full project path as in the table in [A](#a-the-compose-file-and-the-broker).
 
 ### From source (for development)
 

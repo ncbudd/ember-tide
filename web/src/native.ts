@@ -171,7 +171,7 @@ export async function shareText(title: string, text: string): Promise<void> {
 
 /* ---------- app notifications (UnifiedPush through ntfy) ---------- */
 export interface PushStatus {
-  fcm_available: boolean; allowed: boolean; method: "fcm" | "up" | null;
+  fcm_available: boolean; google_push?: boolean; allowed: boolean; method: "fcm" | "up" | null;
   distributors: string[]; distributor: string | null; endpoint: boolean; registered: boolean; error: string | null;
 }
 interface EmberPushApi {
