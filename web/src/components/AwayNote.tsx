@@ -22,13 +22,13 @@ export default function AwayNote({ person, me, isOwner, tz }: { person: PersonVi
       {q.kind === "away"
         ? <>Were you away {day} night? Your side looked empty.
           <Tip label="Why are you asking?" text={<>{q.why}. If you were away, that night won't be used when Autopilot works out your best temperatures.</>} /></>
-        : <>Welcome back? You're marked away, but it looks like you slept in your side {day} night.
+        : <>Welcome back? You're marked away, but it looks like you slept on your side {day} night.
           <Tip label="Why are you asking?" text={<>{q.why}.</>} /></>}
       <span className="chips" style={{ marginTop: 8 }}>{q.kind === "away"
         ? <><button className="chip" onClick={() => ans("away")}>Away a few days</button><button className="chip" onClick={() => ans("night")}>Just that night</button><button className="chip" onClick={() => ans("home")}>I was home</button></>
         : <><button className="chip" onClick={() => ans("back")}>Yes, I'm back</button><button className="chip" onClick={() => ans("still")}>Still away</button></>}</span>
     </div>}
-    {n.away && <div className="planrow note away-note">{mine ? "You're" : `${person.name} is`} away{until ? ` until ${until}` : ""}. {mine ? "Your" : "Their"} side stays off and Autopilot's learning waits. Using the side (or the dial) means back.
+    {n.away && <div className="planrow note away-note">{mine ? "You're" : `${person.name} is`} away{until ? ` until ${until}` : ""}. {mine ? "Your" : "Their"} side stays off and Autopilot's learning waits. Getting into bed (or using the dial) counts as back.
       {(mine || isOwner) && <> <button className="pill" onClick={() => void act(`${base}/away`, { away: false })}>{mine ? "I'm back" : `${person.name}'s back`}</button></>}</div>}
   </>;
 }

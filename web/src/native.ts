@@ -20,6 +20,8 @@ const Native = registerPlugin<EmberNative>("EmberNative");
 /** Hardware keyboard + launcher actions (Minimal Phone 2), from MainActivity. Older app builds reject. */
 export const nativeKeyboard = () => (Native as unknown as { keyboard(): Promise<{ hardware: boolean }> }).keyboard();
 export const nativeTakeAction = () => (Native as unknown as { takeAction(): Promise<{ action: string | null }> }).takeAction();
+/** The page a tapped notification wants opened (once). Older app builds reject. */
+export const nativeTakeLink = () => (Native as unknown as { takeLink(): Promise<{ link: string | null }> }).takeLink();
 let lastFlashEnd = -1;
 let lastWidget = 0;
 let configuredFor = "";
@@ -111,6 +113,9 @@ export function nativeBars(color: string, light: boolean) {
 export interface HealthReport {
   ts: number; from: number; read: Record<string, number>; stored: Record<string, number>;
   warnings: string[]; notes: string[]; nights_rechecked: number;
+  // newer app versions: what was already on the server, copies skipped, and what was read per kind and app
+  query_from?: number; already?: Record<string, number>; copies_skipped?: number;
+  detail?: { kind: string; from: string; records: number; samples: number; first?: number; last?: number }[];
 }
 export interface HealthStatus {
   sdk: "available" | "update" | "unavailable"; last: number; report?: HealthReport;

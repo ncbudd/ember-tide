@@ -12,7 +12,10 @@ identity() lines the watch's readings up with the heart rate the bed pad on that
 - "unsure":  in between, or not enough pairs yet;
 - "stale":   nothing from the watch lately (not worn, switched off, out of range, the night isn't on). No vote.
 The controller turns this into a modest vote for that person's side only (controller._watch_vote); a scale or
-radar that sees a person always wins, and a person already settled in bed is never voted out.
+radar that sees a person always wins during a running night, and a person already settled in bed is never voted out.
+Outside a running night, with a pet that may lie on that side, "not me" makes it the pet even when a radar sees
+"someone" (it sees the dog too: engine/pets.py), and the watch is asked for heart rate for the first 20 minutes of a
+stretch on that side by day or in the evening (day_ask).
 """
 
 from __future__ import annotations
@@ -114,7 +117,7 @@ def identity(watch: list[tuple[float, float]], pad: list[tuple[float, float]], n
 def wanted(controller, p, now: float) -> bool:
     """Should the watch be collecting heart rate for this person right now? Only at night AND while someone is on
     their side of the bed (the pad says occupied, or did within the last 10 min): that's when "is it me?" matters.
-    Night = a night running, or from half an hour before the evening's pre-cool until the night ends. The answer
+    Night = a night running, or from half an hour before the evening's pre-condition until the night ends. The answer
     goes back to the watch with every batch it sends, so it stops within one batch of getting out of bed."""
     e = controller.engine_for(p.id)
     if p.zone in controller.household.guest:
@@ -127,7 +130,7 @@ def wanted(controller, p, now: float) -> bool:
             n = None
         night = bool(n and n.precool - 1800 <= now <= n.end)
     if not night:
-        return False
+        return day_ask(controller, p, now)
     pf = getattr(controller, "presence", None)
     side = pf.sides.get(p.zone) if pf is not None else None
     if side is None or side.raw_occupied is None:
@@ -135,3 +138,32 @@ def wanted(controller, p, now: float) -> bool:
     if side.raw_occupied:
         return True
     return side.since is not None and now - side.since < 600   # just got up: a short grace, no flapping
+
+
+DAY_ASK_S = 20 * 60          # outside the night: heart rate for up to this long after the side gets occupied (the
+                             # phone asks every 15 min at most, so a shorter window could be missed altogether)
+DAY_ASKS_PER_H = 3           # and for at most this many stretches an hour (battery)
+
+
+def day_ask(controller, p, now: float) -> bool:
+    """Outside the night: someone just lay down on this person's side (the dog, by day or in the evening). With a pet
+    that may be on that side and the watch connected (as far as the phone says), ask the watch for live heart rate for
+    the first DAY_ASK_S of the stretch, for at most DAY_ASKS_PER_H stretches an hour, so "is it me?" can be answered."""
+    hh = controller.household
+    if p.zone in hh.guest or not [x for x in getattr(hh, "pets", []) or []
+                                  if x.sleeps_on_bed != "no" and x.side in ("either", "both", p.zone)]:
+        return False
+    from . import phone_context as PC
+    cur = PC.latest(controller.store, p.id)
+    if cur and PC.fresh(cur, "watch_connected", "watch", now) is False:
+        return False                                  # the phone says the watch isn't with it
+    ep = (controller.__dict__.get("_eps") or {}).get(p.zone)
+    if not ep or now - ep["since"] > DAY_ASK_S:
+        return False
+    asks = controller.__dict__.setdefault("_watch_day_asks", {}).setdefault(p.id, [])
+    asks[:] = [t for t in asks if now - t <= 3600]
+    if ep["since"] not in asks:
+        if len(asks) >= DAY_ASKS_PER_H:
+            return False
+        asks.append(ep["since"])
+    return True

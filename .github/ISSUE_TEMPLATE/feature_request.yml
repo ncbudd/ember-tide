@@ -1,0 +1,30 @@
+name: Feature request
+description: An idea that would make nights better
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: Describe the situation first (for example "my partner gets up at 5 and the bed is cold"), then the change you imagine.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like it to do?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What do you do today instead?
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Which part
+      options:
+        - label: Phone app or Simple screen
+        - label: Studio
+        - label: Autopilot or rhythms
+        - label: Notifications
+        - label: Home Assistant, dial or another integration
+        - label: Docs or install

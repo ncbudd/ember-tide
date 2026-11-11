@@ -388,24 +388,52 @@ class Autopilot:
         cache = self.__dict__.setdefault("_nights_cache", {})
         if p.id not in cache or cache[p.id][0] != hour:
             since = p.settings.autopilot.learn_since or 0          # "Start over: recalibrate" forgets the nights before
-            ns = [n for n in recent(self.c.store, p, self.c.clock.tz, now, 45)
-                  if n.get("has_data") and not n.get("in_progress") and (n.get("in_bed_min") or 0) >= 180
-                  and (n.get("in_bed_at") or 0) >= since]
+            left: list[dict] = []                                  # nights with data left out, and why (newest first)
+
+            def keep(ns_: list[dict], ok, why: str) -> list[dict]:
+                out_ = []
+                for n in ns_:
+                    if ok(n):
+                        out_.append(n)
+                    else:
+                        left.append({"date": n.get("date"), "why": why})
+                return out_
+            allns = [n for n in recent(self.c.store, p, self.c.clock.tz, now, 45)
+                     if n.get("has_data") and not n.get("in_progress") and (n.get("in_bed_at") or 0) >= since
+                     and (n.get("in_bed_min") or 0) >= 30]           # (barely in bed at all: not worth a line)
+            ns = keep(allns, lambda n: (n.get("in_bed_min") or 0) >= 180, "in bed for under 3 hours")
             # nights they weren't in their side of the bed (the morning check, or away for a while: engine/away.py)
             from .away import away_periods, away_share, excluded_nights
             gone, periods = excluded_nights(self.c.store, p.id), away_periods(self.c.store, p.id, now)
             # in bed when they were marked away, or most of the night fell while they were away (it began just before)
-            ns = [n for n in ns if n.get("date") not in gone
-                  and not any(x <= (n.get("in_bed_at") or 0) <= y for x, y in periods)
-                  and away_share(periods, n.get("in_bed_at"), n.get("out_at")) < 0.5]
-            ns = self._usual_hours(ns)
+            ns = keep(ns, lambda n: n.get("date") not in gone
+                      and not any(x <= (n.get("in_bed_at") or 0) <= y for x, y in periods)
+                      and away_share(periods, n.get("in_bed_at"), n.get("out_at")) < 0.5, "you were away")
+            usual = {id(n) for n in self._usual_hours(ns)}
+            ns = keep(ns, lambda n: id(n) in usual, "a much later night than usual")
             # a night the ring says ran a degree or more warmer than normal (illness, alcohol) teaches nothing
             from .ring import unusual
-            ns = [n for n in ns if not (n.get("in_bed_at") and n.get("out_at") and unusual(self.c.store, p.id, n["in_bed_at"], n["out_at"]))]
+            ns = keep(ns, lambda n: not (n.get("in_bed_at") and n.get("out_at") and unusual(self.c.store, p.id, n["in_bed_at"], n["out_at"])),
+                      "your ring showed you running warmer than usual")
             # and a night the rhythm mostly didn't run (off tonight, paused, run by hand) isn't this person's normal
-            ns = [n for n in ns if self._rhythm_share(p, n) >= 0.6]
+            ns = keep(ns, lambda n: self._rhythm_share(p, n) >= 0.6, "your plan didn't run for most of it")
+            # the bed or the server was off for an hour or more while they were in bed (a power cut, an outage): what
+            # was recorded is only part of the night
+            ns = keep(ns, lambda n: (n.get("outage_min") or 0) < self.OUTAGE_MIN, "the bed or the server was off for a while")
+            # mostly awake and moving (a fever, a bad night): not a normal night's sleep
+            ns = keep(ns, lambda n: (n.get("awake_moving_share") or 0) < self.AWAKE_SHARE, "you were awake and moving for most of it")
+            self.__dict__.setdefault("_left_cache", {})[p.id] = left
             cache[p.id] = (hour, ns)
         return cache[p.id][1]
+
+    OUTAGE_MIN = 60           # no readings this long while in bed: the night doesn't count (restarts and reboots take minutes)
+    AWAKE_SHARE = 0.5         # awake and moving for half the time in bed or more: the night doesn't count
+
+    def left_out(self, p, now: float) -> list[dict]:
+        """Recent nights (up to 7, newest first) that didn't count as learning nights, with a plain reason."""
+        self._nights(p, now)
+        left = self.__dict__.get("_left_cache", {}).get(p.id) or []
+        return sorted([x for x in left if x.get("date")], key=lambda x: x["date"], reverse=True)[:7]
 
     LATE_S = 2 * 3600
 
@@ -433,8 +461,12 @@ class Autopilot:
         done = have >= need or pol.learn_skip
         from .away import is_away
         paused = (not done) and is_away(self.c.store, p.id, now)    # away for a while: the week waits for them
-        return {"need": need, "have": min(have, need), "done": done, "skipped": bool(pol.learn_skip and have < need),
-                "paused": paused}
+        out = {"need": need, "have": min(have, need), "done": done, "skipped": bool(pol.learn_skip and have < need),
+               "paused": paused}
+        left = self.left_out(p, now)
+        if left:
+            out["left_out"] = left             # recent nights that didn't count, with why (only when there are any)
+        return out
 
     def baseline(self, p, now: float) -> dict | None:
         """This person's normal, from their recent finished nights: how restless, settled heart rate, skin temperature."""
@@ -454,10 +486,13 @@ class Autopilot:
             rows = [r for r in self.c.store.history(p.zone, a, b, step_s=15, person=p.id) if r.get("status") is not None
                     and r.get("occupied") == 1 and r.get("target") is not None
                     and not any(x <= r["ts"] <= y for x, y in act)]
+            mine = []
             for i in range(0, len(rows), 40):                   # roughly 10-minute windows at 15 s rows
                 chunk = rows[i:i + 40]
                 if len(chunk) >= 20:
-                    windows.append(sum(1 for r in chunk if r["status"] in MOVING) / len(chunk))
+                    mine.append(sum(1 for r in chunk if r["status"] in MOVING) / len(chunk))
+            if mine:
+                windows.append(mine)
             hrs += [r["hr"] for r in rows if r.get("hr")]
             brs += [r["br"] for r in rows if r.get("br")]
             beds += [r["measured"] for r in rows if r.get("measured") is not None]
@@ -469,6 +504,7 @@ class Autopilot:
                     if e["kind"] == "feel" and e.get("feel") in ("too_hot", "too_cold")]
             felt += 1 if (fb in ("warm", "cold") or taps) else 0
         out = None
+        windows = self._usual_restless(windows)
         if len(nights) >= 3 and windows:
             ws = sorted(windows)
             out = {"nights": len(nights), "restless_p90": round(ws[int(0.9 * (len(ws) - 1))], 2),
@@ -483,6 +519,20 @@ class Autopilot:
             out["band"] = band
         cache[p.id] = (hour, out)
         return out
+
+    OUTLIER_X, OUTLIER_ABS = 2.0, 0.10
+
+    def _usual_restless(self, per_night: list[list[float]]) -> list[float]:
+        """The 10-minute restlessness windows that teach "how restless": every night's, except a night far outside the
+        others once there are 3 or more. "Far outside" = its own 90th percentile is more than twice the middle night's
+        and at least 0.10 above it (one restless night among a few would otherwise double the learned figure). The
+        rest are pooled as before, so restless_p90 keeps its meaning and scale, and ordinary nights give the same value."""
+        if len(per_night) < 3:
+            return [w for ws in per_night for w in ws]
+        p90 = [sorted(ws)[int(0.9 * (len(ws) - 1))] for ws in per_night]
+        mid = statistics.median(p90)
+        keep = [ws for ws, q in zip(per_night, p90) if not (q > self.OUTLIER_X * mid and q - mid >= self.OUTLIER_ABS)]
+        return [w for ws in keep for w in ws]
 
     def _rhythm_share(self, p, n: dict) -> float:
         """Of the minutes this person was in bed that night, the share with their rhythm running (a target set)."""

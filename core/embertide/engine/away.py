@@ -69,8 +69,10 @@ def hold(controller, pid: str, zone: str, ep: dict, pet_id: str | None) -> None:
     if not pet_id:
         return
     rt = ep.get("radar_ticks", 0)
-    if rt >= 4 and ep.get("radar_empty", 0) / rt >= 0.5:
-        return                                        # the radar saw nobody there: the partner's movement leaking across
+    if rt >= 4 and ep.get("radar_empty", 0) / rt >= 0.5 and ep.get("evidence") != "away":
+        # the radar saw nobody there: the partner's movement leaking across. (Unless the strip itself was judged the pet
+        # for the stretch, "you're away, so this is probably …": a radar zone may not see a dog lying flat)
+        return
     if ep.get("me_seen") or ((getattr(controller, "context", None) or {}).get(pid) or {}).get("home") is True:
         return                                        # their own watch matched the bed, or their phone says home: them
     spans = controller.store.get(_spans_key(pid)) or []
@@ -369,3 +371,15 @@ def away_share(periods: list[tuple[float, float]], start: float | None, end: flo
         return 1.0 if any(x <= start <= y for x, y in periods) else 0.0
     covered = sum(max(0.0, min(end, y) - max(start, x)) for x, y in periods)
     return min(1.0, covered / (end - start))
+
+
+def hide_away_night(store, pid: str, night: dict | None, now: float) -> dict | None:
+    """A night that mostly fell inside an away period is not this person's (something else lay on their side): for the
+    nights/night summaries the Sleep screen shows, swap its numbers for a plain "away" marker. Same rule as Autopilot's
+    learning (away_share)."""
+    if not night or not night.get("has_data"):
+        return night
+    if away_share(away_periods(store, pid, now), night.get("in_bed_at"), night.get("out_at")) < 0.5:
+        return night
+    keep = ("date", "label", "in_progress", "before", "feedback")
+    return {**{k: night[k] for k in keep if k in night}, "has_data": False, "away": True, "moments": []}

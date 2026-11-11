@@ -1,8 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useId, useState, type FormEvent, type KeyboardEvent, type ReactNode } from "react";
 import { api, appServer, declineSecureAddress, forgetAppServer, isApp, learnServerId, rememberServerId, secureAddressOffer, setAppSession, switchToSecureAddress } from "./api";
 import Sheet from "./components/Sheet";
 import { pushBack } from "./components/back";
-import { BrandMark, PersonaScene, usePauseWhenHidden } from "./components/FirstRunArt";
+import { BrandMark, PersonaScene, useKeyboardRoom, usePauseWhenHidden } from "./components/FirstRunArt";
 import { nativeBars, nativeSignedOut, pushBeforeSignOut } from "./native";
 
 interface Principal { kind: "user" | "token" | "open"; id: string; name: string; role: "owner" | "sleeper" | "viewer"; person: string | null }
@@ -19,6 +19,7 @@ export function useAuth(): AuthCtx {
 function Shell({ children, hero = false }: { children: ReactNode; hero?: boolean }) {
   useEffect(() => { nativeBars("#100e12", false); }, []);       // the sign-in screens are always dark
   usePauseWhenHidden();
+  useKeyboardRoom();
   return (
     <div className={`app authapp${hero ? " au-hero" : ""}`}>
       <PersonaScene persona="neutral" mode="brand" />
@@ -63,14 +64,29 @@ export function Chevron() {
   return <svg className="chev" viewBox="0 0 24 24" aria-hidden><path d="M14.5 6 8.5 12l6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
-function Field({ label, type = "text", value, set, auto, hint }: { label: string; type?: string; value: string; set: (v: string) => void; auto: string; hint?: string }) {
+/** One labelled text field. The on-screen keyboard's Enter key says Next or Go (`enter`), and it opens the right
+ *  keyboard for the field (an address keyboard for a URL); nothing here ever stops it opening. */
+function Field({ label, type = "text", value, set, auto, hint, enter = "go" }: { label: string; type?: string; value: string; set: (v: string) => void; auto: string; hint?: string; enter?: "next" | "go" }) {
+  const hintId = useId();
   return (
     <label className="field">
       <span>{label}</span>
-      <input type={type} value={value} autoComplete={auto} autoCapitalize="none" spellCheck={false} onChange={e => set(e.target.value)} />
-      {hint && <small className="mute">{hint}</small>}
+      <input type={type} value={value} autoComplete={auto} autoCapitalize="none" autoCorrect="off" spellCheck={false}
+        inputMode={type === "url" ? "url" : type === "password" ? undefined : "text"} enterKeyHint={enter}
+        aria-describedby={hint ? hintId : undefined} onChange={e => set(e.target.value)} />
+      {hint && <small className="mute" id={hintId}>{hint}</small>}
     </label>
   );
+}
+
+/** Enter in a form's field moves to the next field; on the last one it submits (the browser's own behaviour). */
+function nextField(e: KeyboardEvent<HTMLFormElement>) {
+  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+  const t = e.target as HTMLElement;
+  if (t.tagName !== "INPUT") return;
+  const fields = Array.from(e.currentTarget.querySelectorAll<HTMLInputElement>("input:not([type=hidden]):not(:disabled)"));
+  const k = fields.indexOf(t as HTMLInputElement);
+  if (k >= 0 && k < fields.length - 1) { e.preventDefault(); fields[k + 1].focus(); }
 }
 
 function useSubmit(fn: () => Promise<void>) {
@@ -91,8 +107,8 @@ function Login({ done }: { done: () => void }) {
   return (
     <Shell>
       <p className="mute">Sign in to your bed.</p>
-      <form className="authform" onSubmit={submit}>
-        <Field label="Username" value={u} set={setU} auto="username" />
+      <form className="authform" onSubmit={submit} onKeyDown={nextField}>
+        <Field label="Username" value={u} set={setU} auto="username" enter="next" />
         <Field label="Password" type="password" value={p} set={setP} auto="current-password" />
         {err && <p className="err" role="alert">{err}</p>}
         <button className="btn pri big" disabled={busy || !u || !p}>{busy ? "Signing in…" : "Sign in"}</button>
@@ -105,8 +121,10 @@ function Login({ done }: { done: () => void }) {
 
 function Setup({ people, done }: { people: { id: string; name: string }[]; done: () => void }) {
   const [u, setU] = useState(""), [p, setP] = useState(""), [p2, setP2] = useState("");
-  const [person, setPerson] = useState<string | null>(people[0]?.id ?? null);
-  // three short screens: hello, your side, the owner account (the account is made on the last one, as before)
+  // two short screens: hello, then the owner account. The account belongs to the first sleeper; the welcome that
+  // follows asks which side is theirs ("This is you") and moves them there, so it isn't asked twice. An owner who
+  // doesn't sleep in the bed can unlink their account later in Studio → People & access.
+  const person = people[0]?.id ?? null;
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState<"f" | "b">("f");
   const go = (to: number) => { setDir(to > step ? "f" : "b"); setStep(to); };
@@ -117,15 +135,6 @@ function Setup({ people, done }: { people: { id: string; name: string }[]; done:
     if (r.token) setAppSession(null, r.token);
     done();
   });
-  const choices: { id: string | null; name: string }[] = [...people, { id: null, name: "Neither" }];
-  const onKey = (e: KeyboardEvent<HTMLDivElement>) => {
-    const d = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : e.key === "ArrowLeft" || e.key === "ArrowUp" ? -1 : 0;
-    if (!d) return;
-    e.preventDefault();
-    const k = (choices.findIndex(c => c.id === person) + d + choices.length) % choices.length;
-    setPerson(choices[k].id);
-    (e.currentTarget.querySelectorAll<HTMLElement>("[role=radio]")[k])?.focus();
-  };
   if (step === 0) return (
     <Shell hero>
       <div className="au-step" data-dir={dir} key="hello">
@@ -138,31 +147,18 @@ function Setup({ people, done }: { people: { id: string; name: string }[]; done:
   );
   return (
     <Shell>
-      <AuthSteps at={step} count={3} onBack={() => go(step - 1)} />
-      {step === 1 ? <div className="au-step" data-dir={dir} key="side">
-        <h2 className="au-title">Which side is yours?</h2>
-        <p className="mute">As you lie in bed. You can rename people later in Settings.</p>
-        <div className="au-sides" role="radiogroup" aria-label="Which side is yours?" onKeyDown={onKey}>
-          <div className="au-bed">
-            <span className="au-head" aria-hidden>Headboard</span>
-            {people.map(x => <button type="button" key={x.id} role="radio" aria-checked={person === x.id} tabIndex={person === x.id ? 0 : -1}
-              className="au-half" onClick={() => setPerson(x.id)}><span className="au-pillow" aria-hidden /><b>{x.name}</b>{person === x.id && <span className="au-tick" aria-hidden>✓</span>}</button>)}
-          </div>
-          <button type="button" role="radio" aria-checked={person === null} tabIndex={person === null ? 0 : -1} className="au-neither"
-            onClick={() => setPerson(null)}>Neither<small className="mute">I don't sleep in this bed</small></button>
-        </div>
-        <button type="button" className="btn pri big" onClick={() => go(2)}>Next</button>
-      </div> : <div className="au-step" data-dir={dir} key="account">
-        <h2 className="au-title">Make the owner account</h2>
-        <p className="mute">The owner can set up devices and invite the other sleeper.</p>
-        <form className="authform" onSubmit={submit}>
-          <Field label="Username" value={u} set={setU} auto="username" hint="Letters, numbers, dots or dashes." />
-          <Field label="Password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters. A short sentence works well." />
-          <Field label="Password again" type="password" value={p2} set={setP2} auto="new-password" />
+      <AuthSteps at={step} count={2} onBack={() => go(step - 1)} />
+      <div className="au-step" data-dir={dir} key="account">
+        <h2 className="au-title">Make your account</h2>
+        <p className="mute">You'll be the owner: you can add devices and invite the other sleeper.</p>
+        <form className="authform" onSubmit={submit} onKeyDown={nextField}>
+          <Field label="Username" value={u} set={setU} auto="username" hint="Letters, numbers, dots or dashes." enter="next" />
+          <Field label="Password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters. A short sentence works well." enter="next" />
+          <Field label="Password again" type="password" value={p2} set={setP2} auto="new-password" enter="go" />
           {err && <p className="err" role="alert">{err}</p>}
           <button className="btn pri big" disabled={busy || !u || !p || !p2}>{busy ? "Setting up…" : "Create account"}</button>
         </form>
-      </div>}
+      </div>
     </Shell>
   );
 }
@@ -187,8 +183,8 @@ function Join(_props: { done: () => void }) {
   if (inv.reset_for) return (
     <Shell>
       <p className="mute">Set a new password for <b>{inv.reset_for}</b>. Every device signed in with the old one gets signed out.</p>
-      <form className="authform" onSubmit={submit}>
-        <Field label="New password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters." />
+      <form className="authform" onSubmit={submit} onKeyDown={nextField}>
+        <Field label="New password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters." enter="next" />
         <Field label="New password again" type="password" value={p2} set={setP2} auto="new-password" />
         {err && <p className="err" role="alert">{err}</p>}
         <button className="btn pri big" disabled={busy || !p || !p2}>{busy ? "Saving…" : "Set password and sign in"}</button>
@@ -198,14 +194,14 @@ function Join(_props: { done: () => void }) {
   return (
     <Shell>
       <p className="mute">{inv.person_name ? <>You're invited as <b>{inv.person_name}</b>. Your side, your rhythm, your settings.</> : inv.role === "viewer" ? "You're invited to look in (no controls)." : "You're invited."}</p>
-      <form className="authform" onSubmit={submit}>
-        <Field label="Pick a username" value={u} set={setU} auto="username" />
-        <Field label="Password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters." />
+      <form className="authform" onSubmit={submit} onKeyDown={nextField}>
+        <Field label="Pick a username" value={u} set={setU} auto="username" enter="next" />
+        <Field label="Password" type="password" value={p} set={setP} auto="new-password" hint="At least 8 characters." enter="next" />
         <Field label="Password again" type="password" value={p2} set={setP2} auto="new-password" />
         {err && <p className="err" role="alert">{err}</p>}
         <button className="btn pri big" disabled={busy || !u || !p || !p2}>{busy ? "Joining…" : "Join"}</button>
       </form>
-      <p className="faint" style={{ fontSize: 12.5 }}>Tip: after you join, use your browser's "Add to Home Screen" so it opens like an app.</p>
+      {!isApp() && <p className="faint" style={{ fontSize: 12.5 }}>Tip: after you join, use your browser's "Add to Home Screen" so it opens like an app.</p>}
     </Shell>
   );
 }
@@ -258,8 +254,8 @@ function ServerPick({ done }: { done: () => void }) {
   return (
     <Shell>
       <p className="mute">Where is your Ember &amp; Tide? The same address you open in a browser.</p>
-      <form className="authform" onSubmit={submit}>
-        <Field label="Server address" value={v} set={setV} auto="url" hint="For example https://sleep.example.com or http://192.168.1.20:8790" />
+      <form className="authform" onSubmit={submit} onKeyDown={nextField}>
+        <Field label="Server address" type="url" value={v} set={setV} auto="url" hint="For example https://sleep.example.com or http://192.168.1.20:8790" />
         {err && <p className="err" role="alert">{err}</p>}
         <button className="btn pri big" disabled={busy || v.length < 10}>{busy ? "Checking…" : "Continue"}</button>
       </form>

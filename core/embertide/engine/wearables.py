@@ -13,7 +13,8 @@ new device would look like a sudden change in the sleeper. So, per metric (skin 
   device reports in the same window, the new one is matched to it there and then.
 
 The same physical reading stored under two names (the live watch path and a Health Connect import of that watch, a
-second apart) counts once. Disabled or deleted sources are never read.
+second apart) counts once, and so does a copying app's copy of another app's reading up to half a minute apart
+(COPY_S). Disabled or deleted sources are never read.
 """
 
 from __future__ import annotations
@@ -26,6 +27,12 @@ RELEARN_NIGHTS = 3                        # nights of its own before a new devic
 ROLES = {"skin_temp": "skin_temp", "hr": "wearable_hr"}
 MIN_PER_NIGHT = {"skin_temp": 5, "hr": 10}
 DUP_S = 2.0                               # same value within this many seconds under another name = the same reading
+# Apps that copy another app's readings into Health Connect (Health Sync copying Samsung Health). A copying app's reading
+# with the same value as another app's within COPY_S is the same reading, and the original app's copy is the one kept
+# (the phone's HealthMerge.dropCopies uses the same half minute). Two real devices (a watch and a ring worn together)
+# agree on a value within half a minute all the time, so between those only DUP_S applies.
+COPY_S = 30.0
+COPY_APPS = {"health sync", "healthsync", "sleep"}   # the phone's names for nl.appyhapps.healthsync, com.healthsync, com.urbandroid.sleep
 QUIET_S = 30 * 3600                       # nothing for this long: "hasn't sent anything since …"
 
 
@@ -40,15 +47,56 @@ def device_kind(name: str) -> str:
     return "device"
 
 
-def device_series(c, p, metric: str, since: float, until: float) -> dict[str, list[tuple[float, float]]]:
-    """Each of this person's devices for one metric, raw. Keys: "src:<source id>" or the stored sample source."""
+def is_copier(name: str) -> bool:
+    """Is this device one of the copying apps (COPY_APPS)? Takes a device name or a sample source key."""
+    return (name or "").rsplit(":", 1)[-1].strip().lower() in COPY_APPS
+
+
+def same_reading_s(a: str, b: str) -> float:
+    """How far apart the same value from these two different devices may be and still be one reading."""
+    return COPY_S if is_copier(a) or is_copier(b) else DUP_S
+
+
+FLAT_KEY = "wear_flat:{pid}"               # stretches of imported readings that hardly changed: probably not worn
+
+
+def mark_flat(store, pid: str, src: str, a: float, b: float, now: float) -> None:
+    """Mark a stretch of one device's readings as probably not worn (a watch left on the nightstand). The readings stay
+    stored and visible; they are only left out of what Autopilot learns from and of the bed comparison."""
+    key = FLAT_KEY.format(pid=pid)
+    spans = [x for x in (store.get(key) or []) if isinstance(x, dict)]
+    spans.append({"src": src, "a": float(a), "b": float(b), "ts": now})
+    store.put(key, spans[-500:])
+
+
+def flat_spans(store, pid: str) -> dict[str, list[tuple[float, float]]]:
+    out: dict[str, list] = {}
+    for x in store.get(FLAT_KEY.format(pid=pid)) or []:
+        if isinstance(x, dict) and x.get("src") and x.get("a") is not None and x.get("b") is not None:
+            out.setdefault(x["src"], []).append((float(x["a"]) - 1, float(x["b"]) + 1))
+    return out
+
+
+def not_worn_devices(c, p, since: float, until: float) -> list[str]:
+    """Names of devices with a stretch marked as probably not worn inside this time."""
+    return sorted({device_name(c, src) for src, spans in flat_spans(c.store, p.id).items()
+                   if any(a <= until and b >= since for a, b in spans)})
+
+
+def device_series(c, p, metric: str, since: float, until: float, worn_only: bool = True) -> dict[str, list[tuple[float, float]]]:
+    """Each of this person's devices for one metric, raw. Keys: "src:<source id>" or the stored sample source.
+    worn_only: leave out stretches marked as probably not worn (mark_flat)."""
     out: dict[str, list] = {}
     mgr = c.sources
     for cfg in (mgr.configs if mgr else []):
         if cfg.role == ROLES[metric] and cfg.enabled and (cfg.person == p.id or (cfg.person is None and cfg.zone == p.zone)):
             out[f"src:{cfg.id}"] = c.store.samples(cfg.id, since, until)
+    flat = flat_spans(c.store, p.id) if worn_only else {}
     for src in c.store.sample_sources(f"wear:{p.id}:{metric}:"):
-        out[src] = c.store.samples(src, since, until)
+        pts = c.store.samples(src, since, until)
+        if src in flat:
+            pts = [(t, v) for t, v in pts if not any(a <= t <= b for a, b in flat[src])]
+        out[src] = pts
     return {k: v for k, v in out.items() if v}
 
 
@@ -95,24 +143,27 @@ def levels(c, p, nights: list[dict]) -> dict:
 
 
 def _dedupe(series: dict[str, list]) -> dict[str, list]:
-    """Drop readings that another (bigger) series already has: same value within DUP_S seconds."""
-    seen: list[tuple[float, float]] = []
+    """Drop readings that another (bigger) series already has: same value within DUP_S seconds, or within COPY_S when
+    one of the two is a copying app. Original apps come first, so it's always the copy that is dropped."""
+    seen: list[tuple[float, float, bool]] = []
     out = {}
-    for k in sorted(series, key=lambda k: -len(series[k])):
+    for k in sorted(series, key=lambda k: (is_copier(k), -len(series[k]))):
         have = sorted(seen)
+        mine = is_copier(k)
         keep = []
         for t, v in series[k]:
-            i = bisect.bisect_left(have, (t - DUP_S, -1e9))
+            i = bisect.bisect_left(have, (t - COPY_S, -1e9, False))
             dup = False
-            while i < len(have) and have[i][0] <= t + DUP_S:
-                if round(have[i][1], 1) == round(v, 1):
+            while i < len(have) and have[i][0] <= t + COPY_S:
+                ht, hv, hc = have[i]
+                if round(hv, 1) == round(v, 1) and abs(ht - t) <= (COPY_S if (mine or hc) else DUP_S):
                     dup = True
                     break
                 i += 1
             if not dup:
                 keep.append((t, v))
         out[k] = keep
-        seen += keep
+        seen += [(t, v, mine) for t, v in keep]
     return {k: v for k, v in out.items() if v}
 
 
@@ -145,7 +196,7 @@ def status(c, p, lv: dict, now: float, learning_done: bool) -> list[dict]:
     out: dict[str, dict] = {}
     for metric in ROLES:
         m = lv.get(metric) or {}
-        for k, pts in device_series(c, p, metric, now - 14 * 86400, now).items():
+        for k, pts in device_series(c, p, metric, now - 14 * 86400, now, worn_only=False).items():
             name = device_name(c, k)
             d = out.setdefault(name, {"name": name, "kind": device_kind(name), "metrics": [], "last": 0.0,
                                       "nights": 0, "learning": False, "shift": {}})
@@ -178,7 +229,7 @@ def night_devices(c, p, start: float, end: float) -> list[dict]:
     """Which watch or ring a night's readings came from (heart rate, skin temperature, sleep stages)."""
     out: dict[str, dict] = {}
     for metric in ROLES:
-        for k, pts in device_series(c, p, metric, start, end).items():
+        for k, pts in device_series(c, p, metric, start, end, worn_only=False).items():
             name = device_name(c, k)
             out.setdefault(name, {"name": name, "kind": device_kind(name), "what": []})["what"].append(metric)
     for src, d in c.store.get_stages(p.id, start, end).items():
@@ -187,3 +238,55 @@ def night_devices(c, p, start: float, end: float) -> list[dict]:
         name = (d.get("label") or src).split(" · ")[0]
         out.setdefault(name, {"name": name, "kind": device_kind(name), "what": []})["what"].append("stages")
     return sorted(out.values(), key=lambda d: d["name"])
+
+
+def night_coverage(c, p, now: float, days: int = 7) -> list[dict]:
+    """For each recent night with the person in bed: how much of the time in bed the watch or ring covered with its
+    own heart rate (per device), whether its sleep stages arrived, and a plain sentence about what is still missing.
+    The phone's Health Connect card shows it after a sync, so a gap is explained instead of silently left."""
+    from datetime import timedelta
+    from .. import align as A
+    from .summary import night_window, summarize
+    tz = c.clock.tz
+    today = datetime.fromtimestamp(now, tz)
+    d0 = (today - timedelta(days=1)).date() if today.hour < 12 else today.date()
+    out = []
+    for i in range(days):
+        d = d0 - timedelta(days=i)
+        win = night_window(p, d, tz, now)
+        s = summarize(c.store, p, d, tz, now) if win else None
+        if not win or not s or not s.get("has_data") or not s.get("in_bed_at") or not s.get("out_at"):
+            continue
+        a, b = float(s["in_bed_at"]), float(s["out_at"])
+        span = [(a, b)]
+        hr: dict[str, float] = {}
+        for src in c.store.sample_sources(f"wear:{p.id}:hr:"):
+            pts = c.store.samples(src, a - 300, b + 300)
+            if pts:
+                hr[device_name(c, src)] = A.coverage(pts, span) or 0.0
+        live = hr.pop("Watch (live)", None)
+        stages = [x for k, x in c.store.get_stages(p.id, a - 2 * 3600, b + 2 * 3600).items() if k != "orion"]
+        best = max(hr.values(), default=0.0)
+        old = now - b > 48 * 3600                # older than the phone's automatic look-back: only a re-import reaches it
+        later = ("If your watch recorded it, Re-import last 7 days fetches it again." if old
+                 else "It's picked up on a later sync once it reaches Health Connect.")
+        if stages and best >= 0.8:
+            text = "Sleep stages and heart rate from your watch or ring for the whole night."
+        elif stages:
+            text = f"Sleep stages from your watch or ring. Its heart rate covers {round(best * 100)}% of the night. {later}"
+        elif best >= 0.8:
+            text = f"Heart rate for the whole night, but no sleep stages from your watch or ring yet, so the bed's estimate is shown. {later}"
+        elif best > 0:
+            text = f"Heart rate covers {round(best * 100)}% of the night and there are no sleep stages yet. {later}"
+        else:
+            text = f"Nothing from your watch or ring through Health Connect for this night. {later}"
+        if live is not None and best < 0.8:
+            text += f" The watch's live heart rate covers {round(live * 100)}%."
+        nw = not_worn_devices(c, p, a, b)
+        if nw:
+            text += (f" The heart rate from {' and '.join(nw)} hardly changed, so it was probably not being worn; "
+                     "those readings are kept but not used to learn your nights.")
+        out.append({"date": d.isoformat(), "in_bed_at": a, "out_at": b, "in_progress": bool(s.get("in_progress")),
+                    "hr": {k: round(v, 2) for k, v in sorted(hr.items())}, "live": None if live is None else round(live, 2),
+                    "stages": [x.get("label") or x["source"] for x in stages], "text": text, "not_worn": nw})
+    return out

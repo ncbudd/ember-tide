@@ -52,12 +52,22 @@ class ResolvedNight:
     phases: list[ResolvedPhase]
 
 
-def resolve(rhythm: Rhythm, d: date, tz: ZoneInfo, in_bed: float | None = None, wake: float | None = None) -> ResolvedNight:
+def sleep_phase_ids(rhythm: Rhythm) -> set[str]:
+    """The phases that count from falling asleep rather than from getting in: every in-bed-anchored phase after the
+    first one (the first, e.g. "Fall asleep", starts when they get in)."""
+    ids = [p.id for p in rhythm.phases if p.start.kind == "in_bed"]
+    return set(ids[1:])
+
+
+def resolve(rhythm: Rhythm, d: date, tz: ZoneInfo, in_bed: float | None = None, wake: float | None = None,
+            sleep_at: float | None = None) -> ResolvedNight:
+    """`sleep_at`: in bed before the usual bedtime and waiting for a sign of sleep (engine/night.py): the in-bed phases
+    after the first count from here instead of from getting in. None = all of them from getting in (as always)."""
     s = rhythm.schedule
     bedtime = local_ts(d, s.bedtime, tz)
     wake_ts = wake or local_ts(d, s.wake, tz)
     anchor_in_bed = in_bed if in_bed is not None else bedtime
-    raw = _lay_out(rhythm, d, tz, bedtime, anchor_in_bed, wake_ts)
+    raw = _lay_out(rhythm, d, tz, bedtime, anchor_in_bed, wake_ts, sleep_at)
     if in_bed is not None and in_bed > bedtime:
         _fit_late_start(rhythm, raw, _lay_out(rhythm, d, tz, bedtime, bedtime, wake_ts))
     return ResolvedNight(
@@ -67,14 +77,17 @@ def resolve(rhythm: Rhythm, d: date, tz: ZoneInfo, in_bed: float | None = None, 
     )
 
 
-def _lay_out(rhythm: Rhythm, d: date, tz: ZoneInfo, bedtime: float, in_bed: float, wake_ts: float) -> list[ResolvedPhase]:
+def _lay_out(rhythm: Rhythm, d: date, tz: ZoneInfo, bedtime: float, in_bed: float, wake_ts: float,
+             sleep_at: float | None = None) -> list[ResolvedPhase]:
     raw: list[ResolvedPhase] = []
+    first_in_bed = True
     for p in rhythm.phases:
         a = p.start
         if a.kind == "bedtime":
             base = bedtime
         elif a.kind == "in_bed":
-            base = in_bed
+            base = in_bed if (first_in_bed or sleep_at is None) else max(in_bed, sleep_at)
+            first_in_bed = False
         elif a.kind == "wake":
             base = wake_ts
         else:

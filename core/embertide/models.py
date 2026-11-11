@@ -31,12 +31,15 @@ class Schedule(BaseModel):
     bedtime: str = Field("22:15", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")   # predicted bedtime when nothing better is known
     wake: str = Field("06:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
     window_start: str = Field("21:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")  # earliest time getting in bed starts the night
-    window_end: str = Field("01:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")    # keep pre-cooling an empty side until this time
+    window_end: str = Field("01:30", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")    # keep pre-conditioning an empty side until this time
     precool_lead_min: int = Field(45, ge=0, le=180)
     confirm_min: int = Field(3, ge=0, le=30)          # minutes on your side before the rhythm starts
     after_wake_min: int = Field(15, ge=0, le=180)     # side turns off this long after wake
     absent_hold_min: int = Field(30, ge=0, le=240)    # out of bed at night: hold, then turn off
     start_on_presence: bool = True
+    # in bed before the usual bedtime: hold the getting-in ("Fall asleep") temperature and count the later in-bed
+    # phases from a sign of sleep (engine/night.py), or from bedtime. Off = they count from getting in, as before
+    wait_for_sleep: bool = True
 
 
 class Rhythm(BaseModel):
@@ -160,14 +163,22 @@ class AutopilotPolicy(BaseModel):
 
 
 class NotifyPrefs(BaseModel):
-    away_precool: bool = True     # pre-cool is due and you're not home
-    empty_side: bool = True       # pre-cooled but nobody got in
+    away_precool: bool = True     # pre-condition is due and you're not home
+    empty_side: bool = True       # pre-conditioned but nobody got in
     left_on: bool = True          # turned on by hand, then nobody in it for a while
     not_started: bool = True      # lying in bed a long while but the bed isn't sure it's you: offer to start the side
     morning: bool = True          # a short morning summary
     problems: bool = True         # bed or sensor trouble (household)
     hub: bool = True            # the bed's hub needs a look: a fault, or the water (owner)
     maintenance: bool = True    # a care job is due: purification tablets, a check (owners and sleepers, each their own switch; daytime only, at most one a day)
+    account: bool = True        # a connected account (Oura, Withings...) needs signing in again (that person; daytime only, at most once a day)
+    reach: bool = True          # someone's phone stopped receiving notifications (owner; daytime only, at most once a day)
+    bridge: bool = True         # the Home Assistant link has been down for hours (owner; daytime only, at most once a day)
+    storage: bool = True        # the server is nearly out of disk space (owner; daytime only, at most once a day)
+    wearable: bool = True       # the person's watch or ring sent nothing for two nights (that person; daytime only, at most once a day)
+    bed_silent: bool = True     # the bed's sensors reported nothing usable all night, so it ran on the schedule (the sleeper; with the morning)
+    sensor: bool = True         # a presence sensor keeps flipping or looks stuck (owner; daytime only)
+    target: bool = True         # a side isn't reaching its temperature (the sleeper and owners; held for the morning)
     pet_question: bool = True     # "was the pet on the bed?" (daytime only; the question also waits in the app)
     quiet_hours: bool = True      # hold anything non-urgent while you're in bed (bedtime to wake); it comes with the morning summary
 

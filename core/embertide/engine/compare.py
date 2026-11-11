@@ -335,10 +335,15 @@ def compare_night(controller, p, d: str) -> dict:
             out["hr"] = {"bins": len(both), "bed_minus_watch": med, "together": _corr([bb[k] for k in both], [bw[k] for k in both])}
             out["wearable_name"] = "Watch"
             side = "matched" if abs(med) < 2 else f"read {abs(med):.0f} bpm {'higher' if med > 0 else 'lower'} than"
-            lines.append(f"Watch heart rate (live, {len(whr)} readings): the bed {side} the watch"
+            lines.append(f"Watch heart rate ({len(whr)} readings): the bed {side} the watch"
                          + ("" if side == "matched" else " on average"))
             if abs(med) >= 5:
                 disagree.append(f"Heart rate: the bed reads {abs(med):.0f} bpm {'higher' if med > 0 else 'lower'} than the watch")
+    # readings marked as probably not worn (flat heart rate) stay visible but are left out of the comparison above
+    from .wearables import not_worn_devices
+    out["not_worn"] = not_worn_devices(controller, p, start, end)
+    for name in out["not_worn"]:
+        lines.append(f"{name}: the heart rate hardly changed, so it was probably not being worn. Not used for this comparison")
     out["times"] = chosen_times(bed, wear, fix, trust, off)
     out["away_first"] = {"from": away_first[0], "to": away_first[1]} if away_first else None
     if away_first and not (fix or {}).get("in_bed_at"):

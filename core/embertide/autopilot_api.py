@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .engine.autopilot import ALL_SIGNALS, LABELS, THRESHOLD
 from .engine.rhythm import night_date, pick_rhythm, resolve
@@ -45,9 +45,20 @@ class WearableBody(BaseModel):
     # connection such as Oura), or None (a script). Recorded in the import log; the data is treated the same.
     platform: Literal["android", "ios", "server", "web"] | None = None
 
+    @field_validator("device")
+    @classmethod
+    def _device_named(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("the device needs a name")
+        return v
+
 
 class DismissBody(BaseModel):
     forever: bool = False
+
+
+class WearRepairBody(BaseModel):
+    apply: bool = False                   # False: only list what would be repaired
 
 
 class ReviewBody(BaseModel):
@@ -184,6 +195,30 @@ def build_autopilot_router(state) -> APIRouter:
     async def imports(pid: str):
         person(pid)
         return ctl().store.get(f"imports:{pid}", [])
+
+    @r.get("/people/{pid}/wearable/nights")
+    async def wearable_nights(pid: str, days: int = 7):
+        """Recent nights: how much of each the watch or ring covered, whether its stages arrived, what's missing."""
+        from .engine.wearables import night_coverage
+        p = person(pid)
+        c = ctl()
+        return await asyncio.to_thread(night_coverage, c, p, c.clock.now_ts(), min(14, max(1, days)))
+
+    @r.post("/people/{pid}/wearable/repair")
+    async def wearable_repair(pid: str, b: WearRepairBody):
+        """Undo heart-rate clock shifts that older versions applied on too little evidence (wear_repair.py). Lists
+        by default; {"apply": true} carries it out. Safe to run more than once."""
+        from . import wear_repair
+        p = person(pid)
+        c = ctl()
+        def work() -> dict:
+            with IMPORT_LOCK:                 # not while an import is writing the same readings
+                return wear_repair.repair(c.store, p.id, c.clock.tz, c.clock.now_ts(), apply=b.apply)
+        out = await asyncio.to_thread(work)
+        if b.apply:
+            for k in ("_nights_cache", "_base_cache"):
+                c.autopilot.__dict__.get(k, {}).pop(p.id, None)
+        return out
 
     @r.post("/people/{pid}/autopilot/recheck")
     async def recheck(pid: str, b: ReplayBody):
@@ -325,45 +360,81 @@ def _import_wearable(c, p, b) -> dict:
     # duplicates against what's already stored are checked LAST, after any clock correction (raw times of a re-import
     # can land exactly on earlier, corrected samples)
     pts, rej = A.clean(raw, b.metric, tz, now + 13 * 3600 + 300, set(), shift)
+    # readings this device already sent, exactly (same second, same value): a phone re-reads the last two days on every
+    # sync so late-arriving data is never missed, and these repeats must neither be stored again nor sway the timing
+    # check below. (A re-import of a device whose clock IS off still matches later, after its shift: see step 5.)
+    if pts:
+        own = {(int(round(t)), round(v, 1)) for t, v in c.store.samples(src, pts[0][0] - 5, pts[-1][0] + 5)}
+        if own:
+            before = len(pts)
+            pts = [(t, v) for t, v in pts if (int(round(t)), round(v, 1)) not in own]
+            rej["duplicate"] += before - len(pts)
     # 2. heart rate: measure the shift against each bed night, looking at the import's raw times up to ±13 h around
-    #    it (grouping into nights comes AFTER shifting, so a 13 h shift can't split one night in two)
+    #    it (grouping into nights comes AFTER shifting, so a 13 h shift can't split one night in two). Phone data
+    #    carries the phone's clock, so the times are kept as recorded unless the evidence for a shift is strong
+    #    (align.judge); a short or patchy import only gets a plain note, never a warning.
     bed_lag: dict[str, dict] = {}
-    lag_votes: list[int] = []
+    verdicts: list[tuple[str, int]] = []
+    live_ok = False
     if b.metric == "hr" and pts:
         rows_all = c.store.history(p.zone, pts[0][0] - 14 * 3600, pts[-1][0] + 14 * 3600, person=p.id)
+        if device != "watch_live":
+            live = c.store.samples(f"wear:{p.id}:hr:watch_live", pts[0][0] - 60, pts[-1][0] + 60)
+            la = A.live_agreement(pts, live)
+            live_ok = bool(la and la["agree"])
+            if la:
+                notes.append(f"Matches your watch's live heart rate as recorded ({la['pairs']} readings side by side), so its timing is right."
+                             if la["agree"] else
+                             f"Reads about {la['median_diff']:.0f} bpm away from your watch's live heart rate.")
         for a_, z_ in A.in_bed_spans(rows_all):
+            inside = sum(1 for x in pts if a_ - 3600 <= x[0] <= z_ + 3600)
             bed = [(r["ts"], float(r["hr"])) for r in rows_all if r.get("hr") and a_ - 600 <= r["ts"] <= z_ + 600]
             near = [x for x in pts if a_ - 13.5 * 3600 <= x[0] <= z_ + 13.5 * 3600]
-            best = A.best_lag(near, bed)
-            if not best:
-                continue
-            lag, rr, n = best
+            det = A.lag_detail(near, bed)
+            verdict = A.judge(det)
+            if inside < 10 and verdict != "shift":
+                continue                    # this import barely touches that night: nothing to say about it
             d = night_date(datetime.fromtimestamp(a_, tz)).isoformat()
-            bed_lag[d] = {"lag_min": lag, "match": round(rr, 2), "overlap_min": n}
-            if rr >= 0.6:
-                lag_votes.append(lag)
-            elif rr < 0.35:
-                warnings.append(f"{d}: this heart rate doesn't follow the bed's (match {rr:.2f}). Is it the right person and device?")
-            else:
-                warnings.append(f"{d}: no clear match with the bed's heart rate (match {rr:.2f}), so its timing wasn't checked.")
+            if det:
+                rr = det["r"] if det["distinct"] else min(det["r"], 0.5)
+                bed_lag[d] = {"lag_min": det["lag"], "match": round(rr, 2), "overlap_min": det["overlap"], "verdict": verdict}
+                verdicts.append((verdict, det["lag"]))
+            if verdict == "unlike" and not live_ok:
+                warnings.append(f"{d}: this heart rate doesn't follow the bed's (match {det['r']:.2f} over {det['overlap'] // 60} h). "
+                                "Is it the right person and device?")
+            elif verdict == "weak" and not live_ok:
+                notes.append(f"{d}: too few readings next to the bed's heart rate to compare timing, so they were kept at the phone's time.")
+    flat = False
+    if b.metric == "hr" and len(pts) >= 30 and device != "watch_live":
+        import statistics as _st
+        hrs = [v for _, v in pts]
+        if _st.pstdev(hrs) < 0.6:               # a real heart rate never sits on one number for half an hour or more
+            flat = True
+            warnings.append("The heart rate hardly changes at all, so the device may not have been on your wrist. "
+                            "These readings were kept but won't be used to learn your nights; check that it's worn snugly.")
     applied = 0.0
-    if lag_votes and b.align != "off":
-        lag = round(statistics.median(lag_votes))
-        consistent = max(lag_votes) - min(lag_votes) <= 3
-        if not consistent:
-            warnings.append(f"The time shift isn't the same every night ({min(lag_votes)} to {max(lag_votes)} min), so nothing was shifted.")
-        elif abs(lag) >= 3:
+    if verdicts and b.align != "off":
+        lag, why = A.decide_shift(verdicts, live_ok)
+        if lag is not None:
             if b.align == "auto":
                 applied = lag * 60.0
                 pts = [(t + applied, v) for t, v in pts]
                 notes.append(f"Shifted by {lag:+d} min: the device was {A.describe_lag(lag)}.")
-                c.store.put(f"device_offset:{p.id}:{device}", {"shift_s": applied, "ts": now, "nights": len(lag_votes)})
+                c.store.put(f"device_offset:{p.id}:{device}", {"shift_s": applied, "ts": now, "nights": sum(1 for v, _ in verdicts if v == "shift")})
             else:
                 warnings.append(f"The device looks {A.describe_lag(lag)}. Import again with align=auto (or shift_s={lag * 60}) to correct it.")
-        else:
-            notes.append("Heart rate lines up with the bed (within 3 min).")
+        elif why in ("lines_up", "live", "small"):
+            if why != "live":
+                notes.append("Heart rate lines up with the bed (within 3 min).")
             if b.align == "auto":
-                c.store.put(f"device_offset:{p.id}:{device}", {"shift_s": 0.0, "ts": now, "nights": len(lag_votes)})
+                c.store.put(f"device_offset:{p.id}:{device}", {"shift_s": 0.0, "ts": now, "nights": len(verdicts)})
+        elif why == "mixed":
+            notes.append("The nights don't agree on a time shift, so the times were kept as recorded.")
+    if flat and pts:
+        # marked, not deleted: the stretch stays stored and visible, but Autopilot doesn't learn from it and the bed
+        # comparison leaves it out (engine/wearables.py mark_flat)
+        from .engine.wearables import mark_flat
+        mark_flat(c.store, p.id, src, pts[0][0], pts[-1][0], now)
     # 3. now that the clock is right, anything still in the future really is
     if b.metric in ("steps", "active_kcal", "exercise_min", "caffeine_mg"):
         # hourly totals are stamped at the END of their hour, so the current hour's total looks up to an hour ahead
@@ -380,60 +451,80 @@ def _import_wearable(c, p, b) -> dict:
     for d, ps in sorted(nights.items()):
         rows = c.store.history(p.zone, ps[0][0] - 8 * 3600, ps[-1][0] + 8 * 3600, person=p.id)
         spans = A.in_bed_spans(rows)
-        info = {"date": d, "samples": len(ps), "first": ps[0][0], "last": ps[-1][0], "coverage_in_bed": A.coverage(ps, spans),
+        # coverage counts what this device has for the night now, not just this batch (a re-read adds a few readings)
+        have = sorted(ps + c.store.samples(src, ps[0][0] - 8 * 3600, ps[-1][0] + 8 * 3600)) if spans else ps
+        info = {"date": d, "samples": len(ps), "first": ps[0][0], "last": ps[-1][0], "coverage_in_bed": A.coverage(have, spans),
                 "in_bed_minutes": round(sum(y - x for x, y in spans) / 60)}
         if d in bed_lag:
             info.update(bed_lag[d])
         tonight = d == night_date(datetime.fromtimestamp(now, tz)).isoformat()      # still going: coverage means nothing yet
-        if (b.metric in ("skin_temp", "hr", "hrv", "resp_rate", "spo2") and spans and info["coverage_in_bed"] is not None
-                and info["coverage_in_bed"] < 0.5 and not tonight):                # day metrics (steps, caffeine, ...) aren't meant to cover the night
-            warnings.append(f"{d}: covers only {round(info['coverage_in_bed'] * 100)}% of the time in bed.")
-        if not spans and b.metric in ("skin_temp", "hr", "hrv", "resp_rate", "spo2"):
+        night_metric = b.metric in ("skin_temp", "hr", "hrv", "resp_rate", "spo2")  # day metrics (steps, caffeine, ...) aren't meant to cover the night
+        if (night_metric and len(ps) >= 10 and spans and info["coverage_in_bed"] is not None
+                and info["coverage_in_bed"] < 0.5 and not tonight):
+            notes.append(f"{d}: covers only {round(info['coverage_in_bed'] * 100)}% of the time in bed so far.")
+        if not spans and night_metric and len(ps) >= 10:
             notes.append(f"{d}: the bed has no in-bed record for this night, so coverage can't be checked.")
         per_night.append(info)
     if pts:
         # the same reading can arrive under another device name (Health Connect reports both the watch's app and the
         # syncing app; the live watch path and a later import of that watch): a reading already stored for this metric
-        # from ANY device, same value within a couple of seconds, is a duplicate
+        # from ANY device, same value within a couple of seconds, is a duplicate. A copying app (Health Sync copying
+        # Samsung Health) gets half a minute either way, as on the phone (HealthMerge.dropCopies), and the original
+        # app's reading is the one kept: when the copy got here first, the original replaces it.
         import bisect
-        from .engine.wearables import DUP_S
+        from .engine.wearables import COPY_S, is_copier, same_reading_s
         # (this device's own earlier readings must match to the second: a fast sampler repeats values a second apart)
-        stored_before: list[tuple[float, float, bool]] = []
+        stored_before: list[tuple[float, float, str]] = []
         other = 0
+        replaced: list[tuple[str, float]] = []
         for s in c.store.sample_sources(f"wear:{p.id}:{b.metric}:"):
-            stored_before += [(t, round(v, 1), s == src) for t, v in c.store.samples(s, pts[0][0] - 5, pts[-1][0] + 5)]
+            stored_before += [(t, round(v, 1), s) for t, v in c.store.samples(s, pts[0][0] - COPY_S - 5, pts[-1][0] + COPY_S + 5)]
         stored_before.sort()
         before = len(pts)
         kept = []
         for t, v in pts:
-            i = bisect.bisect_left(stored_before, (t - DUP_S, -1e9, False))
-            hit = None
-            while i < len(stored_before) and stored_before[i][0] <= t + DUP_S:
-                st, sv, own = stored_before[i]
-                if sv == round(v, 1) and (not own or int(round(st)) == int(round(t))):
-                    hit = stored_before[i]
-                    break
+            i = bisect.bisect_left(stored_before, (t - COPY_S, -1e9, ""))
+            hits = []
+            while i < len(stored_before) and stored_before[i][0] <= t + COPY_S:
+                st, sv, s = stored_before[i]
+                if sv == round(v, 1) and (int(round(st)) == int(round(t)) if s == src else abs(st - t) <= same_reading_s(s, src)):
+                    hits.append(stored_before[i])
                 i += 1
-            if hit:
-                other += not hit[2]
+            copies = [h for h in hits if h[2] != src and is_copier(h[2])]
+            if hits and not is_copier(src) and len(copies) == len(hits):
+                replaced += [(h[2], h[0]) for h in copies]      # the original arrived after its copy: keep the original
+                hits = []
+            if hits:
+                other += all(h[2] != src for h in hits)
                 continue
             kept.append((t, v))
         pts = kept
         rej["duplicate"] += before - len(pts)
+        for s, st in replaced:
+            c.store.delete_samples_between(s, st - 0.5, st + 0.5)
         if other:
             notes.append(f"{other} readings were already there from another app or device, so they were skipped.")
+        if replaced:
+            notes.append(f"{len(replaced)} readings copied by another app were replaced by the original app's.")
+        if pts:
+            # a record revised after it was sent (an hourly total that grew; a provider correcting a reading): the new
+            # value replaces the old one for the same device and second instead of being stored next to it.
+            own_t = {int(round(t)) for t, _ in c.store.samples(src, pts[0][0] - 1, pts[-1][0] + 1)}
+            for t, _ in pts:
+                if int(round(t)) in own_t:
+                    c.store.delete_samples_between(src, t - 0.5, t + 0.5)
     c.store.samples_many([(t, src, v) for t, v in pts])
     if b.metric == "weight_kg" and pts and c.sources:
         # the newest weight helps a bed scale tell the two sleepers apart (Studio → Devices → calibration)
         c.sources.calibration.person_kg[p.id] = round(pts[-1][1], 1)
         c.sources.save()
     touched = sorted({night_date(datetime.fromtimestamp(t, tz)).isoformat() for t, _ in pts})
-    report = {"ok": True, "device": device, "metric": b.metric, "platform": b.platform, "received": len(b.points), "stored": len(pts),
+    report = {"ok": True, "device": device, "metric": b.metric, "platform": b.platform, "received": len(b.points), "stored": len(pts), "not_worn": flat,
               "rejected": {k: v for k, v in rej.items() if v}, "shift_applied_s": applied or shift,
               "nights": per_night, "nights_touched": touched, "warnings": warnings, "notes": notes, "ts": now}
     log = c.store.get(f"imports:{p.id}", [])
     log.append({k: v for k, v in report.items() if k != "nights"}
-               | {"nights": [{k: n.get(k) for k in ("date", "samples", "coverage_in_bed", "lag_min", "match")} for n in per_night]})
+               | {"nights": [{k: n.get(k) for k in ("date", "samples", "first", "last", "coverage_in_bed", "lag_min", "match", "verdict")} for n in per_night]})
     c.store.put(f"imports:{p.id}", log[-50:])
     return report
 

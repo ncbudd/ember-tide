@@ -14,7 +14,8 @@ SAMPLE = {"name": "Alex", "minutes": 23, "summary": "7 h 50 min in bed · settle
           "when": "2:40 AM–3:10 AM", "side": "left side", "phase": "Deep", "deg": "2°F", "source": "the phone",
           "n": 3, "look": 7, "step": "1 °F", "detail": "no answer", "lines": "2:06 AM: Can't reach the bed.",
           "what": "Fan speed out of range", "advice": "Check the hub's vents aren't blocked.",
-          "why": "Keeps the water clean.", "more": " 2 other jobs are due too."}
+          "why": "Keeps the water clean.", "more": " 2 other jobs are due too.", "day": "Thursday", "service": "Oura", "hours": 3, "free": "600 MB",
+          "device": "Pixel Watch", "now": "74°", "want": "68°"}
 
 
 class P:
@@ -100,7 +101,7 @@ def test_alerts_are_never_cheeky():
 
 
 def test_calm_starts_with_the_original_sentence():
-    assert PHRASES["away_precool"]["calm"][0][0] == "Pre-cool is due, but you're not home"
+    assert PHRASES["away_precool"]["calm"][0][0] == "Pre-conditioning is due, but you're not home"
     assert PHRASES["pet_question"]["calm"][0][0] == "Was {who} on the bed around {when}?"
     assert all("not home" in t for t, _ in PHRASES["away_precool"]["calm"])
 

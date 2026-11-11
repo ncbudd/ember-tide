@@ -113,7 +113,7 @@ function FixSheet({ person, date, tz, cmp, ups, pets, onClose, onSaved }: {
   return (
     <Sheet onClose={onClose} locked={busy} form role="dialog" aria-label="Fix this night">
       <h2 style={{ fontSize: 20 }}>Fix this night</h2>
-      <p className="mute" style={{ fontSize: 13 }}>Your fixes are kept next to what the bed and watch recorded (nothing is erased) and count for your summaries, Autopilot and your normal range.</p>
+      <p className="mute" style={{ fontSize: 13 }}>Nothing is erased: your fixes sit alongside what the bed and watch recorded, and your summaries and Autopilot use your fixes.</p>
       <div className="card list">
         {TIMES.map(([k, l]) => (
           <div className="row" key={k}><span>{l}{cmp.times?.[k] && <><br /><small className="mute">from {cmp.times[k].source === "you" ? "your fix" : cmp.times[k].source}</small></>}</span>
@@ -135,7 +135,7 @@ function FixSheet({ person, date, tz, cmp, ups, pets, onClose, onSaved }: {
         ))}
       </div>}
       <div className="card list">
-        <span className="k" style={{ paddingTop: 8 }}>Add a stretch</span>
+        <span className="k" style={{ paddingTop: 8 }}>Add a stretch of time</span>
         <div className="seg" role="group" aria-label="What happened">
           <button aria-pressed={draft.kind === "up"} onClick={() => setDraft({ ...draft, kind: "up" })}>I was up</button>
           {pets.length > 0 && <button aria-pressed={draft.kind === "pet"} onClick={() => setDraft({ ...draft, kind: "pet" })}>That was the pet</button>}

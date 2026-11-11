@@ -24,7 +24,7 @@ BUCKET_C = 2.0
 MIN_STEP_C = 1.0            # a setpoint change this big or more teaches the rate
 MAX_LEAD_S = 30 * 60
 COOL_ROOM_C = 21.0          # warming leads only below this room temperature
-WARM_ROOM_C = 23.0          # cooling leads (and an earlier pre-cool) only above it
+WARM_ROOM_C = 23.0          # cooling leads (and an earlier pre-condition) only above it
 COLD_NOTE_C = 20.0          # "the room is cold" below this
 SHORT_C = 0.5
 SHORT_FOR_S = 30 * 60
@@ -109,7 +109,7 @@ def lead_s(model: dict, room_c: float | None, cur_temp: float | None, nxt_temp: 
 
 
 def precool_lead_s(model: dict, room_c: float | None, from_c: float | None, to_c: float) -> float:
-    """Start the evening pre-cool earlier in a warm room (from `from_c`, the room / idle pad, to the first phase)."""
+    """Start the evening pre-condition earlier in a warm room (from `from_c`, the room / idle pad, to the first phase)."""
     if room_c is None or from_c is None or room_c <= WARM_ROOM_C or to_c >= from_c - 0.3:
         return 0.0
     rate = model_for(model, room_c).get("cool_rate")

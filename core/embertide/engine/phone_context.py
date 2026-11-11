@@ -72,6 +72,12 @@ def update(store, pid: str, fields: dict, now: float, device: str | None = None,
         elif not fields["charging"]:
             cur["charging_since"] = None
             cur["near"] = None
+    # bedtime mode on since when (a sign of going to sleep only when it comes on while they're in bed: sleepsign.py)
+    if "bedtime_mode" in fields:
+        if fields["bedtime_mode"] and not cur.get("bedtime_since"):
+            cur["bedtime_since"] = now
+        elif not fields["bedtime_mode"]:
+            cur["bedtime_since"] = None
     if "dials" in fields:
         side = _near_side(store, fields.get("dials") or [], now, now)
         if side:
@@ -206,6 +212,31 @@ def _near_side(store, seen: list, ts: float, now: float) -> str | None:
     other = next((r for r, s in heard[1:] if s != best_side), None)
     if best_rssi >= NEAR_RSSI or (other is not None and best_rssi - other >= CLEARER_DB):
         return best_side
+    return None
+
+
+PHONE_FRESH_S = 20 * 60        # the phone must have checked in this recently to say anything about where its owner is
+
+
+def bedside_state(store, cur: dict | None, zone: str, now: float) -> str | None:
+    """Supporting evidence for "is it them on `zone`?" (pets.py), never enough alone:
+    - "in":  the phone lies by that side's dial (on the charger or in bedtime mode), or a fresh scan heard that dial
+             strongly (NEAR_RSSI or better);
+    - "out": a fresh phone on the home Wi-Fi, NOT charging, and that side's dial not heard lately or only weakly
+             (−83 dBm from across the room counts as not at the bedside);
+    - None:  anything else, or a phone that hasn't checked in for PHONE_FRESH_S (stale is unknown, never evidence)."""
+    if not cur or not cur.get("seen") or now - float(cur["seen"]) > PHONE_FRESH_S:
+        return None
+    if bedside_side(store, cur, now) == zone:
+        return "in"
+    minors = {int(b["minor"]) for b in dial_beacons(store) if b.get("side") == zone}
+    ts = (cur.get("ts") or {}).get("dials")
+    own = [float(d.get("rssi", -999)) for d in (cur.get("data") or {}).get("dials") or []
+           if int(d.get("minor", -1)) in minors and ts is not None and now - float(d.get("seen_at") or ts) <= SIGHTING_S]
+    if own and max(own) >= NEAR_RSSI:
+        return "in"
+    if fresh(cur, "wifi_home", "wifi", now) is True and fresh(cur, "charging", "charging", now) is False:
+        return "out"
     return None
 
 

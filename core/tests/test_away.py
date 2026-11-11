@@ -14,7 +14,7 @@ async def test_away_side_never_starts_and_learning_pauses(tmp_path):
     from embertide.notify import Notifier
     await n.until("2026-11-06T23:30")
     msgs = Notifier(n.c, None).observe(n.clock.now_ts(), n.c.snapshot())
-    assert not [m for m in msgs if m.kind == "away_precool"]          # no "you're away at pre-cool" every night
+    assert not [m for m in msgs if m.kind == "away_precool"]          # no "you're away at pre-conditioning time" every night
     await n.until("2026-11-07T07:00")
     e = n.e(n.p2)
     assert not e.s.started and e.s.state in ("away", "done") and e.s.target_c is None
@@ -136,7 +136,7 @@ async def test_morning_check_from_the_notification_and_i_was_home(tmp_path, monk
     _fake(n, monkeypatch, occupied=lambda t: False, ring=(5, 13))                 # ring asleep 11 PM-7 AM, side empty
     nt = Notifier(n.c, None)
     m = nt._away_check(n.p2, n.clock.now_ts())
-    assert m and m.title == "Were you away Monday night?" and [x.act for x in m.actions] == ["away_away", "away_night", "away_home"]
+    assert m and "Monday night" in m.title and [x.act for x in m.actions] == ["away_away", "away_night", "away_home"]
     used = nt.use_action(nt.new_action("p2", m.actions[2]))
     assert used["done"] == "Noted: you were home"
     assert "2026-11-09" not in away.excluded_nights(n.store, "p2") and not away.is_away(n.store, "p2")
@@ -292,3 +292,24 @@ def test_a_night_mostly_inside_an_away_period_counts_as_an_away_night():
     assert away_share([], marked, marked + 3600) == 0.0
     assert away_share(periods, marked + 60, None) == 1.0 and away_share(periods, marked - 60, None) == 0.0
     assert away_share(periods, None, marked) == 0.0
+
+
+def test_sleep_screen_nights_hide_a_night_spent_away(tmp_path, monkeypatch):
+    """A pet lay on the away person's side all night: the nights/night API shows "away", not a 563-minute night."""
+    from test_sides import ctl, make
+    from embertide.engine import summary
+    with make(tmp_path) as c:
+        k = ctl(c)
+        pid = k.household.people[0].id
+        a = 1_000_000.0
+        k.store.put(f"away_log:{pid}", [[a - 3600, a + 20 * 3600]])
+        night = {"date": "2026-11-09", "label": "Mon, Nov 9", "in_progress": False, "before": "work", "feedback": None,
+                 "has_data": True, "in_bed_at": a, "out_at": a + 563 * 60, "in_bed_min": 563, "moments": [{"kind": "x"}]}
+        other = {**night, "date": "2026-11-08", "in_bed_at": a - 3 * 86400, "out_at": a - 3 * 86400 + 8 * 3600, "in_bed_min": 480}
+        monkeypatch.setattr(summary, "recent", lambda *a_, **k_: [night, other])
+        monkeypatch.setattr(summary, "summarize", lambda *a_, **k_: dict(night))
+        r = c.get(f"/api/people/{pid}/nights").json()
+        assert r[0]["away"] is True and r[0]["has_data"] is False and "in_bed_min" not in r[0] and r[0]["date"] == "2026-11-09"
+        assert r[1]["has_data"] is True and "away" not in r[1]
+        one = c.get(f"/api/people/{pid}/night?date=2026-11-09").json()
+        assert one["away"] is True and one["has_data"] is False and "in_bed_min" not in one

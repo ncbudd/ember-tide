@@ -39,5 +39,12 @@ jobs:
       - run: npx tsc --noEmit -p .
       - run: npm run build
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image
+        run: docker build -t ember-tide .
+
   # Not in CI: the Android app. It builds without google-services.json (push is simply disabled), but needs the
   # Android SDK and `npx cap sync`; build it locally (see docs/HANDOFF.md).

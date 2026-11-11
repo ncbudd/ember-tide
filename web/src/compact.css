@@ -166,3 +166,5 @@
 /* tablet / unfolded foldable with a keyboard: the tablet layout's own bottom padding would let the controls run
    under the key hints */
 .app.tab.compact > .screen.tn, .app.tab.compact > .screen.fill { padding-bottom: calc(var(--hint-h) + 6px); }
+.app.compact .hero .next { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@media (min-height: 700px) { .app.compact .hero .next { font-size: 13.5px; } }

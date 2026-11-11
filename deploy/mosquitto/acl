@@ -1,0 +1,8 @@
+# Access list. Rules before any "user" line apply to anonymous clients: the bed, and Ember & Tide inside
+# the same Compose project. "+" matches the bed's serial number, so you don't need to put it here.
+topic readwrite orion/+/in
+topic readwrite orion/+/out
+
+# People on a password-protected listener (if you enable one in mosquitto.conf) get their own section:
+# user homeassistant
+# topic readwrite #

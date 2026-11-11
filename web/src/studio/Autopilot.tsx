@@ -3,6 +3,7 @@ import { api } from "../api";
 import Fold from "../components/Fold";
 import ShowMore from "../components/ShowMore";
 import Tip from "../components/Tip";
+import LeftOutNights from "../components/LeftOutNights";
 import { HelpLink } from "./Help";
 import { useApp } from "../ctx";
 import { useAuth } from "../auth";
@@ -216,6 +217,7 @@ export default function Autopilot() {
             <span className="mute" style={{ fontSize: 13 }}>{lr.done
               ? "It knows what a normal night looks like for you, so it can tell an unusual one."
               : `Only watching for the first ${lr.need} nights: nothing is changed or suggested yet.`}</span>
+            <LeftOutNights learning={lr} max={7} />
             <Num label="Nights to learn first" v={pol.learn_nights} min={0} max={14} step={1} fmt={v => v === 0 ? "none" : `${v} night${v === 1 ? "" : "s"}`} set={v => upd({ learn_nights: v })} />
             {!lr.done && <div className="row" style={{ justifyContent: "flex-start" }}><button className="btn" onClick={() => upd({ learn_skip: true }, 0)}>Start suggesting now</button></div>}
             {pol.learn_skip && lr.skipped && <div className="row" style={{ justifyContent: "flex-start" }}><button className="pill" onClick={() => upd({ learn_skip: false }, 0)}>Go back to learning</button></div>}

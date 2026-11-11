@@ -99,13 +99,13 @@ async def test_server_restart_resumes_from_the_store(tmp_path):
     assert not any(m["kind"] == "rhythm_restarted" for m in s["p1"]["moments"])
 
 
-@pytest.mark.parametrize("order", ["together", "tower_first", "bed_first"])
+@pytest.mark.parametrize("order", ["together", "hub_first", "bed_first"])
 async def test_both_lose_power(tmp_path, order):
     r = Rig(tmp_path, "2026-11-05T22:00")
     ev = {"2026-11-06T02:30": lambda r: (r.crash(), r.bed.power_off())}
     if order == "together":
         ev["2026-11-06T03:15"] = lambda r: (r.boot(), r.bed.power_on())
-    elif order == "tower_first":
+    elif order == "hub_first":
         ev["2026-11-06T03:05"] = lambda r: r.boot()
         ev["2026-11-06T03:15"] = lambda r: r.bed.power_on()
     else:

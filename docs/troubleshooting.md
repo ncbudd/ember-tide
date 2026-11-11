@@ -1,0 +1,89 @@
+# Troubleshooting
+
+Start with the server log (`docker compose logs -f embertide`) and Studio, **Bed hub** and **Overview**; both say in plain
+words what the bed and each sensor are doing.
+
+## The bed hub won't connect
+
+1. **Does the name resolve to your broker?** From another computer: `nslookup dev.orionbed.com` must print your broker's address.
+   If it prints a public address, the DNS record isn't being used. Check the record, and that your devices (and the hub) use your
+   router or DNS server for DNS.
+2. **Did you power-cycle the bed after adding the record?** The hub only looks up the name when it starts.
+3. **Is the broker listening for the bed?** `docker compose ps` shows `mosquitto` healthy; port 1883 must be reachable from the bed's
+   network (check a firewall between the two). `docker compose logs mosquitto` should show a new client when the bed starts.
+4. **Does the bed reconnect over and over?** Use Mosquitto **2.0.20**. 2.0.21 changed keep-alive handling in a way the bed's firmware
+   doesn't like.
+5. **Is a rule refusing the hub's messages?** The access list allows only `orion/+/in` and `orion/+/out`. If you edited it, or the
+   broker log shows denied publishes, restore the two `topic readwrite` lines from `deploy/mosquitto/acl`.
+6. **Server side:** `ET_BED=orion-mqtt` and `ET_MQTT_URL` pointing at the broker as seen from the server (`mqtt://mosquitto:1883`
+   inside the same Compose project, not `localhost`). If you have several beds, set `ET_ORION_SERIAL`.
+7. Watch for messages directly: `docker compose exec mosquitto mosquitto_sub -t 'orion/+/out' -C 3`.
+
+## Both sides say "unknown" (or someone is shown as not in bed while lying there)
+
+- The bed isn't reporting: see above. The status line on Tonight says "The bed isn't answering right now".
+- A bed sensor whose internal clock stops changing is treated as **stale**, not as a person or an empty bed. After a hub restart it
+  recovers within a minute or two.
+- Occupancy has to hold for three seconds before it counts; a quick sit-and-stand won't start a night.
+- Check Studio, Nights explorer, "In bed: bed's own sensor" against "final answer" to see which source said what.
+
+## One person shows up on both sides ("echo")
+
+The sensor strip often picks one sleeper up on both pads with identical readings. Ember & Tide ignores the echo side by itself.
+If it gets it wrong, tell it who is where: add a **bed scale** or **presence radar** in Studio, Devices & calibration (they are
+the most reliable way to tell two people apart), and use "Fix this night" on the Sleep screen for past nights.
+
+## Push notifications don't arrive
+
+- **Studio, Notifications** lists the phones that are signed up and a warning for anyone who has none ("Alex's notifications aren't
+  reaching any phone"). Turn notifications on per phone: More, Settings, Notifications.
+- **Android with Google push**: needs your own `google-services.json` in the app build and `fcm-service-account.json` on the server
+  ([Android](android.md)). Studio shows "On (Firebase project ...)" when the server side is ready. Battery optimisation on some phones
+  stops background delivery; allow the app to run in the background.
+- **Android without Google (ntfy/UnifiedPush)**: install the ntfy app, make sure Studio, Notifications has the same ntfy server, and
+  that a self-hosted ntfy allows writes to `up*` topics.
+- **iPhone / browsers (Web Push)**: needs HTTPS, iOS 16.4+, and the app opened from the Home Screen icon. Set `ET_PUBLIC_URL`. Send a test
+  from Studio, Notifications.
+- **Buttons in notifications do nothing**: the phone has to reach the server at `ET_PUBLIC_URL`. At home the LAN address works; away
+  from home you need a reachable HTTPS address. Each button works once and expires after 12 hours.
+- **Quiet hours** hold non-urgent messages until morning, and each kind has a daily cap by design.
+- Test through the same path: Studio, Notifications, **Test**.
+
+## Home Assistant entities are missing
+
+1. **Studio, Integrations, Home Assistant** should say connected. If not, the broker address is wrong or the login is rejected
+   (`ET_HA_MQTT_URL=mqtt://user:password@host:1883`).
+2. Home Assistant needs the **MQTT integration** set up against the same broker, and the discovery prefix must match (`homeassistant`
+   by default, `ET_HA_DISCOVERY_PREFIX`).
+3. Press **Publish again** on that Studio page; entities show within seconds. Entity ids start with `climate.embertide_<name>`, the names
+   are the people's names.
+4. Changed a name? Home Assistant keeps the old entity id; remove and republish from the same Studio page.
+
+## Health Connect data arrives late or not at all
+
+- Watches write a night's heart rate, SpO2 and sleep into Health Connect **hours after waking**, especially Samsung Health. Ember & Tide
+  re-reads the last 48 hours on every sync, so a night fills in during the day. Open the app once to force a sync.
+- Check the permissions: Health Connect, App permissions, Ember & Tide, and "Read in the background" (Allow).
+- Settings, Watch or ring shows each night's coverage per device and what is missing in plain words.
+- `adb logcat -s EmberHealth` shows each sync's window and counts per kind (no values).
+- Two apps writing the same reading is handled: duplicates are dropped when the original app has a reading within 30 seconds.
+
+## I can't create the owner account
+
+First-time setup only works from your home network, on the server's local address (`http://192.168.1.20:8790`), never through a proxy
+or tunnel. Use the local address once, then sign in from anywhere. Locked out later:
+`docker exec -it ember-tide python -m embertide reset-password <username>`.
+
+## The phone app says "Lost the connection"
+
+The phone can't reach the server: wrong network, VPN or tunnel down, or the server is off. Away from home, the app needs your
+HTTPS address, entered as the server address at sign-in.
+
+## Times are an hour out or the night starts at the wrong time
+
+`ET_TZ` (and `TZ`) must be your real time zone, and the Compose file needs both. After changing it, restart the container.
+
+## Still stuck
+
+Open an issue with the version (`/healthz` shows it), what you expected, what happened, and the relevant log lines. Please remove
+passwords, tokens and serial numbers first.

@@ -85,7 +85,7 @@ def test_presence_stale_clock_is_unknown():
 def test_rhythm_starts_only_after_confirm_inside_window():
     e = NightEngine(person(), TZ)
     t = ts("2026-11-05T20:30")
-    assert e.tick(t, True) is None and e.s.state == "day"            # before pre-cool, in bed early, outside window
+    assert e.tick(t, True) is None and e.s.state == "day"            # before pre-condition, in bed early, outside window
     t = ts("2026-11-05T21:40")
     e.tick(t, False)
     assert e.s.state == "waiting" and e.s.target_c == pytest.approx(f_to_c(68), abs=0.01)

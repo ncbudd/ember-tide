@@ -438,7 +438,9 @@ def build_router(app_state) -> APIRouter:
     async def nights(pid: str, count: int = 7):
         from .engine.summary import recent
         c = ctl()
-        return recent(c.store, find(pid), c.clock.tz, c.clock.now_ts(), max(1, min(30, count)))
+        from .engine.away import hide_away_night
+        now = c.clock.now_ts()
+        return [hide_away_night(c.store, pid, n, now) for n in recent(c.store, find(pid), c.clock.tz, now, max(1, min(30, count)))]
 
     @r.get("/people/{pid}/night")
     async def night(pid: str, date: str | None = None):
@@ -451,6 +453,10 @@ def build_router(app_state) -> APIRouter:
         s = summarize(c.store, p, d, c.clock.tz, c.clock.now_ts(), series=True)
         if s is None:
             raise HTTPException(404, "no rhythm for that night")
+        from .engine.away import hide_away_night
+        gone = hide_away_night(c.store, pid, s, c.clock.now_ts())
+        if gone is not s:
+            return gone                              # away for most of it: no sleep numbers, just the marker
         from .engine.stages import collect
         from .engine.summary import night_window
         win = night_window(p, d, c.clock.tz, c.clock.now_ts())

@@ -1,5 +1,5 @@
 """Rhythm edges: a very late bedtime (3 AM with a 7 AM wake), 1 AM, half an hour before wake, an afternoon nap, a
-day-off rhythm. Work-night rhythm: bed 22:30, wake 07:00, pre-cool 45 min, wind-down, fall asleep (in bed), deep
+day-off rhythm. Work-night rhythm: bed 22:30, wake 07:00, pre-condition 45 min, wind-down, fall asleep (in bed), deep
 (in bed + 40), late night (03:00), warm wake (wake − 30)."""
 
 import pytest
@@ -68,7 +68,7 @@ async def test_three_am_arrival_end_to_end(tmp_path):
                 seen[hm] = (rig.e(rig.p1).s.state, rig.e(rig.p1).s.phase_id, rig.bed.z["left"].on,
                             rig.e(rig.p2).s.state, rig.e(rig.p2).s.phase_id)
     await r.run("2026-11-06T07:30", script=script_late("2026-11-06T03:00"), watch=watch)
-    # empty all evening: pre-cools until the "pre-cool an empty side until" time (01:30 + 30 min hold), then off
+    # empty all evening: pre-conditions until the "pre-condition an empty side until" time (01:30 + 30 min hold), then off
     assert seen["21:50"][:3] == ("waiting", "wind_down", True)
     assert seen["01:45"][:3] == ("waiting", "wind_down", True)
     assert seen["02:30"][:3] == ("missed", None, False)
@@ -88,7 +88,7 @@ async def test_three_am_arrival_end_to_end(tmp_path):
     assert s["times_up"] == 0
     s2 = summarize(r.store, r.p2, r.e(r.p2).night.date, TZ, r.clock.now_ts())
     assert s2["late_by_min"] is None
-    # one "pre-cooled but empty" note for the late one, nothing for the partner
+    # one "pre-conditioned but empty" note for the late one, nothing for the partner
     # (at 2:30 AM it waits for the morning: quiet hours from midnight, notify.py)
     assert r.told("p1").count("empty_side") + r.told("p2").count("empty_side") == 1
 

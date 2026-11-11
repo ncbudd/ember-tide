@@ -220,6 +220,11 @@ class Store:
                 self._sources = {x for x in self._sources if not x.startswith(prefix)}
             return n
 
+    def delete_samples_between(self, source: str, since: float, until: float) -> int:
+        """One source's readings in [since, until) (a repair of a bad import; the phone sends them again)."""
+        with self._lock, self._db:
+            return self._db.execute("DELETE FROM samples WHERE source=? AND ts>=? AND ts<?", (source, since, until)).rowcount
+
     def delete_keys(self, prefix: str) -> int:
         with self._lock, self._db:
             return self._db.execute("DELETE FROM kv WHERE substr(key, 1, ?)=?", (len(prefix), prefix)).rowcount

@@ -1,27 +1,66 @@
-# Copy to docker-compose.yml and pick ONE bed connection below.
-# Ember & Tide never updates itself: rebuild from a newer checkout when you choose to.
+# Ember & Tide with its own MQTT broker for the bed.
+#
+#   cp docker-compose.example.yml docker-compose.yml
+#   set your time zone below, then:   docker compose up -d --build
+#   open http://<this-machine>:8790 from a device on your home network
+#
+# It starts with the built-in simulator, so you can look around before touching the bed. To connect the bed,
+# switch to option B below (after the DNS step in docs/install.md) and run `docker compose up -d` again.
+# Ember & Tide never updates itself: pull a newer checkout and run `docker compose up -d --build` when you choose.
+# Full guide: docs/install.md
+
 services:
   embertide:
-    build: .                          # builds from this checkout (a published image will be listed here once there is one)
+    build: .                                   # builds the web app and the server from this checkout
+    container_name: ember-tide
     restart: unless-stopped
     ports:
-      - "8790:8790"
+      - "8790:8790"                            # web app and Studio; put HTTPS in front before exposing it (docs/install.md)
     volumes:
-      - ./data:/data
+      - ./data:/data                           # the whole database lives here: back this folder up
     environment:
-      TZ: America/New_York            # your time zone (schedules depend on it)
+      TZ: America/New_York                     # YOUR time zone: schedules are local time
       ET_TZ: America/New_York
 
-      # --- Option A: try it first with the simulator (default) ---
+      # --- Which bed? Pick ONE of A, B or C. ---
+      # A) Simulator: try everything without a bed.
       ET_BED: sim
-
-      # --- Option B: Orion cloud with a personal API key (easiest real setup) ---
-      # Create a key at https://app.orionsleep.com/api-keys
+      # B) Orion fully local over MQTT, through the broker below (recommended; needs the DNS step in docs/install.md).
+      # ET_BED: orion-mqtt
+      # ET_MQTT_URL: mqtt://mosquitto:1883
+      # ET_ORION_SERIAL: OSCTXXXXXXXX          # optional; auto-detected from the first bed that reports
+      # C) Orion cloud with a personal API key (no broker needed; you can delete the mosquitto service).
       # ET_BED: orion-cloud
       # ET_ORION_API_KEY: os_live_xxxxxxxx
 
-      # --- Option C: Orion fully local over MQTT (advanced, see docs/LOCAL.md) ---
-      # Needs your own MQTT broker and a router DNS record dev.orionbed.com -> broker IP.
-      # ET_BED: orion-mqtt
-      # ET_MQTT_URL: mqtt://192.168.1.10:1883
-      # ET_ORION_SERIAL: OSCT...       # optional; auto-detected from the first bed that reports
+      # --- Optional ---
+      # ET_PUBLIC_URL: https://sleep.example.com              # how phones reach the server; makes notification buttons work
+      # ET_TRUST_PROXY: "on"                                  # only behind a reverse proxy or tunnel
+      # ET_HA_MQTT_URL: mqtt://user:pass@192.168.1.10:1883    # Home Assistant's broker (docs/install.md)
+    depends_on:
+      mosquitto:
+        condition: service_healthy
+    # The image has this check built in; it is spelled out here so `docker compose ps` shows it and you can tune it.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8790/healthz')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  mosquitto:
+    # The version is pinned on purpose. 2.0.20 is recommended: 2.0.21 changed keep-alive handling in a way the bed's
+    # firmware does not like, and the bed drops off now and then. Move up only after checking the bed stays connected.
+    image: eclipse-mosquitto:2.0.20
+    container_name: ember-tide-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"                            # the bed connects here. LAN only: never forward this port on your router
+    volumes:
+      - ./deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./deploy/mosquitto/acl:/mosquitto/config/acl:ro
+      # - ./deploy/mosquitto/passwd:/mosquitto/config/passwd:ro   # only with the optional password listener
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 1883 || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

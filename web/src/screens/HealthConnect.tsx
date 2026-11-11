@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
+import { api } from "../api";
 import Fold from "../components/Fold";
+import { useApp } from "../ctx";
 import { healthConnect, healthDisconnect, healthOpen, healthSetTypes, healthStatus, healthSync, type HealthReport, type HealthStatus } from "../native";
 
 const NAMES: Record<string, string> = {
@@ -32,18 +34,30 @@ const ago = (ms: number) => {
 
 function summary(r: HealthReport): string {
   const parts = Object.entries(r.stored).filter(([, n]) => n > 0).map(([k, n]) => k === "sleep_sessions" ? `${n} sleep night${n > 1 ? "s" : ""}` : `${n.toLocaleString()} ${NAMES[k] ?? k}`);
-  return parts.length ? `Added ${parts.join(", ")}.` : "Nothing new since the last sync.";
+  const had = Object.entries(r.already ?? {}).filter(([k, n]) => n > 0 && k !== "sleep_sessions").reduce((p, [, n]) => p + n, 0);
+  const text = parts.length ? `Added ${parts.join(", ")}.` : "Nothing new since the last sync.";
+  return had ? `${text} ${had.toLocaleString()} reading${had === 1 ? " was" : "s were"} already here.` : text;
 }
+
+const NIGHT_LABEL = (d: string) => new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+
+/** Recent nights from the server: what the watch or ring sent for each and what's still missing (and why). */
+type WearNight = { date: string; text: string; stages: string[]; hr: Record<string, number>; live: number | null };
 
 /** Watch or ring data from the phone's Health Connect, for Autopilot and the tuning guide. Only inside the Android app. */
 export default function HealthConnect() {
+  const { me } = useApp();
   const [st, setSt] = useState<HealthStatus | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [showDetails, setShowDetails] = useState(false);
+  const [nights, setNights] = useState<WearNight[]>([]);
 
-  const load = () => healthStatus().then(setSt).catch(() => setSt(null));
-  useEffect(() => { load(); }, []);
+  const load = () => {
+    healthStatus().then(setSt).catch(() => setSt(null));
+    if (me) api.get<WearNight[]>(`/api/people/${me.id}/wearable/nights?days=7`).then(setNights).catch(() => setNights([]));
+  };
+  useEffect(() => { load(); }, [me?.id]);
   if (!st) return null;
 
   const run = async (label: string, f: () => Promise<unknown>) => {
@@ -89,7 +103,7 @@ export default function HealthConnect() {
   const trouble = st.sdk === "update" || (st.connected && st.needs_permission.length > 0) || !!(r && r.warnings.length);
   const sum = st.sdk === "unavailable" ? "Not on this phone" : st.sdk === "update" ? "Needs installing"
     : !st.connected ? "Not connected" : `Connected · ${st.last ? `synced ${ago(st.last)}` : "not synced yet"}`;
-  return <Fold id="settings.health" title="Watch or ring" summary={trouble ? `${sum} · needs a look` : sum} attention={trouble}>
+  return <Fold id="settings.health" anchor="watch" title="Watch or ring" summary={trouble ? `${sum} · needs a look` : sum} attention={trouble}>
     <div className="card list">
       {st.sdk === "unavailable" && <p className="mute" style={{ fontSize: 13, padding: "10px 0" }}>Health Connect isn't available on this phone.</p>}
       {st.sdk === "update" && <div className="row" style={{ padding: "6px 0" }}>
@@ -120,8 +134,14 @@ export default function HealthConnect() {
           {r.nights_rechecked > 0 && <span>Autopilot re-checked {r.nights_rechecked} night{r.nights_rechecked > 1 ? "s" : ""} with the new data.</span>}
           {r.warnings.map((w, i) => <span key={"w" + i} style={{ color: "var(--warn)" }}>{w}</span>)}
           {r.notes.map((n, i) => <span key={"n" + i} className="mute">{n}</span>)}
-          <span className="mute">Read from Health Connect: {Object.entries(r.read).filter(([, n]) => n > 0).map(([k, n]) => `${k.replace(/_/g, " ")} ${n}`).join(" · ") || "nothing"}</span>
+          <span className="mute">Read from Health Connect{r.from ? ` (since ${new Date(r.from).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })})` : ""}: {Object.entries(r.read).filter(([, n]) => n > 0).map(([k, n]) => `${k.replace(/_/g, " ")} ${n}`).join(" · ") || "nothing"}</span>
+          {(r.detail ?? []).length > 0 && <span className="faint">By app: {r.detail!.filter(d => d.samples > 0 || d.records > 0).map(d => `${d.kind.replace(/_/g, " ")} from ${d.from} ${d.samples || d.records}`).join(" · ")}</span>}
         </div>}
+        {nights.length > 0 && <Fold id="health.nights" title="Your recent nights" summary={`${nights.filter(n => n.stages.length).length} of ${nights.length} with sleep stages`}>
+          <div style={{ display: "grid", gap: 8, fontSize: 13, padding: "4px 0 8px" }}>
+            {nights.map(n => <span key={n.date}><b>{NIGHT_LABEL(n.date)}</b> · <span className="mute">{n.text}</span></span>)}
+          </div>
+        </Fold>}
       </>}
       {st.sdk === "available" && <>
         <Fold id="health.night" title="For the night" summary={`${KINDS.filter(k => k.group === "night" && st.types.includes(k.key)).length} shared`} defaultOpen={!st.connected}>{list("night")}</Fold>

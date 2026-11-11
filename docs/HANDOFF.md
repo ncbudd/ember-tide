@@ -4,7 +4,13 @@ Where the project stands and how to work on it. Household-specific details (addr
 deploy targets) are deliberately NOT in this repo; they live in a private notes file next to it
 (`../ember-tide-private/HANDOFF-PRIVATE.md`). Read both before changing anything that touches a real bed.
 
-Last updated: 2026-11-07.
+Last updated: 2026-11-11.
+
+**2026-11-11, public-repo refresh.** README rewritten as a project front page with screenshots (`docs/images/`, made with
+`scripts/screenshots/`); new guides `docs/install.md`, `docs/bed-cutover.md` (replaces LOCAL.md), `docs/android.md`,
+`docs/configuration.md` (all `ET_*` variables), `docs/troubleshooting.md`; `docker-compose.example.yml` now includes a pinned Mosquitto 2.0.20
+with `deploy/mosquitto/{mosquitto.conf,acl}`; CONTRIBUTING, CODE_OF_CONDUCT, CHANGELOG, issue and PR templates; CI also builds the image.
+Two test files were reworded so `publish_check.py` is clean (`hub_first`, banned-word list). The repository is still private.
 
 ## What it is
 
@@ -162,6 +168,12 @@ npm audit --omit=dev ; uvx pip-audit -r <freeze>              # deps (2 moderate
 Simulation lab: tests/lab.py + test_lab_*.py (profiles over many nights, wearable misalignment, fusion, decisions,
 replay, context combinations), test_context, test_calibration, test_guide, test_real_hc (real Health Connect data,
 skipped unless ET_REAL_HC points at the private extract).
+Whole-night simulations of presence, sensors and the night engine: `tests/simnight.py` (the kit: `Sim` rig with a recorder,
+`Plan` for who is in bed when, HA / MQTT / phone / watch devices, a bed with garbage frames, a stale clock, ignored commands)
+and `test_sim_night_{sensors,people,time,controls,calibration,gaps}.py`. `xfail` there means a judgement call or a known gap
+(the reason says which and what the question or proposed wording is); `test_sim_night_gaps.py` is strict, so it fails loudly
+when a missing notification is added and the marker should come off. Radar tests need a step of about a minute (the settle-in
+check wants samples); `Sim.add` handles that.
 Key suites: test_scenarios (night situations end to end), test_use_cases (sensors start/stop nights, every Tonight
 button over HTTP, settings, rhythm editor), test_studio_sweep (every Studio call), test_devices (device types),
 test_notify (triggers, push, FCM, fallback), test_webpush, test_autopilot_suite, test_auth.
@@ -223,7 +235,20 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   is steady) held 5 min, early in the stretch, never after it agreed → "not me" vote; radar/scale seeing a person wins.
   Weights follow "Which to trust more" (AutopilotPolicy.trust_more). fused[zone]["watch"] has the verdict.
 - Pets: watch mismatch, far outside the learned range (Autopilot band hr/br, after the learning week) and learned pet
-  signatures (kv pet_sigs) on an otherwise empty side. Pet questions (kv pet_questions, one open per person, grouped per
+  signatures (kv pet_sigs) on an otherwise empty side ("otherwise empty" comes from the strip's own stretch, watch or
+  not). Sleeper marked away (not a guest's side): the strip occupied 3 min = the pet, evidence "away" ("you're away,
+  so this is probably <pet>"; "a pet" when several fit and none is told apart), unless a radar there sees someone for
+  most of the stretch (then left for the morning away check) or their watch says it's them; the stay is held for
+  learning even when the radar zone saw nobody (pets.py AWAY_CONFIRM_S, away.hold).
+- Is it them or the dog, outside a running night (pets.py `_identity`, controller `_pet_hints`): watch "not me" = the
+  pet even when the radar sees someone (it sees the dog); their phone (phone_context.bedside_state: fresh within 20 min,
+  home Wi-Fi, not charging, own dial unheard or weaker than −70 dBm = "out"; bedside charger or a strong own dial =
+  "in"; stale = unknown) alone = the pet only before the usual bedtime, with a pet allowed there and the readings like
+  its signature or no learned range yet, held 5 min: it holds off an early start, never ends a running night or an
+  out-of-bed hold. Watch "me" overrides both. With a pet allowed on a side, a radar seeing "someone" no longer ends the
+  wait for the watch's verdict (scale still does). By day/evening the watch is asked for heart rate for the first
+  20 min of a stretch, at most 3 stretches an hour (watch.day_ask; the phone checks in every 15 min, so 10 min could be
+  missed). Tests: test_sim_night_dog_identity.py. Pet questions (kv pet_questions, one open per person, grouped per
   night) on Tonight, Sleep and Studio Nights; Yes teaches the signature, "No, it was me" widens kv person_range:<pid>.
 - Corrections: kv night_fix:<pid>:<date> laid over summaries (raw kept in `raw`), win for Autopilot learning; per-person
   in-bed offset kv inbed_offsets:<pid>. Comparison: GET /api/people/{pid}/compare (also in /night). Tuning:
@@ -237,11 +262,32 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   range and don't teach it (`Window.unlearned`). If a known device reports in the same window, the new one is matched
   to it there and then. `Autopilot.skin()` / `wear_hr()` return the lined-up series; `wear_hr(level=False)` is raw (the
   comparison uses raw). The same reading under two names (live watch path + a Health Connect import, ≤ 2 s apart)
-  counts once, at import and at read time.
+  counts once, at import and at read time. A copying app (Health Sync etc., `wearables.COPY_APPS`) with the same value
+  as another app within 30 s (`COPY_S`, as on the phone) is a copy: the original app's reading is kept (it replaces a
+  copy that arrived first). Two real devices (a watch and a ring) keep the 2 s rule.
+- Flat heart rate (an import of 30+ readings with spread under 0.6 bpm: probably not worn) is stored and marked
+  (kv `wear_flat:<pid>`, `wearables.mark_flat`), never deleted. `device_series` leaves marked stretches out by default,
+  so baselines, wearable levels, live evaluation and the bed comparison never use them; the device list, the Sleep
+  screen's comparison (`not_worn` + a plain line) and Settings → Watch or ring coverage still show them.
 - `Autopilot.wearable_status()` → `/autopilot` `wearables` (learning / lined up / quiet, with `text` such as
   "New ring (Oura): learning its readings for 2 more nights"); Insights shows a card for a learning or quiet device
   (`studio_api.wearable_cards`). `compare_night` has `devices` and a "Readings from …" line; rechecks store `devices`.
 - Lab: tests/lab.py `Wearable` (name, skin/hr, bias, sampling, gaps, live path, on/off); test_lab_wearable_switch.py.
+
+### Health Connect sync and import timing (HealthSync.kt, HealthMerge.kt, align.py, autopilot_api._import_wearable)
+- Watch apps (Samsung Health in particular) write a night's heart rate, SpO2 and sleep session into Health Connect hours
+  late, and Health Connect matches series/session records by START time. So every sync re-reads at least the last 48 h
+  (`HealthMerge.readFrom`) and queries a day earlier still (`queryFrom`); the server drops exact repeats of a device's
+  own readings before anything else. Sleep sessions are sent when new or changed (prefs `hc_sessions_sent`: id → last
+  change). Copies by Health Sync etc. are dropped only where the original app has a reading within 30 s.
+- Clock shifts: phone data carries the phone's clock, so times are kept unless `align.judge` finds strong evidence
+  (distinct best fit, r ≥ 0.6, ≥ 120 min overlap, beats no-shift by 0.15). Short/patchy imports get a plain note, not a
+  warning. The watch's live heart rate (`watch_live`) vouches for timing when it overlaps (`align.live_agreement`).
+- `GET /api/people/{pid}/wearable/nights` (per night: HR coverage per device, stages, plain text about what's missing;
+  shown in Settings → Watch or ring). `POST /api/people/{pid}/wearable/repair` (`wear_repair.py`): undoes heart-rate
+  shifts older versions applied on weak evidence by forgetting those readings; lists by default, `{"apply": true}`
+  carries it out once (kv `wear_repair:*`); then tap Re-import last 7 days on the phone.
+- Phone log: `adb logcat -s EmberHealth` shows each sync's window and per kind/app counts and time ranges (no values).
 
 ### Assistant (assistant.py, assistant_api.py, ai.py; web studio/Insights.tsx Ask panel)
 - `/api/assistant/ask` → answer + change cards. Tools (assistant.ACTIONS, JSON schema + strict pydantic): adjust_tonight,
@@ -283,6 +329,14 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   `ap_shown:<pid>`), "Not now" rests a phase+direction 14 nights. `POST /people/<pid>/autopilot/recalibrate` sets
   `learn_since` (only later nights teach), resets trust, deletes that person's autopilot events, ap:<pid>:* samples,
   rechecks and suggestion history; settings saves can't move `learn_since`. Recheck stores `moments`, `text`.
+- Learning nights left out (autopilot._nights, each with a plain reason in `learning.left_out`, shown on the Studio
+  Autopilot card and phone Settings while learning): under 3 h in bed, away, 2 h+ later than usual, ring says running
+  warm, plan mostly not running, and (2026-11-11) the bed or server off for 60 min+ while in bed (summary `outage_min`:
+  holes of 10 min+ in the 15 s history; `OUTAGE_MIN`) or awake and moving for half the time in bed or more (summary
+  `awake_moving_share`: 10-minute steps with active.py's signs, no 2 h limit; `AWAKE_SHARE`).
+- Learned restlessness (restless_p90, band.restless) pools the learning nights' 10-minute windows as before, but with 3+
+  nights a night whose own 90th percentile is over twice the middle night's and 0.10+ above it is left out of that pool
+  (`Autopilot._usual_restless`); same meaning and scale, unchanged for ordinary weeks.
 - Pets editor: a form with Save; saved pets are summary cards with Edit/Remove.
 - Devices (studio/Devices.tsx): ONE add flow (studio/AddDevice.tsx) from both "+ Add a device" and the catalog tiles:
   kind → (wearable: brand, from web/src/wearables.ts) → path (HA / MQTT / calendar link / phone app / Health Connect /
@@ -320,7 +374,7 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   wake with under half its fair share, those phases are squeezed proportionally (a 3 AM start with a 7 AM wake: fall
   asleep 03:00, deep ~03:17, late ~04:58, warm wake 06:30 as usual). A little late keeps the usual layout. The
   `rhythm_started` event carries `fitted`; summaries mark `late_by_min` (≥ 2 h after bedtime); Autopilot doesn't
-  learn from nights that started 2 h+ later than the person's own median in-bed time. Pre-cooling an empty side still follows "Pre-cool an empty side until" (window_end).
+  learn from nights that started 2 h+ later than the person's own median in-bed time. Pre-conditioning an empty side still follows "Pre-condition an empty side until" (window_end).
 - A night given up early starts again (night.py `_given_up_early`): a night started by presence, then out of bed
   60 min+ without a break (`REANCHOR_AWAY_S`), having got up within 45 min of the start (`REANCHOR_IN_BED_S`), or
   within 90 min when up before the usual bedtime (`REANCHOR_EVENING_IN_BED_S`), and not in the last 2 h before wake:
@@ -329,6 +383,18 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   `was_in_bed`, `up_since`); summaries count in bed from the new start (`earlier_in_bed` note), the story says
   "Started again from the beginning (you'd been up since …)". A next-phase change from the given-up night ends; a
   whole-night change carries. A 3 AM hour up after hours asleep resumes as always.
+- In bed early, waiting for sleep (night.py `_sleep_tick`, engine/sleepsign.py; `Schedule.wait_for_sleep`, default on,
+  phone Rhythm tab + Studio Rhythm editor under "Start when I'm in bed on my side"): a night started by getting in before
+  the usual bedtime runs as always but the in-bed phases after the first ("Deep" at in-bed + 40) count from the sleep
+  anchor `NightState.sleep_at` (persisted), the earliest of: phone bedtime mode coming on after getting in
+  (`phone_ctx.bedtime_since`), the phone going on the charger after getting in by their own dial (`bedside_side`),
+  the bed settling (still in 90%+ of readings for 30 min and the heart rate in each 5 min of the last 15 at least 4 bpm
+  under the 15 min before that stretch; never while active), a live sleep-stage segment from a watch/ring, a bedroom
+  light going off, and the usual bedtime as the backstop (no signs = as if they got in at bedtime). Signs only count
+  while they're in bed on their side. Event `sleep_anchor` (`at`, `why`), trace `night.sleep`, snapshot `night.sleep`
+  and `when_settled` on pending phases / `next`; Tonight says "In bed · waiting until you settle to sleep", the
+  plan says "When you settle", the story "You settled around …". Getting in at or after bedtime, start now, the
+  schedule start and the setting off are unchanged. Tests: test_sim_night_sleepsign.py.
 - Restarts / power cuts (controller._restore): nights are persisted with `_saved_at`; downtime doesn't count towards
   an out-of-bed hold; presence is judged afresh, and when both pads come back with identical readings the side whose
   night is running is the real one (PresenceFilter.prefer, `_tie_echo`). No telemetry from a frozen frame while the
@@ -345,7 +411,7 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   `padlag:<zone>`) how fast its pad warms / cools per 2 °C room bucket. In a room under 21 °C a warmer next phase
   starts early by the lag beyond its ramp (≤ 30 min, ≤ half the current phase; not after a "too hot" tap in the last
   30 min; flash/override/guest unchanged; the phase name doesn't change early); above 23 °C the same for cooler phases
-  and the evening pre-cool. A steady warm target missed by > 0.5 °C for 30 min in a room under 20 °C gives
+  and the evening pre-condition. A steady warm target missed by > 0.5 °C for 30 min in a room under 20 °C gives
   night.room_note (Tonight) and one `room_cold` story moment per phase ("The room is cold (65°), so your side is running
   a little below 80°"); Autopilot then ignores the bed-temperature band (Window.room_short). No room sensor = no change.
   Tests: test_cold_room.py (sim_edges.RoomBed; SimBed._drive is the thermal hook).
@@ -355,6 +421,9 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   screens/SettingsSleep.tsx): change one, both follow. Left/right shown to people always goes through sideTitle /
   sideLower / sideWord (bed orientation); stories and questions for a person say "your side".
 - Settings autosave; destructive actions confirm inline; sheets close by swipe, outside tap, Esc and Android back.
+- One calm note at a time on Tonight, highest first: no connection > bed not reporting > bed hub problem (App.tsx
+  banners) > away > pet question > care due > a suggestion (Today card). Order lives in Tonight.tsx `.notes` + theme.css.
+- Tonight's hero: one primary line (what the side is doing), one quieter line (what happens next and when).
 - Every write needs the `X-Embertide` header (CSRF guard); the app sends a Bearer token instead of the cookie.
 - Server validates everything it stores (ranges, roles, push endpoints only on the owner-approved host).
 - Tests accompany behaviour changes; run the full suite before deploying.

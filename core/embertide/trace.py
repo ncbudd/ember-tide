@@ -55,6 +55,18 @@ def frame(ctl) -> dict:
         if st is not None:
             row["night"] = {"state": getattr(st, "state", None), "phase": getattr(st, "phase_id", None),
                             "target": _r(getattr(st, "target_c", None), 2), "started": getattr(st, "started", None)}
+            settle = (ctl.__dict__.get("_settle_info") or {}).get(p.id)    # why the night has (not) started yet
+            if settle:
+                row["night"]["settle"] = {"gate": settle.get("gate"), "why": settle.get("why"), "share": settle.get("share")}
+            # in bed early: waiting for a sign of sleep, or when and why the night moved on (engine/sleepsign.py)
+            try:
+                waiting = bool(e.waiting_for_sleep())
+            except Exception:  # noqa: BLE001
+                waiting = False
+            if waiting or getattr(st, "sleep_at", None) is not None:
+                sg = getattr(e, "sleep_sign", None)
+                row["night"]["sleep"] = {"waiting": waiting, "at": _r(getattr(st, "sleep_at", None), 0),
+                                         "why": getattr(st, "sleep_why", None), "sign": list(sg) if sg else None}
         cur = PC.latest(ctl.store, p.id) or {}
         data = cur.get("data") or {}
         if data:

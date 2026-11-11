@@ -46,9 +46,9 @@ export function mmss(sec: number): string {
 }
 
 export const STATE_TEXT: Record<string, string> = {
-  day: "Off until wind-down", waiting: "Pre-cooling · waiting for you", rhythm: "Following your rhythm",
-  out_of_bed_hold: "Out of bed · holding your side", out_of_bed: "Out of bed · side off", away: "You're away · pre-cool on hold",
-  missed: "Pre-cool paused · starts when you're in bed", guest: "Lent to a guest", done: "Done for the night", skipped: "Off tonight", paused: "Paused", no_rhythm: "No rhythm set",
+  day: "Off until wind-down", waiting: "Pre-conditioning · ready for bed", rhythm: "Following the rhythm",
+  out_of_bed_hold: "Out of bed · side kept ready", out_of_bed: "Out of bed · side off", away: "Not home yet · pre-condition waits",
+  missed: "Pre-condition stopped · starts when you get in", guest: "Lent to a guest", done: "Done for the night", skipped: "Off tonight", paused: "Paused", no_rhythm: "No rhythm set",
 };
 
 export const COLORS: { key: Exclude<ColorKey, "">; name: string }[] = [
@@ -85,7 +85,7 @@ export function contextText(n: NightView, now: number, tz: string): string | nul
   const c = n.context;
   if (!c || n.started) return null;
   if (c.heading_home && c.eta_min != null) return `On the way home · about ${Math.max(1, Math.round(c.eta_min))} min`;
-  if (n.state === "away") return "Away · pre-cool waits for you";
+  if (n.state === "away") return n.away ? null : "Not home yet · pre-condition waits";
   const until = c.event_end ?? c.busy_until;
   if (until && until > now) return `Out until ${clock(until, tz)}`;
   if (c.early_start && c.early_start > now) return `Early start tomorrow · ${clock(c.early_start, tz)}`;

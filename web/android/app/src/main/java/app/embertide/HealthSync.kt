@@ -41,14 +41,15 @@ import kotlinx.coroutines.sync.withLock
  * Reads what the phone's Health Connect has (watch or ring at night, plus optional day context) and hands it to the
  * server's import, which lines it up with the bed and drops duplicates. Only reads; never writes. The person picks
  * which kinds of data to share (Settings → Watch or ring); only those are asked for and read. First sync covers the
- * last 7 days, later ones pick up from the last sync.
+ * last 7 days; every later one re-reads at least the last 48 hours, because watch apps write a night's data into
+ * Health Connect hours late (HealthMerge explains the window). The server drops what it already has.
  */
 object HealthSync {
     private const val PROVIDER = "com.google.android.apps.healthdata"
-    private const val FIRST_DAYS = 7L
-    private const val OVERLAP_MS = 2 * 3600 * 1000L          // re-read a little; the server drops duplicates
+    private const val TAG = "EmberHealth"
     private const val CHUNK = 20000
     private const val HOUR = 3600L
+    private const val MAX_RECORDS = 500_000
     private val lock = Mutex()                         // one sync at a time (app open, Sync now and the 6-hour job can overlap)
 
     private fun perm(k: KClass<out Record>) = HealthPermission.getReadPermission(k)
@@ -140,15 +141,49 @@ object HealthSync {
         return o
     }
 
-    private suspend fun <T : Record> readAll(cl: HealthConnectClient, type: KClass<T>, from: Instant, to: Instant): List<T> {
+    /** Every page of one record type (Health Connect returns at most a page at a time; the token fetches the next). */
+    private suspend fun <T : Record> readAll(cl: HealthConnectClient, type: KClass<T>, from: Instant, to: Instant, cut: MutableSet<String>): List<T> {
         val out = ArrayList<T>()
         var token: String? = null
         do {
             val r = cl.readRecords(ReadRecordsRequest(type, TimeRangeFilter.between(from, to), pageSize = 5000, pageToken = token))
             out += r.records
-            token = r.pageToken
-        } while (token != null && out.size < 200_000)
+            token = r.pageToken?.takeIf { it.isNotEmpty() }
+        } while (token != null && out.size < MAX_RECORDS)
+        if (token != null) cut += type.simpleName ?: "records"
         return out
+    }
+
+    /** What was read, per kind and per app, for the Settings card and the log: counts and time ranges only, never values. */
+    private class Tally {
+        private class Row { var records = 0; var samples = 0; var first = Long.MAX_VALUE; var last = Long.MIN_VALUE }
+        private val map = LinkedHashMap<String, Row>()
+
+        fun add(kind: String, origin: String, samples: Int, firstMs: Long, lastMs: Long) {
+            val t = map.getOrPut("$kind|$origin") { Row() }
+            t.records++
+            t.samples += samples
+            if (samples > 0) { t.first = minOf(t.first, firstMs); t.last = maxOf(t.last, lastMs) }
+        }
+
+        fun json(): JSONArray {
+            val a = JSONArray()
+            for ((k, t) in map) {
+                val (kind, origin) = k.split("|", limit = 2)
+                val o = JSONObject().put("kind", kind).put("from", origin).put("records", t.records).put("samples", t.samples)
+                if (t.samples > 0) o.put("first", t.first).put("last", t.last)
+                a.put(o)
+            }
+            return a
+        }
+
+        fun log(window: String) {
+            android.util.Log.i(TAG, "sync window $window")
+            for ((k, t) in map) {
+                val range = if (t.samples > 0) "${Instant.ofEpochMilli(t.first)}..${Instant.ofEpochMilli(t.last)}" else "-"
+                android.util.Log.i(TAG, "read $k: ${t.records} records, ${t.samples} samples, $range")
+            }
+        }
     }
 
     /** A friendly, stable name for where a reading came from. The server learns a clock correction per name. */
@@ -173,9 +208,9 @@ object HealthSync {
     }
 
     private class Series(val metric: String, val device: String, val pkg: String, val relative: Boolean = false) {
-        val points = ArrayList<Pair<Double, Double>>()                 // seconds, value
+        val merge = HealthMerge.Pts(metric, pkg in SYNC_APPS, ArrayList())
+        val points: MutableList<Pair<Double, Double>> get() = merge.points        // seconds, value
         fun add(t: Instant, v: Double) { points += Pair(t.toEpochMilli() / 1000.0, v) }
-        val fromSyncApp get() = pkg in SYNC_APPS
     }
 
     private fun series(map: MutableMap<String, Series>, metric: String, m: Metadata, relative: Boolean = false): Series {
@@ -185,37 +220,14 @@ object HealthSync {
     }
 
     /**
-     * The same readings often arrive twice: once from the app that recorded them and once from an app that copies
-     * them (Health Sync copying Samsung Health, for example). Per metric and per hour, keep only the source with the
-     * most readings in that hour; a tie goes to the original app over a copying one. Returns how many were dropped.
+     * Sum amounts (steps, calories) into hourly totals, stamped at the end of each hour. Only whole hours inside the
+     * query are sent: the hour that isn't over yet comes on a later sync, and the first hour of the query may be
+     * missing records that started before it (records are found by start time), so it's left to the sync that has it.
      */
-    private fun dedupe(all: MutableMap<String, Series>): Int {
-        var dropped = 0
-        for ((_, group) in all.values.groupBy { it.metric }) {
-            if (group.size < 2) continue
-            val counts = HashMap<Long, HashMap<Series, Int>>()
-            for (s in group) for ((t, _) in s.points) {
-                val h = (t / HOUR).toLong()
-                val m = counts.getOrPut(h) { HashMap() }
-                m[s] = (m[s] ?: 0) + 1
-            }
-            val winner = counts.mapValues { (_, m) ->
-                m.entries.maxWith(compareBy<Map.Entry<Series, Int>> { it.value }.thenBy { if (it.key.fromSyncApp) 0 else 1 }).key
-            }
-            for (s in group) {
-                val before = s.points.size
-                s.points.retainAll { (t, _) -> winner[(t / HOUR).toLong()] === s }
-                dropped += before - s.points.size
-            }
-        }
-        all.values.removeAll { it.points.isEmpty() }
-        return dropped
-    }
-
-    /** Sum amounts (steps, calories) into hourly totals, stamped at the end of each hour. */
-    private fun hourly(s: Series, end: Instant, amount: Double, now: Instant) {
+    private fun hourly(s: Series, end: Instant, amount: Double, now: Instant, qFrom: Instant) {
         val h = Math.ceil(end.toEpochMilli() / 1000.0 / HOUR) * HOUR
-        if (h > now.toEpochMilli() / 1000.0) return      // the hour isn't over: it's sent whole on a later sync (the overlap re-reads it)
+        if (h > now.toEpochMilli() / 1000.0) return
+        if (h - HOUR < qFrom.toEpochMilli() / 1000.0 + HOUR) return
         val i = s.points.indexOfLast { it.first == h }
         if (i >= 0) s.points[i] = Pair(h, s.points[i].second + amount) else s.points += Pair(h, amount)
     }
@@ -233,94 +245,109 @@ object HealthSync {
         val prefs = Ember.prefs(c)
         val now = Instant.now()
         val last = prefs.getLong("hc_last", 0L)
-        val from = if (full || last == 0L) now.minusSeconds(FIRST_DAYS * 86400) else Instant.ofEpochMilli(last - OVERLAP_MS)
+        val from = Instant.ofEpochMilli(HealthMerge.readFrom(now.toEpochMilli(), last, full))
+        val qFrom = Instant.ofEpochMilli(HealthMerge.queryFrom(from.toEpochMilli()))
+        val cut = LinkedHashSet<String>()
+        val tally = Tally()
+        fun origin(m: Metadata) = appName(m.dataOrigin.packageName)
 
         val all = LinkedHashMap<String, Series>()
         val read = JSONObject()
         if (use("hr")) {
-            val rs = readAll(cl, HeartRateRecord::class, from, now)
+            val rs = readAll(cl, HeartRateRecord::class, qFrom, now, cut)
             read.put("heart_rate", rs.sumOf { it.samples.size })
-            for (r in rs) { val s = series(all, "hr", r.metadata); r.samples.forEach { s.add(it.time, it.beatsPerMinute.toDouble()) } }
+            for (r in rs) {
+                val s = series(all, "hr", r.metadata)
+                r.samples.forEach { s.add(it.time, it.beatsPerMinute.toDouble()) }
+                tally.add("heart_rate", origin(r.metadata), r.samples.size,
+                    r.samples.minOfOrNull { it.time.toEpochMilli() } ?: 0L, r.samples.maxOfOrNull { it.time.toEpochMilli() } ?: 0L)
+            }
         }
         if (use("hrv")) {
-            val rs = readAll(cl, HeartRateVariabilityRmssdRecord::class, from, now)
+            val rs = readAll(cl, HeartRateVariabilityRmssdRecord::class, qFrom, now, cut)
             read.put("hrv", rs.size)
-            rs.forEach { series(all, "hrv", it.metadata).add(it.time, it.heartRateVariabilityMillis) }
+            rs.forEach { series(all, "hrv", it.metadata).add(it.time, it.heartRateVariabilityMillis); tally.add("hrv", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
         }
         if (use("resp_rate")) {
-            val rs = readAll(cl, RespiratoryRateRecord::class, from, now)
+            val rs = readAll(cl, RespiratoryRateRecord::class, qFrom, now, cut)
             read.put("breathing", rs.size)
-            rs.forEach { series(all, "resp_rate", it.metadata).add(it.time, it.rate) }
+            rs.forEach { series(all, "resp_rate", it.metadata).add(it.time, it.rate); tally.add("breathing", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
         }
         if (use("spo2")) {
-            val rs = readAll(cl, OxygenSaturationRecord::class, from, now)
+            val rs = readAll(cl, OxygenSaturationRecord::class, qFrom, now, cut)
             read.put("spo2", rs.size)
-            rs.forEach { series(all, "spo2", it.metadata).add(it.time, it.percentage.value) }
+            rs.forEach { series(all, "spo2", it.metadata).add(it.time, it.percentage.value); tally.add("spo2", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
         }
         if (use("skin_temp") && SKIN in have) {
-            val rs = readAll(cl, SkinTemperatureRecord::class, from, now)
+            val rs = readAll(cl, SkinTemperatureRecord::class, qFrom, now, cut)
             read.put("skin_temp", rs.sumOf { it.deltas.size })
             for (r in rs) {
                 val base = r.baseline?.inCelsius
                 // with a baseline we know the real temperature; without one it's a change from the person's usual
                 val s = series(all, "skin_temp", r.metadata, relative = base == null)
                 r.deltas.forEach { s.add(it.time, (base ?: 0.0) + it.delta.inCelsius) }
+                tally.add("skin_temp", origin(r.metadata), r.deltas.size, r.startTime.toEpochMilli(), r.endTime.toEpochMilli())
             }
         }
         if (use("resting_hr")) {
-            val rs = readAll(cl, RestingHeartRateRecord::class, from, now)
+            val rs = readAll(cl, RestingHeartRateRecord::class, qFrom, now, cut)
             read.put("resting_hr", rs.size)
-            rs.forEach { series(all, "resting_hr", it.metadata).add(it.time, it.beatsPerMinute.toDouble()) }
+            rs.forEach { series(all, "resting_hr", it.metadata).add(it.time, it.beatsPerMinute.toDouble()); tally.add("resting_hr", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
         }
         if (use("body_temp")) {
             var n = 0
             if (perm(BodyTemperatureRecord::class) in have) {
-                val rs = readAll(cl, BodyTemperatureRecord::class, from, now)
+                val rs = readAll(cl, BodyTemperatureRecord::class, qFrom, now, cut)
                 n += rs.size
-                rs.forEach { series(all, "body_temp", it.metadata).add(it.time, it.temperature.inCelsius) }
+                rs.forEach { series(all, "body_temp", it.metadata).add(it.time, it.temperature.inCelsius); tally.add("body_temp", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
             }
             if (perm(BasalBodyTemperatureRecord::class) in have) {
-                val rs = readAll(cl, BasalBodyTemperatureRecord::class, from, now)
+                val rs = readAll(cl, BasalBodyTemperatureRecord::class, qFrom, now, cut)
                 n += rs.size
-                rs.forEach { series(all, "body_temp", it.metadata).add(it.time, it.temperature.inCelsius) }
+                rs.forEach { series(all, "body_temp", it.metadata).add(it.time, it.temperature.inCelsius); tally.add("body_temp", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
             }
             read.put("body_temp", n)
         }
         if (use("exercise")) {
-            val rs = readAll(cl, ExerciseSessionRecord::class, from, now)
+            val rs = readAll(cl, ExerciseSessionRecord::class, qFrom, now, cut)
             read.put("exercise", rs.size)
             rs.forEach {
                 val min = (it.endTime.toEpochMilli() - it.startTime.toEpochMilli()) / 60000.0
                 if (min > 0) series(all, "exercise_min", it.metadata).add(it.endTime, Math.round(min * 10) / 10.0)
+                tally.add("exercise", origin(it.metadata), 1, it.startTime.toEpochMilli(), it.endTime.toEpochMilli())
             }
         }
         if (use("steps")) {
-            val rs = readAll(cl, StepsRecord::class, from, now)
+            val rs = readAll(cl, StepsRecord::class, qFrom, now, cut)
             read.put("steps", rs.size)
-            rs.forEach { hourly(series(all, "steps", it.metadata), it.endTime, it.count.toDouble(), now) }
+            rs.forEach { hourly(series(all, "steps", it.metadata), it.endTime, it.count.toDouble(), now, qFrom); tally.add("steps", origin(it.metadata), 1, it.startTime.toEpochMilli(), it.endTime.toEpochMilli()) }
         }
         if (use("active_kcal")) {
-            val rs = readAll(cl, ActiveCaloriesBurnedRecord::class, from, now)
+            val rs = readAll(cl, ActiveCaloriesBurnedRecord::class, qFrom, now, cut)
             read.put("active_kcal", rs.size)
-            rs.forEach { hourly(series(all, "active_kcal", it.metadata), it.endTime, it.energy.inKilocalories, now) }
+            rs.forEach { hourly(series(all, "active_kcal", it.metadata), it.endTime, it.energy.inKilocalories, now, qFrom); tally.add("active_kcal", origin(it.metadata), 1, it.startTime.toEpochMilli(), it.endTime.toEpochMilli()) }
         }
         if (use("caffeine")) {
-            val rs = readAll(cl, NutritionRecord::class, from, now).filter { (it.caffeine?.inMilligrams ?: 0.0) > 0 }
+            val rs = readAll(cl, NutritionRecord::class, qFrom, now, cut).filter { (it.caffeine?.inMilligrams ?: 0.0) > 0 }
             read.put("caffeine", rs.size)
-            rs.forEach { series(all, "caffeine_mg", it.metadata).add(it.startTime, it.caffeine!!.inMilligrams) }
+            rs.forEach { series(all, "caffeine_mg", it.metadata).add(it.startTime, it.caffeine!!.inMilligrams); tally.add("caffeine", origin(it.metadata), 1, it.startTime.toEpochMilli(), it.startTime.toEpochMilli()) }
         }
         if (use("weight")) {
-            val rs = readAll(cl, WeightRecord::class, from, now)
+            val rs = readAll(cl, WeightRecord::class, qFrom, now, cut)
             read.put("weight", rs.size)
-            rs.forEach { series(all, "weight_kg", it.metadata).add(it.time, Math.round(it.weight.inKilograms * 10) / 10.0) }
+            rs.forEach { series(all, "weight_kg", it.metadata).add(it.time, Math.round(it.weight.inKilograms * 10) / 10.0); tally.add("weight", origin(it.metadata), 1, it.time.toEpochMilli(), it.time.toEpochMilli()) }
         }
-        val dropped = dedupe(all)
+        // the same reading copied by another app (Health Sync copying Samsung Health): keep the original
+        val copyApps = all.values.filter { it.merge.fromSyncApp }.map { appName(it.pkg) }.toSortedSet()
+        val dropped = HealthMerge.dropCopies(all.values.map { it.merge })
+        all.values.removeAll { it.points.isEmpty() }
 
         val pid = Ember.person(c)
         val stored = JSONObject()
+        val already = JSONObject()
         val warnings = LinkedHashSet<String>()             // the same night note comes back once per metric; keep one
         val notes = LinkedHashSet<String>()
-        if (dropped > 0) notes += "Skipped $dropped readings that another app had already copied into Health Connect."
+        if (dropped > 0) notes += "$dropped readings were copies that ${copyApps.joinToString(" and ").ifEmpty { "another app" }} made of your watch's own, so only the originals were sent."
         var nights = 0
         for (s in all.values) {
             s.points.sortBy { it.first }
@@ -329,11 +356,13 @@ object HealthSync {
                 val chunk = JSONArray()
                 for (j in i until minOf(i + CHUNK, s.points.size)) chunk.put(JSONArray().put(s.points[j].first).put(s.points[j].second))
                 i += CHUNK
-                val body = JSONObject().put("device", s.device).put("metric", s.metric).put("points", chunk)
+                val body = JSONObject().put("device", s.device).put("metric", s.metric).put("points", chunk).put("platform", "android")
                 if (s.metric == "skin_temp") body.put("unit", "C").put("relative", s.relative)
                 if (s.metric == "body_temp") body.put("unit", "C")
                 val rep = JSONObject(Ember.call(c, "POST", "/api/people/$pid/wearable", body.toString()))
                 stored.put(s.metric, stored.optInt(s.metric) + rep.optInt("stored"))
+                val dup = rep.optJSONObject("rejected")?.optInt("duplicate") ?: 0
+                if (dup > 0) already.put(s.metric, already.optInt(s.metric) + dup)
                 rep.optJSONArray("warnings")?.let { w -> for (k in 0 until w.length()) warnings += "${s.device}: ${w.getString(k)}" }
                 rep.optJSONArray("notes")?.let { n -> for (k in 0 until n.length()) notes += "${s.device}: ${n.getString(k)}" }
                 nights += rep.optJSONArray("rechecked")?.length() ?: 0
@@ -341,37 +370,70 @@ object HealthSync {
         }
 
         var sessions = 0
+        var sessionsSame = 0
+        var sessionsNoStages = 0
+        val sentBefore = sentSessions(prefs.getString("hc_sessions_sent", null))
+        val sentNow = HashMap<String, Long>()
         if (use("sleep")) {
-            // the same night can be in Health Connect twice (the watch app and a copying app): keep one per night,
-            // preferring the original app, then the one with more stage detail
-            val sess = readAll(cl, SleepSessionRecord::class, from, now).filter { it.stages.isNotEmpty() }
-                .sortedWith(compareBy<SleepSessionRecord> { if (it.metadata.dataOrigin.packageName in SYNC_APPS) 1 else 0 }.thenByDescending { it.stages.size })
-            val kept = ArrayList<SleepSessionRecord>()
-            for (r in sess) {
-                val overlaps = kept.any { k ->
-                    val a = maxOf(k.startTime.toEpochMilli(), r.startTime.toEpochMilli())
-                    val b = minOf(k.endTime.toEpochMilli(), r.endTime.toEpochMilli())
-                    b - a > 0.5 * (r.endTime.toEpochMilli() - r.startTime.toEpochMilli())
-                }
-                if (!overlaps) kept += r
-            }
-            for (r in kept.sortedBy { it.startTime }) {
-                if (!full && last > 0 && r.metadata.lastModifiedTime.toEpochMilli() < last) continue   // already sent, unchanged
+            // Sleep sessions start the evening before and are often written the next morning: read them from a day
+            // before the window, and send each one that's new or changed since it was last sent (by id + last change).
+            val recs = readAll(cl, SleepSessionRecord::class, qFrom, now, cut)
+            recs.forEach { tally.add("sleep", origin(it.metadata), it.stages.size, it.startTime.toEpochMilli(), it.endTime.toEpochMilli()) }
+            read.put("sleep", recs.size)
+            sessionsNoStages = recs.count { it.stages.isEmpty() }
+            val withStages = recs.filter { it.stages.isNotEmpty() }
+            val byId = withStages.associateBy { it.metadata.id }
+            val picked = HealthMerge.pickSessions(withStages.map {
+                HealthMerge.Session(it.metadata.id, it.startTime.toEpochMilli(), it.endTime.toEpochMilli(),
+                    it.metadata.lastModifiedTime.toEpochMilli(), it.metadata.dataOrigin.packageName in SYNC_APPS, it.stages.size)
+            })
+            for (ps in picked) {
+                val r = byId[ps.id] ?: continue
+                if (!HealthMerge.needsSending(ps, sentBefore, full)) { sentNow[ps.id] = ps.modifiedMs; sessionsSame++; continue }
                 val segs = JSONArray()
                 r.stages.forEach { segs.put(JSONObject().put("start", it.startTime.toEpochMilli() / 1000.0).put("end", it.endTime.toEpochMilli() / 1000.0).put("stage", it.stage)) }
                 val dev = device(r.metadata)
-                val rep = JSONObject(Ember.call(c, "POST", "/api/people/$pid/stages",
-                    JSONObject().put("source", "health-connect").put("label", "$dev · Health Connect").put("segments", segs).toString()))
+                val rep = try {
+                    JSONObject(Ember.call(c, "POST", "/api/people/$pid/stages",
+                        JSONObject().put("source", "health-connect").put("label", "$dev · Health Connect").put("segments", segs).toString()))
+                } catch (e: Ember.HttpError) {
+                    if (e.code !in 400..499) throw e
+                    // the server can't use this one (e.g. no usable stages): say so, and don't send it again every sync
+                    notes += "A sleep session from $dev on ${r.startTime.atZone(java.time.ZoneId.systemDefault()).toLocalDate()} couldn't be used, so the bed's estimate is shown for that night."
+                    sentNow[ps.id] = ps.modifiedMs
+                    continue
+                }
                 sessions++
+                sentNow[ps.id] = ps.modifiedMs
                 rep.optJSONArray("warnings")?.let { w -> for (k in 0 until w.length()) warnings += "Sleep $dev: ${w.getString(k)}" }
             }
+            if (sessionsNoStages > 0) notes += "$sessionsNoStages sleep session${if (sessionsNoStages > 1) "s" else ""} came without sleep stages, so the bed's estimate is used for ${if (sessionsNoStages > 1) "those nights" else "that night"}."
         }
         if (sessions > 0) stored.put("sleep_sessions", sessions)
+        if (sessionsSame > 0) already.put("sleep_sessions", sessionsSame)
+        if (cut.isNotEmpty()) notes += "Health Connect had more than could be read in one go (${cut.joinToString()}); the rest comes on the next sync."
 
-        val report = JSONObject().put("ts", now.toEpochMilli()).put("from", from.toEpochMilli()).put("read", read)
-            .put("stored", stored).put("warnings", JSONArray(warnings.toList())).put("notes", JSONArray(notes.toList())).put("nights_rechecked", nights)
-        prefs.edit().putLong("hc_last", now.toEpochMilli()).putString("hc_report", report.toString()).apply()
+        val window = "${from}..${now} (query from $qFrom)"
+        tally.log(window)
+        android.util.Log.i(TAG, "sent: stored $stored, already there $already, dropped copies $dropped")
+        val report = JSONObject().put("ts", now.toEpochMilli()).put("from", from.toEpochMilli()).put("query_from", qFrom.toEpochMilli())
+            .put("read", read).put("detail", tally.json())
+            .put("stored", stored).put("already", already).put("copies_skipped", dropped)
+            .put("warnings", JSONArray(warnings.toList())).put("notes", JSONArray(notes.toList())).put("nights_rechecked", nights)
+        val sentJson = JSONObject()
+        for ((k, v) in sentNow) sentJson.put(k, v)
+        prefs.edit().putLong("hc_last", now.toEpochMilli()).putString("hc_report", report.toString())
+            .putString("hc_sessions_sent", sentJson.toString()).apply()
         return report
+    }
+
+    /** The sessions sent so far, id → last change (epoch ms). Only sessions still inside the read window are kept. */
+    private fun sentSessions(s: String?): Map<String, Long> {
+        if (s.isNullOrEmpty()) return emptyMap()
+        return try {
+            val o = JSONObject(s)
+            o.keys().asSequence().associateWith { o.optLong(it) }
+        } catch (e: org.json.JSONException) { emptyMap() }
     }
 
     /** Background sync every 6 hours on any network (needs the background-read permission to see new data). */

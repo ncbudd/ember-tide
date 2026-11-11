@@ -76,21 +76,23 @@ export default function RhythmScreen() {
       <div className="card list">
         <TimeStep label="Usually in bed" value={r.schedule.bedtime} onChange={v => setSched({ bedtime: v })} />
         <TimeStep label="Wake" value={r.schedule.wake} onChange={v => setSched({ wake: v })} />
-        <div className="row"><span>Start when I'm in bed on my side<br /><span className="mute" style={{ fontSize: 12.5 }}>Otherwise it starts at your usual bedtime</span></span>
+        <div className="row"><span>Start when I get into bed<br /><span className="mute" style={{ fontSize: 12.5 }}>Otherwise it starts at your usual bedtime</span></span>
           <input type="checkbox" className="toggle" checked={r.schedule.start_on_presence} onChange={e => setSched({ start_on_presence: e.target.checked })} /></div>
-        <div style={{ display: "grid", gap: 8, padding: "11px 0", borderBottom: "1px solid var(--line)" }}><span>Pre-cool before bedtime<Tip label="About pre-cool" text="Your side gets to its first temperature before bedtime, so the bed is ready when you get in. If your phone shows you're out, it waits." /></span>
+        {r.schedule.start_on_presence && <div className="row"><span>Wait until I'm settling to sleep<br /><span className="mute" style={{ fontSize: 12.5 }}>In bed early to read? Your side holds its getting-into-bed temperature until you settle, or until your usual bedtime</span></span>
+          <input type="checkbox" className="toggle" checked={r.schedule.wait_for_sleep ?? true} onChange={e => setSched({ wait_for_sleep: e.target.checked })} /></div>}
+        <div style={{ display: "grid", gap: 8, padding: "11px 0", borderBottom: "1px solid var(--line)" }}><span>Start pre-conditioning before bedtime<Tip label="About pre-conditioning" text="Your side gets to its first temperature before bedtime, so the bed is ready when you get in. If your phone shows you're out, it waits." /></span>
           <span className="chips">{[30, 45, 60].map(m => <button key={m} className="chip" aria-pressed={r.schedule.precool_lead_min === m} onClick={() => setSched({ precool_lead_min: m })}>{m} min</button>)}</span></div>
         {r.schedule.start_on_presence && <>
           <TimeStep label="Earliest start" value={r.schedule.window_start} onChange={v => setSched({ window_start: v })}
             tip="Getting in bed before this doesn't start the night, so an evening nap or reading in bed won't." />
-          <TimeStep label="Keep pre-cooling until" value={r.schedule.window_end} onChange={v => setSched({ window_end: v })}
-            tip="If your side is still empty after this, it stops pre-cooling to save power. Getting in later still starts your night." />
+          <TimeStep label="Keep pre-conditioning until" value={r.schedule.window_end} onChange={v => setSched({ window_end: v })}
+            tip="If your side is still empty by then, pre-conditioning stops to save power. Getting in later still starts your night." />
         </>}
       </div>
 
       </section>
       <section className="tcol">
-      <div className="k">Phases · tap one to edit</div>
+      <div className="k">Phases · tap one to change it</div>
       <div className="card list">
         {r.phases.map((p, i) => {
           const isOpen = open === p.id;
@@ -124,7 +126,7 @@ export default function RhythmScreen() {
                           return p.start.offset_min === 0 ? `at ${what}` : `${m} min ${p.start.offset_min > 0 ? "after" : "before"} ${what}`; })()}</span>
                         <button aria-label="15 minutes later" onClick={() => setPhase(i, { start: { ...p.start, offset_min: p.start.offset_min + 15 } })}>+</button></span></div>
                   )}
-                  <div style={{ display: "grid", gap: 8 }}><span className="mute">Change over gradually<Tip label="About changing over gradually" text="How long the bed takes to glide from the previous temperature to this one. Now = straight away." /></span>
+                  <div style={{ display: "grid", gap: 8 }}><span className="mute">Change over gradually<Tip label="About changing over gradually" text="How long the bed takes to glide from the previous temperature to this one. Now means straight away." /></span>
                     <span className="chips">{[0, 10, 20, 30].map(m => <button key={m} className="chip" aria-pressed={p.ramp_min === m} onClick={() => setPhase(i, { ramp_min: m })}>{m ? `${m} min` : "now"}</button>)}</span></div>
                 </div>
               )}
@@ -132,7 +134,7 @@ export default function RhythmScreen() {
           );
         })}
       </div>
-      <p className="mute" style={{ fontSize: 12.5, textAlign: "center" }}>Change what a phase is anchored to, or edit against past nights, in <Link to="/studio/rhythm">Studio</Link>.</p>
+      <p className="mute" style={{ fontSize: 12.5, textAlign: "center" }}>To change what each phase starts from, or compare with past nights, use <Link to="/studio/rhythm">Studio</Link>.</p>
       </section>
       </div>
     </div>

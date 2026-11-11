@@ -5,7 +5,7 @@ Used by test_notify_week.py (budgets) and runnable by hand to print the table in
 
 The real Controller, NightEngine and Notifier run; only the world is scripted:
 - normal: both sleepers on the simulator's usual script for 7 nights.
-- messy: a late night out (not home at pre-cool, in bed near midnight), a pet on the bed overnight (a pet question),
+- messy: a late night out (not home at pre-condition, in bed near midnight), a pet on the bed overnight (a pet question),
   the bed offline 25 min at 2 AM plus a frozen sensor at 3 AM, a guest on one side, an afternoon nap left on by hand,
   and a night where one person never comes to bed.
 A ping = a notification that actually went out (store event "notification"); household messages count for everyone.

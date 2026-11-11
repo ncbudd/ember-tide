@@ -47,7 +47,7 @@ export function SettingsWearable({ person, value, onChange }: { person: string; 
     );
   }
   return (
-    <Fold id="settings.wearable" title="Watch or ring" summary={name ?? "None picked"}>
+    <Fold id="settings.wearable" anchor="watch" title="Watch or ring" summary={name ?? "None picked"}>
       <div className="card" style={{ display: "grid", gap: 12 }}>
         <WearablePicker person={person} value={value} onChange={onChange} />
         {isIOS() && <IphoneLimits />}

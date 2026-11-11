@@ -9,7 +9,7 @@
     <string name="sc_cold_short">Cold flash</string>
     <string name="sc_cold_long">Cold flash: warm my side now</string>
     <string name="sc_off_short">Off tonight</string>
-    <string name="sc_off_long">Turn my side off tonight</string>
+    <string name="sc_off_long">Off tonight, my side</string>
     <string name="sc_simple_short">Simple screen</string>
     <string name="sc_simple_long">Open the simple night screen</string>
 </resources>

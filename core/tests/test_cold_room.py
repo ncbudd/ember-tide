@@ -1,4 +1,4 @@
-"""Cold room pre-warm (and warm room pre-cool). Real case 2026-11-08: room 18.4 °C, side set 27.2, measured 26.4 for
+"""Cold room pre-warm (and warm room pre-condition). Real case 2026-11-08: room 18.4 °C, side set 27.2, measured 26.4 for
 hours; in the warm wake 30.0 set, 29.3 measured. The simulated topper (sim_edges.RoomBed) moves more slowly far from
 the room and settles a little short of the setpoint. Each side learns its speed per room temperature from its own
 history, starts a warmer (cooler) phase earlier in a cool (warm) room, and says plainly when the room keeps it short."""

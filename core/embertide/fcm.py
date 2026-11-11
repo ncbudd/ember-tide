@@ -110,6 +110,11 @@ class Fcm:
                                 headers={"Authorization": f"Bearer {at}"})
             if r.status_code == 404 or (r.status_code == 400 and "UNREGISTERED" in r.text) or "registration-token-not-registered" in r.text:
                 return "gone"
+            # a token Google calls invalid, or one that belongs to another Firebase project, never works again: drop it
+            # (a bad payload is also a 400, so that needs the word "token" in Google's own message)
+            if (r.status_code == 400 and "INVALID_ARGUMENT" in r.text and "registration token" in r.text) or \
+               (r.status_code == 403 and "SENDER_ID_MISMATCH" in r.text):
+                return "gone"
             if r.status_code == 401:
                 self._token = None
             r.raise_for_status()

@@ -80,7 +80,7 @@ async def test_ha_message_shape_and_link_buttons(tmp_path):
     fake = Fake()
     nt = Notifier(n.c, "https://bed.example", client=fake.client())
     p = providers()[1]
-    r = await nt.deliver(p, Message("empty_side", "t", "b", "p2", [Action("Turn it off tonight", "skip")]))
+    r = await nt.deliver(p, Message("empty_side", "t", "b", "p2", [Action("Off tonight", "skip")]))
     assert r["ok"]
     call = fake.calls[0]
     assert call["url"] == "http://ha.local:8123/api/services/notify/mobile_app_sam" and call["auth"] == "Bearer ha_tok"

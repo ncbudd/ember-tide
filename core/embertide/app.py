@@ -123,6 +123,16 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         app.state.notifier = state.notifier
         state.notifier.owner_persons = lambda: {u["person"] for u in state.auth.users() if u["role"] == "owner" and u["person"]}
         state.notifier.care_persons = lambda: {u["person"] for u in state.auth.users() if u["role"] in ("owner", "sleeper") and u["person"]}
+        def _accounts():
+            out = []
+            for prov in state.cloud.providers.values():
+                for p in state.controller.household.people:
+                    st = prov.status(p.id)
+                    if st["connected"]:
+                        out.append((p.id, prov.name, bool(st["needs_reconnect"])))
+            return out
+        state.notifier.account_states = _accounts
+        state.notifier.bridge_status = lambda: (bool(state.ha.url), state.ha.state)
         state.notifier.sync_ha_listeners()
         from .ha_bridge import HaBridge
         saved_ha = store.get("ha_bridge", {}) or {}

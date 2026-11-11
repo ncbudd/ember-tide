@@ -18,6 +18,9 @@ Evidence, most reliable first (all conservative: when in doubt it's a person):
   heart rate or breathing far outside the sleeper's own range for most of 10 minutes is "probably <pet>".
 - A learned pet signature (engine/petq.py, from "Yes" answers): readings clearly closer to the pet's signature than
   to the person's range, for most of 10 minutes.
+- The sleeper is away (engine/away.py, not a guest's side): the strip occupied for 3 minutes is the pet ("you're away,
+  so this is probably Biscuit"), unless a radar on that side sees someone for most of the stretch (it may be a person:
+  left for the morning away check) or their own watch says it's them.
 A watch that agrees with the pad ("it's me") switches off every heart-rate based pet guess.
 Nothing here is stored about the pet except a short, non-personal event per side ("looked like Biscuit").
 """
@@ -31,6 +34,8 @@ PET_CONFIRM_S = 60      # a pet-sized load must stay this long before it's a pet
 RANGE_WINDOW_S = 600    # outside-range / signature: judged over this long
 RANGE_COVER_S = 480     # readings must cover at least this much of it
 RANGE_SHARE = 0.8       # and this share of them must look like the pet
+AWAY_CONFIRM_S = 180    # the sleeper away: lying there this long (the usual 3-minute "in bed" confirm) is the pet
+PHONE_HOLD_S = 300      # the phone saying "not by the bed" must hold this long (before bedtime only)
 
 
 class PetGuard:
@@ -39,12 +44,16 @@ class PetGuard:
 
     def assess(self, zone: str, now: float, household, side, weights: list[float], radar: list[float],
                person_kg: list[float], watch: str | None = None, rng: dict | None = None, sigs: dict | None = None,
-               empty_side: bool = False) -> dict | None:
+               empty_side: bool = False, away: bool = False, phone: str | None = None, pre_start: bool = False,
+               early: bool = False) -> dict | None:
         """side = the strip's SideState; weights = fresh kg readings from this side's scales; radar = votes (0/1)
         from presence devices on this side; person_kg = known body weights. None when pets don't apply.
         watch = the sleeper's watch verdict ("me", "not_me" once held long enough, or None); rng = the sleeper's
         learned range {hr: [lo, hi], br: [lo, hi]}; sigs = learned pet signatures {pet id: petq.sig_view};
-        empty_side = this occupancy began on an otherwise empty side (not the sleeper back from a short trip)."""
+        empty_side = this occupancy began on an otherwise empty side (not the sleeper back from a short trip);
+        away = the side's sleeper is marked away (engine/away.py) and the side isn't lent to a guest;
+        phone = their phone's "in" / "out" / None (phone_context.bedside_state); pre_start = their night isn't running;
+        early = and it's before their usual bedtime (phone evidence alone only counts then)."""
         pets = [p for p in getattr(household, "pets", []) if p.sleeps_on_bed != "no" and p.side in ("either", "both", zone)]
         if not pets or not getattr(household, "pets_ignore", True):
             self.state.pop(zone, None)
@@ -110,6 +119,28 @@ class PetGuard:
             st["occ_since"], st["high_since"] = None, None
             st["hist"], st["range_on"] = [], False
         if not occupied or out["scale_person"]:
+            st["away_radar"] = [0, 0]
+            return out
+        if away and watch != "me" and not getattr(side, "echo", False):
+            # the side's sleeper is away (and it isn't lent to a guest): whatever lies there for a few minutes isn't
+            # them. A radar that sees someone there for most of the stretch could be a person (a house guest, the
+            # partner back early): then it's left alone for the morning away check
+            ar = st.setdefault("away_radar", [0, 0])
+            if radar:
+                ar[0] += 1
+                ar[1] += any(v >= 0.5 for v in radar)
+            if not (ar[0] >= 3 and ar[1] >= 0.5 * ar[0]) and not (ar[0] < 3 and any(v >= 0.5 for v in radar)):
+                pet = self._which(pets, side.hr, side.br, sigs)
+                label = pet.name if pet else "a pet"
+                if now - st["occ_since"] >= AWAY_CONFIRM_S:
+                    out.update(suspected=True, pet=pet.name if pet else None, evidence="away",
+                               why=f"you're away, so this is probably {label}")
+                else:
+                    out.update(candidate=True, pet=pet.name if pet else None, why="checking whether it's a person or a pet")
+                return out
+        idr = self._identity(st, now, pets, side, watch, phone, pre_start, early, rng, sigs)
+        if idr:
+            out.update(idr)
             return out
         if any(v >= 0.5 for v in radar):
             return out                       # a radar sees someone there too: don't second-guess with heart rate alone
@@ -139,6 +170,30 @@ class PetGuard:
             out.update(candidate=True, pet=name if len(fast) == 1 else None, why="checking whether it's a person or a pet")
         return out
 
+
+    def _identity(self, st, now, pets, side, watch, phone, pre_start, early, rng, sigs) -> dict | None:
+        """Outside a running night: the sleeper's own watch and phone say whether it's them (a radar sees the dog as
+        "someone", so it can't veto this). Watch "not me" alone is enough; the phone ("not by the bed") only before the
+        usual bedtime, with the readings like the pet's signature or no learned range yet, for PHONE_HOLD_S."""
+        if not pre_start or getattr(side, "echo", False) or watch == "me":
+            st["phone_since"] = None
+            return None
+        pet = self._which(pets, side.hr, side.br, sigs)
+        label = pet.name if pet else "a pet"
+        if watch == "not_me":
+            why = (f"your watch and phone say you're not in bed, so this is probably {label}" if phone == "out"
+                   else f"your watch doesn't match the bed: probably {label}")
+            return {"suspected": True, "pet": pet.name if pet else None, "evidence": "watch", "why": why}
+        from .petq import closer_to_pet
+        fits = rng is None or bool(sigs and closer_to_pet(side.hr, side.br, rng, sigs))
+        if phone == "out" and early and fits:
+            st["phone_since"] = st.get("phone_since") or now
+            if now - st["phone_since"] >= PHONE_HOLD_S:
+                return {"suspected": True, "pet": pet.name if pet else None, "evidence": "phone",
+                        "why": f"your phone says you're not in bed, so this is probably {label}"}
+            return {"candidate": True, "pet": pet.name if pet else None, "why": "checking whether it's a person or a pet"}
+        st["phone_since"] = None
+        return None
 
     def _which(self, pets, hr, br, sigs):
         """The pet it most likely is: the one whose learned signature fits; else the only pet; else the only

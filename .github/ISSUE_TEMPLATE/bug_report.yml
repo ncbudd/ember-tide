@@ -1,0 +1,46 @@
+name: Bug report
+description: Something doesn't work the way it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time. Please remove passwords, tokens, serial numbers, real addresses and domains from anything you paste.
+        For a security problem, don't use this form; see SECURITY.md.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, in order. If the simulator shows it too (Studio, Simulator), say so.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Open /healthz on your server, or say which commit you built.
+  - type: dropdown
+    id: bed
+    attributes:
+      label: Bed driver
+      options: [Simulator, Orion local (MQTT), Orion cloud, Not sure]
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you run it
+      options: [Docker Compose, Docker run, From source, NAS or Portainer, Other]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines
+      description: "`docker compose logs embertide` (and `mosquitto` for connection problems).  Redact secrets first."
+      render: text
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Phone or browser, Android version, a screenshot (use the simulator or blur names).

@@ -41,7 +41,7 @@ function describe(p: PersonView, snap: Snapshot): { big: string; line: string; o
   switch (n.state) {
     case "skipped": return { big: "Off", line: "Off for tonight", on: false };
     case "paused": return { big: "Off", line: n.pause_until ? `Paused until ${clock(n.pause_until, tz)}` : "Paused", on: false };
-    case "away": return { big: "Away", line: n.away ? "You're marked away. Your side stays off until you're back" : "It will wait until you're home", on: false };
+    case "away": return { big: "Away", line: n.away ? "See you when you're back" : "It will wait until you're home", on: false };
     case "done": return { big: "Off", line: "All done · see you tonight", on: false };
     case "missed": return { big: "Off", line: "It starts when you get into bed", on: false };
     case "no_rhythm": return { big: "Off", line: "No schedule yet", on: false };
@@ -96,7 +96,7 @@ function Home() {
         <div className="card sa-check">
           <span>How did you sleep?</span>
           <div className="sa-three">
-            {[["warm", "Too warm"], ["right", "Just right"], ["cold", "Too cold"]].map(([k, l]) => <button key={k} onClick={() => rate(k)}>{l}</button>)}
+            {[["cold", "Too cold"], ["right", "Just right"], ["warm", "Too warm"]].map(([k, l]) => <button key={k} onClick={() => rate(k)}>{l}</button>)}
           </div>
         </div>
       )}
@@ -105,7 +105,7 @@ function Home() {
       <div className="sa-controls">
         <div className="sa-flashes">
           {f ? <>
-            <button onClick={() => act(`${base}/flash/extend`)}>5 more minutes</button>
+            <button onClick={() => act(`${base}/flash/extend`)}>{me.settings[f.kind === "hot" ? "hot_flash" : "cold_flash"].extend_min} more minutes</button>
             <button onClick={() => act(`${base}/flash/stop`)}>That's enough</button>
           </> : <>
             <button className="hot" onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> Hot flash</button>
@@ -134,7 +134,7 @@ function Home() {
 const eve = (hm: string) => { const [h, m] = hm.split(":").map(Number); return ((h < 12 ? h + 24 : h) - 12) * 60 + m; };   // minutes after noon
 const fromEve = (x: number) => { const t = ((Math.round(x) % 1440) + 1440 + 720) % 1440; return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
 
-/** Bedtime moved: keep "earliest start" an hour before it and "keep pre-cooling until" a couple of hours after. */
+/** Bedtime moved: keep "earliest start" an hour before it and "keep pre-conditioning until" a couple of hours after. */
 function withBedtime(rh: Rhythm, bed: string): Rhythm {
   const s = { ...rh.schedule, bedtime: bed };
   const b = eve(bed);
@@ -183,7 +183,7 @@ function ScheduleCard({ rh, units, onSave }: { rh: Rhythm; units: "F" | "C"; onS
         <input type="time" value={cur.schedule.wake} onChange={e => e.target.value && save({ ...latest.current, schedule: { ...latest.current.schedule, wake: e.target.value } })} aria-label={`Wake up, ${cur.name}`} />
       </label>
       <div className="sa-overall">
-        <span>Overall<br /><span className="mute" style={{ fontSize: 12.5 }}>Coolest part of the night {tempNum(coolest, units)}°</span></span>
+        <span>Overall temperature<br /><span className="mute" style={{ fontSize: 12.5 }}>Coolest part of the night {tempNum(coolest, units)}°</span></span>
         <div className="sa-pair">
           <button onClick={() => shift(-1)} aria-label={`Cooler, ${cur.name}`}>− Cooler</button>
           <button onClick={() => shift(1)} aria-label={`Warmer, ${cur.name}`}>+ Warmer</button>

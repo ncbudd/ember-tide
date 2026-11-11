@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isApp } from "../api";
 import { healthConnect, healthSync } from "../native";
 import { isAndroidBrowser, isIOS } from "../pwa";
@@ -39,20 +39,39 @@ function HealthButton({ label }: { label: string }) {
   </>;
 }
 
-/** "Do you have a wearable?": brand tiles, then a short how-to for that brand on this phone. */
-export default function WearablePicker({ person, value, onChange }: { person: string; value: string; onChange: (id: string) => void }) {
+/** "Do you have a wearable?": brand tiles, then a short how-to for that brand on this phone.
+ *  `collapsible` (first-time setup): once one is picked the others fold away, leaving the chosen one with a Change
+ *  button and its how-to right under it; tapping it (or Change) brings the full list back. */
+export default function WearablePicker({ person, value, onChange, collapsible = false }: { person: string; value: string; onChange: (id: string) => void; collapsible?: boolean }) {
   const pf = platform();
   const b = BRANDS.find(x => x.id === value);
+  const [open, setOpen] = useState(!b);
+  const root = useRef<HTMLDivElement>(null);
+  const reopenRef = useRef<HTMLButtonElement>(null);
+  const folded = collapsible && !!b && !open;
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }      // not on arrival: only after a pick or a Change
+    if (!collapsible) return;
+    // after a pick: keep the chosen one and its how-to in view (focus follows to the chosen row for keyboards)
+    if (folded) { reopenRef.current?.focus({ preventScroll: true }); root.current?.scrollIntoView?.({ block: "nearest" }); }
+    else if (b) root.current?.querySelector<HTMLElement>("[aria-checked=true]")?.focus({ preventScroll: true });
+  }, [folded]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const pick = (id: string) => { onChange(id); if (collapsible) setOpen(false); };
   return (
-    <div className="wp">
-      <div className="wp-tiles" role="radiogroup" aria-label="Your watch or ring">
-        {BRANDS.map(x => (
-          <button key={x.id} type="button" role="radio" aria-checked={value === x.id} className="wp-tile" onClick={() => onChange(x.id)}>
-            <span className="wp-ico" aria-hidden>{x.icon}</span><span>{x.name}</span>
-          </button>
-        ))}
-      </div>
-      {b && <div className="wp-how card" aria-live="polite">{how(b, pf, person)}</div>}
+    <div className={`wp${folded ? " wp-folded" : ""}`} ref={root}>
+      {folded ? <button type="button" ref={reopenRef} className="wp-tile wp-chosen" aria-expanded={false} aria-label={`${b!.name}, chosen. Change`} onClick={() => setOpen(true)}>
+        <span className="wp-ico" aria-hidden>{b!.icon}</span><span className="wp-chosen-name">{b!.name}</span>
+        <span className="wp-change" aria-hidden>Change</span>
+      </button>
+        : <div className="wp-tiles" role="radiogroup" aria-label="Your watch or ring">
+          {BRANDS.map(x => (
+            <button key={x.id} type="button" role="radio" aria-checked={value === x.id} className="wp-tile" onClick={() => pick(x.id)}>
+              <span className="wp-ico" aria-hidden>{x.icon}</span><span>{x.name}</span>
+            </button>
+          ))}
+        </div>}
+      {b && (!collapsible || folded) && <div className="wp-how card" aria-live="polite">{how(b, pf, person)}</div>}
     </div>
   );
 }

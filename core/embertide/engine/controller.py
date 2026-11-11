@@ -296,8 +296,11 @@ class Controller:
         # still comparing: up to 8 min; already looking like "not me" but not held long enough yet: up to 15 min
         if not ((st == "unsure" and age < self.WATCH_WAIT_S) or (st == "not_me" and age < 2 * self.WATCH_WAIT_S - 60)):
             return False
-        if any(v >= 0.5 for k, _, v in votes if k.startswith(("presence:", "weight:"))):
-            return False                                  # a radar or scale already sees a person
+        # a radar or scale already sees a person. (With a pet that may lie on this side, a radar seeing "someone" may be
+        # the pet, so only a scale ends the wait then)
+        pets_here = [x for x in getattr(self.household, "pets", []) or [] if x.sleeps_on_bed != "no" and x.side in ("either", "both", zone)]
+        if any(v >= 0.5 for k, _, v in votes if k.startswith(("weight:",) if pets_here else ("presence:", "weight:"))):
+            return False
         p = next((x for x in self.household.people if x.zone == zone), None)
         return bool(p and not self.engines[p.id].s.started)
 
@@ -384,15 +387,36 @@ class Controller:
     def _pet_hints(self, zone: str, votes: list, ep: dict | None) -> dict:
         """What the pet guard may use beyond the strip and scales: the sleeper's watch verdict, their learned range
         (only once the learning week produced one) and the learned pet signatures."""
-        out: dict = {"watch": None, "rng": None, "sigs": None, "empty_side": bool(ep and ep.get("empty_side"))}
+        out: dict = {"watch": None, "rng": None, "sigs": None, "empty_side": bool(ep and ep.get("empty_side")), "away": False}
         p = next((x for x in self.household.people if x.zone == zone), None)
         if p is None:
             return out
+        if zone not in self.household.guest:
+            # the side's sleeper is away (engine/away.py): whatever lies there for a few minutes isn't them (pets.py)
+            from . import away as away_mod
+            try:
+                out["away"] = away_mod.is_away(self.store, p.id, self.clock.now_ts())
+            except Exception:  # noqa: BLE001
+                out["away"] = False
+        # outside a running night (by day, in the evening before it starts): their watch and phone may say whether it's
+        # them (pets.py). Phone evidence only counts before the usual bedtime, to hold off an EARLY start
+        e = self.engines.get(p.id)
+        running = bool(e and e.s.started and e.s.state != "done")
+        out["pre_start"] = not running
+        n = e.night if e else None
+        now_ = self.clock.now_ts()
+        out["early"] = not running and not (n is not None and n.bedtime <= now_ < n.end)
+        try:
+            from .phone_context import bedside_state, latest
+            out["phone"] = bedside_state(self.store, latest(self.store, p.id), zone, now_) if not running else None
+        except Exception:  # noqa: BLE001
+            out["phone"] = None
         if ep is not None:
             trust = getattr(p.settings.autopilot, "trust_more", "wearable")
             if (ep.get("ident") or {}).get("state") == "me" or ep.get("me_seen"):
                 out["watch"] = "me"
-            elif ep.get("not_me") and self.WATCH_NOT_ME_W.get(trust, 0.6) > 0.5 and not ep.get("outvoted"):
+            elif ep.get("not_me") and self.WATCH_NOT_ME_W.get(trust, 0.6) > 0.5 and (not ep.get("outvoted") or not running):
+                # (before the night: a radar that sees "someone" may be seeing the dog, so it doesn't outvote the watch)
                 out["watch"] = "not_me"
         from . import petq
         now = self.clock.now_ts()
@@ -488,6 +512,9 @@ class Controller:
             # the bed is back (after a power cut, a reboot or the broker being down): whatever it ignored while away
             # goes out at once, not after the backed-off retry gap
             self.__dict__.pop("_unconfirmed", None)
+            # and the time it could not be reached is not time it ignored us: "isn't taking changes" is only said about
+            # a bed that was reachable and still did not obey (it would otherwise follow "lost contact" on the way back)
+            self.__dict__.pop("unconfirmed_since", None)
             self._last_cmd.clear()
         self._was_ready = ready
         # a side whose sleeper's night is running in bed: if both pads come back at once with the same readings
@@ -589,6 +616,13 @@ class Controller:
             self._room_inputs(p, e, now, frame)
         except Exception:  # noqa: BLE001
             log.exception("room inputs failed for %s", p.id)
+        try:
+            from .sleepsign import SleepSigns
+            signs = self.__dict__.setdefault("_sleep_signs", SleepSigns())
+            e.sleep_sign = signs.sign(self, p, e, now, (self.context.get(p.id) or {}).get("lights_on"))
+        except Exception:  # noqa: BLE001
+            e.sleep_sign = None                              # no sign: bedtime is still the backstop
+            log.exception("sleep signs failed for %s", p.id)
         target = e.tick(now, present, home, active=self.active_since)
         try:
             self._room_shortfall(p, e, now, frame)
@@ -965,7 +999,9 @@ class Controller:
                 if not ov or o_end is None or ph.start >= o_end or (ov.until == "next_phase" and ph.id != ov.phase_id):
                     return None
                 return round(ov.temp_c if ov.temp_c is not None else ph.temp_c + (ov.delta_c or 0), 2)
-            phases = [{"id": ph.id, "name": ph.name, "start": ph.start, "temp_c": ph.temp_c, "adjusted_c": adj(ph)} for ph in (n.phases if n else [])]
+            settle_ids = e.settle_phase_ids() if n else set()
+            phases = [{"id": ph.id, "name": ph.name, "start": ph.start, "temp_c": ph.temp_c, "adjusted_c": adj(ph),
+                       **({"when_settled": True} if ph.id in settle_ids else {})} for ph in (n.phases if n else [])]
             cur_phase = next((ph["name"] for ph in phases if ph["id"] == e.s.phase_id), None)
             actual = []
             if n:
@@ -989,7 +1025,9 @@ class Controller:
                     "state": e.s.state, "phase_id": e.s.phase_id, "phase_name": cur_phase, "started": e.s.started,
                     "in_bed": e.s.in_bed, "base_c": e.s.base_c, "target_c": e.s.target_c, "skip": e.s.skip,
                     "room_note": self.room_note(p.id), "lead_min": round(e.lead_s / 60) if e.lead_s else None,
-                    "pause_until": e.s.pause_until, "home": e.s.home, "away": self._away_view(p.id), "away_check": self._away_check_view(p.id),
+                    "pause_until": e.s.pause_until, "home": e.s.home,
+                    # in bed early: waiting for a sign of sleep before the night moves on (engine/sleepsign.py)
+                    "sleep": {"waiting": bool(settle_ids) or e.waiting_for_sleep(), "at": e.s.sleep_at, "why": e.s.sleep_why}, "away": self._away_view(p.id), "away_check": self._away_check_view(p.id),
                     "settle": (self.__dict__.get("_settle_info") or {}).get(p.id), "context": None if p.zone in self.household.guest else self.context.get(p.id),
                     "guest": self.household.guest[p.zone].model_dump() if p.zone in self.household.guest else None,
                     "flash": None if not f else {"kind": f.kind, "start": f.start, "end": f.end, "ease_end": f.end + f.ease_s,

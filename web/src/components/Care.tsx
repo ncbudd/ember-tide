@@ -255,7 +255,7 @@ export function CareFold({ owner }: { owner: boolean }) {
   if (!care || !care.tasks.length) return null;
   const due = care.tasks.filter(t => t.due).length;
   return (
-    <Fold id="settings.care" title="Care" summary={due ? `${due} due` : "All up to date"} attention={care.tasks.some(t => t.due_now && t.status === "overdue")}>
+    <Fold id="settings.care" anchor="care" title="Care" summary={due ? `${due} due` : "All up to date"} attention={care.tasks.some(t => t.due_now && t.status === "overdue")}>
       <CareCompact owner={owner} />
     </Fold>
   );

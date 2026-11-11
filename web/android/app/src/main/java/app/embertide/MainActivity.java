@@ -30,6 +30,11 @@ public class MainActivity extends BridgeActivity {
     /** When it was left (elapsedRealtime): one nobody collected within PENDING_MAX_MS is dropped, not run late. */
     static volatile long pendingAt = 0;
     static final long PENDING_MAX_MS = 60_000;
+    /** Intent extra on a tapped notification: the in-app page to open (checked again here with EmberLink). */
+    static final String EXTRA_LINK = "et_link";
+    /** A page from a tapped notification waiting for the web app to pick it up (takeLink); it only moves around the app. */
+    static volatile String pendingLink = null;
+    static volatile long pendingLinkAt = 0;
 
     private WindowInfoTrackerCallbackAdapter windowInfo;
     private final Consumer<WindowLayoutInfo> foldListener = this::pushFold;
@@ -58,6 +63,13 @@ public class MainActivity extends BridgeActivity {
         if (a == null || wv == null) return;
         String js = "window.__etAction=" + JSONObject.quote(a) + ";window.dispatchEvent(new CustomEvent('et-action',{detail:window.__etAction}));";
         wv.post(() -> wv.evaluateJavascript(js, null));
+    }
+
+    /** Tell the open page there is a page waiting (it collects it with takeLink; on a fresh load it asks by itself). */
+    private void announceLink() {
+        WebView wv = getBridge() == null ? null : getBridge().getWebView();
+        if (pendingLink == null || wv == null) return;
+        wv.post(() -> wv.evaluateJavascript("window.dispatchEvent(new CustomEvent('et-link'));", null));
     }
 
     @Override
@@ -130,6 +142,14 @@ public class MainActivity extends BridgeActivity {
      */
     private void takeIntent(Intent intent) {
         if (intent == null) return;
+        // a tapped notification: just a page to show, nothing is done to the bed, so no "ask first"
+        String link = EmberLink.clean(intent.getStringExtra(EXTRA_LINK));
+        if (intent.hasExtra(EXTRA_LINK)) intent.removeExtra(EXTRA_LINK);   // not again from Recents
+        if (link != null) {
+            pendingLink = link;
+            pendingLinkAt = android.os.SystemClock.elapsedRealtime();
+            announceLink();
+        }
         // our own launcher shortcuts never arrive here: they go through the NON-exported ShortcutActivity (only the
         // system's shortcut launcher can open it), which hands the action over itself. The same extra on this exported
         // activity came from another app or an intent:// web link, so it's asked about like any outside command.

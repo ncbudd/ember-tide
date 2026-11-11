@@ -3,7 +3,7 @@
    while the page is hidden (html.et-hidden), and prefers-reduced-motion turns everything into plain fades. */
 
 :root{--ease-out:cubic-bezier(.2,.8,.2,1);--ease-calm:cubic-bezier(.33,.0,.2,1)}
-html.et-hidden .wl-scene *,html.et-hidden .bm *,html.et-hidden .pa *,html.et-hidden .pa{animation-play-state:paused!important}
+html.et-hidden .wl-scene *,html.et-hidden .bm *,html.et-hidden .pa *,html.et-hidden .pa,html.et-hidden .pa-mid *{animation-play-state:paused!important}
 
 /* ---- brand mark: two orbs that drift together, then breathe ---- */
 .bm{position:relative;display:inline-flex;align-items:center;justify-content:center;flex:none;--o:14px}
@@ -115,7 +115,9 @@ html.et-hidden .wl-scene *,html.et-hidden .bm *,html.et-hidden .pa *,html.et-hid
 @keyframes wl-in-b{from{opacity:0;transform:translate3d(-32px,0,0)}}
 @keyframes wl-rise{from{opacity:0;transform:translate3d(0,12px,0)}}
 @keyframes wl-fade{from{opacity:0}}
-.wl.leaving{animation:wl-leave .46s ease forwards;pointer-events:none}
+/* Start: the hand-off (playFinale) covers this screen; with reduced motion it simply fades */
+.wl.leaving{pointer-events:none}
+@media (prefers-reduced-motion:reduce){.wl.leaving{animation:wl-leave .22s ease forwards}}
 @keyframes wl-leave{to{opacity:0}}
 
 /* ---- Ember / Tide: the choice ---- */
@@ -146,47 +148,88 @@ html.et-hidden .wl-scene *,html.et-hidden .bm *,html.et-hidden .pa *,html.et-hid
 .wl-pmid .pc-name .mute{font-weight:400;font-size:15px;margin-left:4px}
 .pm-text{display:grid;gap:1px;min-width:0}
 .wl-pmid[aria-checked=true]{border-color:var(--acc);background-color:color-mix(in srgb,var(--acc) 8%,var(--surf));box-shadow:0 0 0 1px var(--acc) inset}
-.pa-mid{width:30px;height:30px;border-radius:50%;justify-self:center;
-  background:linear-gradient(90deg,var(--warm) 0 50%,var(--cool) 50% 100%);opacity:.9;box-shadow:0 0 0 3px color-mix(in srgb,var(--text) 6%,transparent)}
-
-/* card art */
-.pa{position:relative;display:block;height:96px;border-radius:17px;overflow:hidden;transition:opacity .6s ease}
+/* card art (components/FirstRunArt.tsx PersonaArt): a moonlit tide, a bed of glowing coals, and the two meeting.
+   Every loop is paused until its card is chosen (or under a mouse), and stops while the page is hidden. */
+.pa{position:relative;display:block;height:96px;border-radius:17px;overflow:hidden;transition:opacity .6s ease;isolation:isolate}
 .pa svg{position:absolute;inset:0;width:100%;height:100%;display:block}
-.pa-tide{color:var(--cool);background:linear-gradient(180deg,color-mix(in srgb,var(--cool) 7%,var(--bg)),color-mix(in srgb,var(--cool) 20%,var(--bg)))}
-.light .pa-tide{background:linear-gradient(180deg,color-mix(in srgb,#5fb8b0 10%,var(--surf)),color-mix(in srgb,#5fb8b0 28%,var(--surf)));color:#2f8d86}
-.pa-moon{position:absolute;top:14px;right:18px;width:13px;height:13px;border-radius:50%;background:#efe6d6;opacity:.75;
-  box-shadow:0 0 14px 3px rgba(239,230,214,.18)}
-.light .pa-moon{background:#fffaf2;opacity:1;box-shadow:0 0 0 1px rgba(23,105,99,.18),0 0 14px 3px rgba(255,255,255,.7)}
-.pa-w{animation:pa-d1 7s linear infinite;animation-play-state:paused}
-.pa-w1{opacity:.32}.pa-w2{opacity:.55;animation-name:pa-d2;animation-duration:5.5s}.pa-w3{opacity:.95;animation-name:pa-d3;animation-duration:4.2s}
+.pa *{animation-play-state:paused!important}
+.pa-stars circle{fill:#f1e7d4;opacity:.5;transform-box:fill-box;transform-origin:center}
+.pa-stars circle:nth-child(2n){animation:pa-twinkle 3.2s ease-in-out infinite}
+.pa-stars circle:nth-child(2n+1){animation:pa-twinkle 4.1s ease-in-out -1.6s infinite}
+@keyframes pa-twinkle{0%,100%{opacity:.25}50%{opacity:.75}}
+.light .pa-stars circle{fill:currentColor;opacity:.35}
+
+/* Tide: three swells drift at different speeds under a crescent moon; its light glints on the water */
+.pa-tide{color:var(--cool);background:linear-gradient(180deg,color-mix(in srgb,#5fb8b0 5%,#0c0e13) 0%,color-mix(in srgb,#5fb8b0 16%,#0c0e13) 100%)}
+.light .pa-tide{color:#1f7a74;background:linear-gradient(180deg,color-mix(in srgb,#5fb8b0 8%,#f6f1ea),color-mix(in srgb,#5fb8b0 30%,#f6f1ea))}
+.pt-h0{stop-color:#f1e7d4;stop-opacity:.22}.pt-h1{stop-color:#f1e7d4;stop-opacity:0}
+.light .pt-h0{stop-color:#fff;stop-opacity:.9}
+.pt-moon{fill:#f1e7d4}
+.pt-g0{stop-color:#5fb8b0;stop-opacity:.28}.pt-g1{stop-color:#5fb8b0;stop-opacity:0}
+.light .pt-g0{stop-color:#ffffff;stop-opacity:.55}
+.pt-glow{transform-box:fill-box;transform-origin:center;animation:pe-bed 5.2s ease-in-out infinite}
+.light .pt-moon{fill:#fffaf2;stroke:rgba(23,105,99,.28);stroke-width:.8}
+.pa-w{fill:currentColor;animation:pa-d1 9s linear infinite}
+.pa-w1{opacity:.26}
+.pa-w2{opacity:.5;animation-name:pa-d2;animation-duration:7s}
+.pa-w3{animation-name:pa-d3;animation-duration:5.5s}
+.pt-f0{stop-color:#7fd0c6}.pt-f1{stop-color:#2b7c77}
+.light .pt-f0{stop-color:#4fa9a1}.light .pt-f1{stop-color:#1c6f69}
+.pt-crest{fill:none;stroke:#dff7f2;stroke-width:1.1;stroke-linecap:round;opacity:.55}
+.light .pt-crest{stroke:#fff;opacity:.8}
 @keyframes pa-d1{to{transform:translateX(-80px)}}
 @keyframes pa-d2{from{transform:translateX(-64px)}to{transform:translateX(0)}}
 @keyframes pa-d3{to{transform:translateX(-100px)}}
-.pa-ember{color:var(--warm);background:linear-gradient(180deg,color-mix(in srgb,var(--warm) 5%,var(--bg)),color-mix(in srgb,var(--warm) 17%,var(--bg)))}
-.light .pa-ember{background:linear-gradient(180deg,color-mix(in srgb,#ee8a55 8%,var(--surf)),color-mix(in srgb,#ee8a55 24%,var(--surf)));color:#c9622f}
-.pa-halo{position:absolute;left:50%;bottom:-44px;width:170px;height:130px;margin-left:-85px;border-radius:50%;
-  background:radial-gradient(closest-side,rgba(255,150,80,.5),rgba(238,120,70,.16) 55%,transparent);transform-origin:50% 70%;
-  animation:pa-breathe 4.8s ease-in-out infinite;animation-play-state:paused}
-.light .pa-halo{background:radial-gradient(closest-side,rgba(244,136,72,.42),rgba(238,120,70,.12) 55%,transparent)}
-@keyframes pa-breathe{0%,100%{transform:scale(.9);opacity:.75}50%{transform:scale(1.06);opacity:1}}
-.pa-coal{position:absolute;left:50%;bottom:14px;width:50px;height:20px;margin-left:-25px;border-radius:50%;
-  background:radial-gradient(60% 75% at 50% 35%,#ffe2ad 0,#ffab62 30%,#e2672e 64%,#7d3015 100%);box-shadow:0 0 18px 4px rgba(255,140,70,.32)}
-/* two smaller, darker coals either side */
-.pa-coal::before,.pa-coal::after{content:"";position:absolute;bottom:-3px;width:26px;height:14px;border-radius:50%;
-  background:radial-gradient(60% 70% at 50% 30%,#ffb26a 0,#c4552a 55%,#5e2410 100%)}
-.pa-coal::before{left:-19px}.pa-coal::after{right:-17px;width:22px;height:12px}
-.pa-spark{position:absolute;bottom:30px;left:50%;width:3px;height:3px;border-radius:50%;background:#ffc68a;box-shadow:0 0 4px #ffb070;opacity:0;
-  animation:pa-rise 2.9s ease-out infinite;animation-play-state:paused}
-.light .pa-spark{background:#e2763c;box-shadow:none}
-.pa-spark:nth-of-type(1){margin-left:-12px}
-.pa-spark:nth-of-type(2){margin-left:4px;animation-delay:1s;animation-duration:3.3s}
-.pa-spark:nth-of-type(3){margin-left:13px;animation-delay:1.9s;animation-duration:2.6s}
-@keyframes pa-rise{0%{transform:translate3d(0,0,0);opacity:0}20%{opacity:1}100%{transform:translate3d(6px,-58px,0);opacity:0}}
-/* the chosen card comes alive (and any card under a mouse) */
-.wl-pcard[aria-checked=true] .pa *{animation-play-state:running}
-@media (hover:hover){.wl-pcard:hover .pa *{animation-play-state:running}}
+.pt-glints rect{fill:#f1e7d4;opacity:.4;transform-box:fill-box;transform-origin:center;animation:pa-glint 2.6s ease-in-out infinite}
+.pt-glints rect:nth-child(2){animation-delay:-.9s}.pt-glints rect:nth-child(3){animation-delay:-1.7s}
+.light .pt-glints rect{fill:#fff;opacity:.7}
+@keyframes pa-glint{0%,100%{opacity:.18;transform:scaleX(.7)}50%{opacity:.6;transform:scaleX(1)}}
+
+/* Ember: a bed of coals with a slow breathing glow, hot seams between them, and a few sparks drifting up */
+.pa-ember{color:var(--warm);background:linear-gradient(180deg,color-mix(in srgb,#ee8a55 3%,#0d0b0e) 0%,color-mix(in srgb,#ee8a55 12%,#0d0b0e) 100%)}
+.light .pa-ember{color:#b4562a;background:linear-gradient(180deg,color-mix(in srgb,#ee8a55 6%,#f6f1ea),color-mix(in srgb,#ee8a55 26%,#f6f1ea))}
+.pe-g0{stop-color:#ff9a4f;stop-opacity:.62}.pe-g1{stop-color:#e2672e;stop-opacity:.2}.pe-g2{stop-color:#e2672e;stop-opacity:0}
+.light .pe-g0{stop-color:#f08443;stop-opacity:.55}.light .pe-g1{stop-color:#ee8a55;stop-opacity:.22}
+.pe-halo{transform-box:fill-box;transform-origin:50% 100%;animation:pe-breathe 4.6s ease-in-out infinite}
+@keyframes pe-breathe{0%,100%{opacity:.7;transform:scale(.94)}50%{opacity:1;transform:scale(1.05)}}
+.pe-chunk{stroke:#110906;stroke-opacity:.75;stroke-width:.6;stroke-linejoin:round}
+.pe-rim{fill:none;stroke:url(#pa-e-rim);stroke-width:1.3;stroke-linejoin:round}
+.pe-k0{stop-color:#1c100b}.pe-k1{stop-color:#4a2213}.pe-k2{stop-color:#d85a1f}
+.pe-k2-0{stop-color:#e0662a}.pe-k2-2{stop-color:#a8401a}
+.pe-row0 .pe-rim{opacity:.75}
+.light .pe-k0{stop-color:#33201a}.light .pe-k1{stop-color:#4e2818}
+.pe-bed{transform-box:fill-box;transform-origin:50% 70%;animation:pe-bed 3.6s ease-in-out infinite}
+@keyframes pe-bed{0%,100%{opacity:.82}50%{opacity:1}}
+.pe-crack{fill:none;stroke:#ffcb78;stroke-width:1.05;stroke-linecap:round;stroke-linejoin:round;opacity:.9;animation:pe-crack 3s ease-in-out infinite}
+.pe-c1{animation-delay:-1.1s;animation-duration:3.7s}.pe-c2{animation-delay:-2s;animation-duration:2.6s}
+@keyframes pe-crack{0%,100%{opacity:.5}50%{opacity:1}}
+.pe-bit{fill:#ffc070;animation:pe-crack 2.4s ease-in-out infinite}
+.pe-s1{animation-delay:-.8s}.pe-s2{animation-delay:-1.6s;animation-duration:3.1s}
+.pe-sp{fill:#ffcf8f;opacity:0;transform-box:fill-box;transform-origin:center;animation:pe-rise 3.1s ease-out infinite}
+.light .pe-sp{fill:#d9692f}
+.pe-sp2{animation-delay:.9s;animation-duration:3.6s}.pe-sp3{animation-delay:1.8s;animation-duration:2.8s}.pe-sp4{animation-delay:2.5s;animation-duration:3.3s}
+@keyframes pe-rise{0%{opacity:0;transform:translate3d(0,0,0)}15%{opacity:1}70%{opacity:.6}100%{opacity:0;transform:translate3d(7px,-62px,0) scale(.6)}}
+.pe-sp3{animation-name:pe-rise2}
+@keyframes pe-rise2{0%{opacity:0;transform:translate3d(0,0,0)}15%{opacity:1}70%{opacity:.5}100%{opacity:0;transform:translate3d(-8px,-56px,0) scale(.6)}}
+
+/* In between: warm and cool meeting along a gentle wave, a coal on one side, ripples on the other */
+.pa-mid{position:relative;display:block;width:40px;height:40px;justify-self:center}
+.pa-mid svg{width:100%;height:100%;display:block;overflow:visible}
+.pm-w0{stop-color:#ffc27a}.pm-w1{stop-color:#e8703a}.pm-w2{stop-color:#7a2f14}
+.pm-c0{stop-color:#93ddd3}.pm-c1{stop-color:#2b7a75}
+.light .pm-w2{stop-color:#b4562a}.light .pm-c1{stop-color:#1f7a74}
+.pm-sway{transform-box:view-box;transform-origin:22px 22px;animation:pm-sway 5s ease-in-out infinite alternate;animation-play-state:paused}
+@keyframes pm-sway{from{transform:rotate(-7deg)}to{transform:rotate(7deg)}}
+.pm-ripple{fill:none;stroke:#e9fbf8;stroke-width:1.3;stroke-linecap:round;opacity:.75}
+.pm-r2{opacity:.45}
+.pm-coal{fill:#ffe0a3;opacity:.95}
+.pm-ring{fill:none;stroke:var(--line2);stroke-width:1}
+.wl-pmid[aria-checked=true] .pm-sway{animation-play-state:running}
+/* the chosen card comes alive (and any card under a mouse), never while the page is hidden */
+html:not(.et-hidden) .wl-pcard[aria-checked=true] .pa *{animation-play-state:running!important}
+@media (hover:hover){html:not(.et-hidden) .wl-pcard:hover .pa *{animation-play-state:running!important}}
 .pa-ring{position:absolute;left:50%;top:55%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;border:1.5px solid currentColor;opacity:0;pointer-events:none}
-.wl-pcard[aria-checked=true] .pa-ring{animation:pa-ring 1.2s var(--ease-out) 1 both;animation-play-state:running}
+.wl-pcard[aria-checked=true] .pa-ring{animation:pa-ring 1.2s var(--ease-out) 1 both}
 @keyframes pa-ring{0%{transform:scale(.35);opacity:.8}100%{transform:scale(3);opacity:0}}
 
 /* ---- "You're set" ---- */
@@ -242,20 +285,6 @@ html.et-hidden .wl-scene *,html.et-hidden .bm *,html.et-hidden .pa *,html.et-hid
 .au-back{display:inline-flex;align-items:center;gap:2px;min-height:44px;padding:0 12px 0 4px;margin-left:-6px;border:0;background:none;color:var(--mute);font-size:15px;cursor:pointer;border-radius:99px}
 .au-title{font-size:26px;line-height:1.2;font-weight:400}
 .authcard>p.au-step,.au-step>p{text-align:left}
-.au-sides{display:grid;gap:10px}
-.au-bed{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:8px;padding:8px;border-radius:24px;border:2px solid var(--line2);background:color-mix(in srgb,var(--surf) 70%,transparent)}
-.au-head{grid-column:1 / -1;text-align:center;font-size:12px;color:var(--mute);padding:2px 0 0}
-.au-half{position:relative;display:grid;align-content:start;justify-items:center;gap:14px;min-height:132px;padding:14px 10px;border-radius:16px;border:1px solid var(--line2);
-  background:var(--surf);color:var(--text);font:inherit;font-size:18px;cursor:pointer;transition:border-color .3s ease,background-color .3s ease,transform .25s var(--ease-out)}
-.au-half b{font-weight:500}
-.au-half:active,.au-neither:active{transform:scale(.98)}
-.au-pillow{width:72%;height:20px;border-radius:9px;background:var(--raise);border:1px solid var(--line)}
-.au-half[aria-checked=true]{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 10%,var(--surf));box-shadow:0 0 0 1px var(--acc) inset}
-.au-tick{position:absolute;right:10px;bottom:10px;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;background:var(--acc);color:var(--bg);font-size:13px;font-weight:700;animation:au-pop .35s var(--ease-out) backwards}
-@keyframes au-pop{from{transform:scale(.4);opacity:0}}
-.au-neither{display:grid;gap:2px;text-align:left;min-height:56px;padding:10px 16px;border-radius:16px;border:1px solid var(--line2);background:var(--surf);color:var(--text);font:inherit;font-size:16px;cursor:pointer;transition:border-color .3s,transform .25s var(--ease-out)}
-.au-neither small{font-size:13px}
-.au-neither[aria-checked=true]{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset}
 .authform .btn.pri.big,.au-step>.btn.pri.big{border-radius:99px;min-height:54px}
 .authside-top .bm{margin:0}
 @media(min-width:900px){
@@ -275,11 +304,164 @@ html.et-hidden .wl-scene *,html.et-hidden .bm *,html.et-hidden .pa *,html.et-hid
   .sc-spark{display:none!important}
   .sc-tide,.sc-glowpos,.sc-core,.sc-ember,.sc-wash{transition-property:opacity!important;transition-duration:.5s!important}
   .wl-step,.wl-step>*,.au-step,.au-step>*,.authcard>*{animation-name:wl-fade!important;animation-duration:.35s!important}
-  .wl-pcard,.wl-pmid,.au-half,.au-neither,.wl-nav .btn{transition-property:border-color,background-color,box-shadow,opacity!important}
-  .wl-pcard:hover,.wl-pmid:hover,.wl-pcard:active,.wl-pmid:active,.au-half:active,.wl-nav .btn:active{transform:none!important}
+  .wl-pcard,.wl-pmid,.wl-nav .btn{transition-property:border-color,background-color,box-shadow,opacity!important}
+  .wl-pcard:hover,.wl-pmid:hover,.wl-pcard:active,.wl-pmid:active,.wl-nav .btn:active{transform:none!important}
   .fin-ring,.fin-check{stroke-dashoffset:0}
   .fin-glow{opacity:.6}
   .authside-waves path{stroke-dashoffset:0}
   .pc-tick{transition:opacity .2s}
   .app.arrive .screen{animation:wl-fade .3s ease backwards}
+}
+
+/* ---------- first-run pass 2 (2026-11): progress, "more below", the steps' own layouts, the hand-off ---------- */
+
+/* progress: one dot per core question, then small rings for the optional extras, and the words "Step 2 of 6" */
+.wl-top{gap:12px}
+.wl-prog{display:flex;align-items:center;gap:10px;min-width:0}
+.wl-dots{align-items:center;flex-wrap:nowrap;max-width:none}
+.wl-dots i.opt{width:7px;height:7px;background:transparent;border:1.5px solid var(--line2)}
+.wl-dots i.opt.past{background:color-mix(in srgb,var(--acc) 45%,var(--line2));border-color:transparent}
+.wl-dots i.opt.on{width:18px;border-radius:4px;background:var(--acc);border-color:var(--acc)}
+.wl-dots-gap{width:5px;flex:none}
+.wl-count{font-size:13px;color:var(--mute);white-space:nowrap}
+.wl-skipall{margin-left:auto}
+
+/* the step body scrolls inside .wl-mid; while there's more below it fades out softly and says so */
+.wl-mid{position:relative;flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.wl-body,.app .wl-body{-webkit-mask-image:none;mask-image:none;padding-bottom:calc(20px + var(--kb,0px))}
+.wl-mid.more .wl-body{-webkit-mask-image:linear-gradient(to bottom,#000 calc(100% - 72px),rgba(0,0,0,.08));mask-image:linear-gradient(to bottom,#000 calc(100% - 72px),rgba(0,0,0,.08))}
+.wl-morehint{position:absolute;left:50%;bottom:4px;z-index:2;display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:0 14px 0 18px;
+  border-radius:99px;border:1px solid var(--line2);background:color-mix(in srgb,var(--surf) 94%,transparent);color:var(--text);font:inherit;font-size:13.5px;
+  box-shadow:0 8px 22px -12px rgba(0,0,0,.6);cursor:pointer;opacity:0;pointer-events:none;transform:translate3d(-50%,8px,0);
+  transition:opacity .35s ease,transform .45s var(--ease-out)}
+.wl-morehint svg{width:18px;height:18px}
+.wl-mid.more .wl-morehint{opacity:1;pointer-events:auto;transform:translate3d(-50%,0,0)}
+.wl.leaving .wl-morehint{opacity:0}
+
+/* the bar: always Back on the left, Next on the right, Skip (optional steps only) just left of Next */
+.wl-nav{position:relative;z-index:3}
+.wl-nav .btn{min-height:52px}
+.wl-skip{color:var(--mute)}
+.wl-eyebrow{color:var(--mute);font-weight:500;letter-spacing:0;margin-bottom:-4px}
+
+/* option cards: never let a column shrink to one word (the Autopilot cards did in the keyboard layout) */
+.wl-card{grid-template-columns:76px minmax(0,1fr)}
+.wl-card>*{min-width:0}
+.wl-card.wl-ap,.app.compact .wl-card.wl-ap{grid-template-columns:minmax(0,1fr);grid-template-rows:auto;row-gap:4px;min-height:0;padding:14px 16px}
+.wl-card.wl-ap .mute,.app.compact .wl-card.wl-ap .mute{grid-column:1 / -1;font-size:14px;line-height:1.45}
+.wl-ap-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.wl-tag{font-size:12px;font-weight:600;line-height:1;padding:5px 9px;border-radius:99px;color:var(--acc);background:color-mix(in srgb,var(--acc) 14%,transparent);
+  border:1px solid color-mix(in srgb,var(--acc) 35%,transparent)}
+.wl-radio{margin-left:auto;width:22px;height:22px;border-radius:50%;border:2px solid var(--line2);flex:none;display:grid;place-items:center;transition:border-color .3s ease}
+.wl-radio::after{content:"";width:10px;height:10px;border-radius:50%;background:var(--acc);transform:scale(0);transition:transform .3s var(--ease-out)}
+[aria-checked=true]>.wl-ap-head>.wl-radio{border-color:var(--acc)}
+[aria-checked=true]>.wl-ap-head>.wl-radio::after{transform:none}
+.app.compact .wl-card{grid-template-columns:56px minmax(0,1fr)}
+
+/* About you, bedtime, watch: small labelled rows; every control at least 44 px tall */
+.wl-units{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:15px}
+.wl-units .seg{width:140px;flex:none}
+.wl .seg button{min-height:44px}
+.wl-sub{font-size:15px;font-weight:500}
+.wl-wd,.wl-trust{display:grid;gap:10px}
+.wl .wd-sum{display:none}
+.wl-time b{font-weight:500}
+.wl-field input::placeholder{color:var(--faint);opacity:1}
+.wl-later{font-size:14px;line-height:1.5}
+.wl-later b{font-weight:500;color:var(--text)}
+.wl-done .wl-sum .link{color:var(--text)}
+
+/* Help from this phone: every switch open, one plain line each */
+.ps-inline{padding-top:2px;padding-bottom:2px}
+.ps-inline>div{border-bottom:1px solid var(--line)}
+.ps-inline>div:last-of-type{border-bottom:0}
+.ps-row{padding:12px 0;min-height:60px;cursor:pointer;gap:14px}
+.ps-text{display:grid;gap:2px;min-width:0}
+.ps-label{font-size:15.5px;line-height:1.3}
+.ps-why{font-size:13.5px;line-height:1.4}
+.ps-extra{padding:0 0 12px}
+.ps-extra .pill{min-height:44px;white-space:normal;text-align:left}
+.ps-inline-note{font-size:14.5px}
+
+/* Watch or ring: once one is picked, just that one (tap it to change) and its how-to right underneath */
+.wp-folded{gap:10px}
+.wp-chosen{width:100%;min-height:60px;border-color:var(--acc);box-shadow:0 0 0 1px var(--acc) inset;background:color-mix(in srgb,var(--acc) 9%,var(--surf));animation:wl-rise .45s var(--ease-out) backwards}
+.wp-chosen-name{flex:1;font-size:16px;font-weight:500;min-width:0}
+.wp-change{font-size:14px;color:var(--text);text-decoration:underline;text-underline-offset:3px;text-decoration-color:color-mix(in srgb,var(--text) 40%,transparent);padding:0 2px}
+.wp-folded .wp-how{animation:wl-rise .5s var(--ease-out) .05s backwards}
+
+/* keyboard layout (a hardware keyboard): the bar sits above the key hints, buttons stay finger-sized */
+.app.compact .screen.wl{padding-bottom:calc(var(--hint-h) + 4px)}
+.app.compact .wl-nav{padding-top:8px;padding-bottom:6px}
+.app.compact .wl-nav .btn.btn{min-height:44px!important}
+.app.compact .wl-count{font-size:12px}
+.app.compact .wl-morehint{font-size:12.5px}
+
+/* sign-in screens: room for the on-screen keyboard, and on a short phone the card scrolls from its top (centring an
+   overflowing column hid the brand mark above the screen, out of reach) */
+.authapp .authscreen{padding-bottom:calc(18px + var(--kb,0px))}
+@media (max-width:899px){
+  .authapp .authscreen{justify-content:flex-start}
+  .authapp .authscreen>.authcard{margin-top:auto;margin-bottom:auto}
+}
+
+/* ---- the hand-off to Tonight (playFinale): ~2.2 s, then it removes itself ---- */
+.fin-host{position:absolute;inset:0;z-index:80;pointer-events:none;overflow:hidden;border-radius:inherit}
+.fin{position:absolute;inset:0;overflow:hidden;
+  --tw-a:#5fb8b0;--tw-b:#2b7c77;--tw-c:#0f2a2f;--em-core:#26110b;--em-hot:#4a1d0e;--em-rim:#d9662f;--em-glow:rgba(255,160,90,.55);--fin-text:#f2eadf}
+.light .fin{--tw-a:#8fd0c8;--tw-b:#5fb0a8;--tw-c:#d9ece8;--em-core:#f7e1cf;--em-hot:#f9cfae;--em-rim:#ee9a62;--em-glow:rgba(238,138,85,.45);--fin-text:#16141c}
+.fin-word{position:absolute;left:0;right:0;top:44%;text-align:center;font-size:26px;font-weight:300;letter-spacing:-.01em;color:var(--fin-text);
+  opacity:0;animation:fin-word-in .5s ease .3s forwards}
+.fin[data-phase=out] .fin-word{opacity:1;animation:fin-word-out .5s ease forwards}
+@keyframes fin-word-in{from{opacity:0;transform:translate3d(0,8px,0)}to{opacity:1;transform:none}}
+@keyframes fin-word-out{to{opacity:0;transform:translate3d(0,-10px,0)}}
+
+/* Tide: three sheets of water sweep up and cover, then pass on upward, uncovering Tonight from the bottom */
+.fin-sheet{position:absolute;left:0;right:0;top:0;height:170%;display:flex;flex-direction:column;transform:translate3d(0,100%,0);
+  animation:fin-up .9s cubic-bezier(.3,.1,.2,1) forwards}
+.fin-s0{color:var(--tw-a)}.fin-s1{color:var(--tw-b);animation-delay:.07s}.fin-s2{color:var(--tw-c);animation-delay:.14s;animation-duration:.8s}
+.fin-edge{display:block;width:100%;height:56px;flex:none;margin-bottom:-1px}
+.fin-edge path{fill:currentColor}
+.fin-edge-b{transform:scaleY(-1);margin:-1px 0 0}
+.fin-water{flex:1;background:linear-gradient(currentColor,color-mix(in srgb,currentColor 78%,#000) 60%,currentColor)}
+.light .fin-water{background:linear-gradient(currentColor,color-mix(in srgb,currentColor 88%,#5fb8b0) 60%,currentColor)}
+.fin-crest{fill:none;stroke:#e6faf6;stroke-width:2;opacity:.35;vector-effect:non-scaling-stroke}
+.fin-s2 .fin-crest{opacity:.18}
+.fin[data-phase=out] .fin-sheet{transform:translate3d(0,-15%,0);animation:fin-pass 1.15s cubic-bezier(.45,0,.25,1) forwards}
+.fin[data-phase=out] .fin-s2{animation-delay:0s}.fin[data-phase=out] .fin-s1{animation-delay:.08s}.fin[data-phase=out] .fin-s0{animation-delay:.14s;animation-duration:1s}
+@keyframes fin-up{to{transform:translate3d(0,-15%,0)}}
+@keyframes fin-pass{to{transform:translate3d(0,-102%,0)}}
+
+/* Ember: a warm glow blooms up from the bottom with sparks rising through it, then fades away */
+.fin-bloom{position:absolute;left:50%;top:100%;height:320%;aspect-ratio:1;border-radius:50%;transform:translate3d(-50%,-50%,0) scale(.02);
+  background:radial-gradient(closest-side,var(--em-hot) 0,var(--em-core) 38%,var(--em-core) 66%,var(--em-rim) 74%,var(--em-glow) 80%,transparent 92%);
+  animation:fin-bloom .95s cubic-bezier(.3,.1,.2,1) forwards}
+.fin-b2{background:radial-gradient(closest-side,rgba(255,170,95,.3),rgba(238,120,70,.1) 45%,transparent 70%);animation-delay:.1s;opacity:.9}
+.light .fin-b2{background:radial-gradient(closest-side,rgba(255,190,140,.7),rgba(238,138,85,.22) 45%,transparent 70%)}
+@keyframes fin-bloom{to{transform:translate3d(-50%,-50%,0) scale(1)}}
+.fin[data-phase=out] .fin-bloom{transform:translate3d(-50%,-50%,0) scale(1);animation:fin-fade 1.1s ease forwards}
+.fin[data-phase=out] .fin-b2{animation:fin-fade .7s ease forwards}
+@keyframes fin-fade{to{opacity:0;transform:translate3d(-50%,-50%,0) scale(1.08)}}
+.fin-spark{position:absolute;bottom:-6px;left:var(--x);width:var(--s);height:var(--s);border-radius:50%;background:#ffc98a;box-shadow:0 0 8px 2px rgba(255,170,90,.7);
+  opacity:0;animation:fin-spark 1.9s cubic-bezier(.2,.6,.3,1) var(--d) forwards}
+.light .fin-spark{background:#e2763c;box-shadow:0 0 6px 1px rgba(226,118,60,.5)}
+@keyframes fin-spark{0%{opacity:0;transform:translate3d(0,0,0)}12%{opacity:1}75%{opacity:.7}100%{opacity:0;transform:translate3d(var(--dx),-88vh,0) scale(.5)}}
+
+/* In between: warm comes in from one side, cool from the other, they meet in the middle and dissolve */
+.fin-half{position:absolute;top:0;bottom:0;width:100%;animation:fin-meet .9s cubic-bezier(.3,.1,.2,1) forwards}
+.fin-warm{left:0;transform:translate3d(-100%,0,0);
+  background:radial-gradient(90% 60% at 0% 100%,color-mix(in srgb,var(--em-rim) 45%,transparent),transparent 75%),
+    linear-gradient(90deg,var(--em-core) 0,var(--em-core) 42%,color-mix(in srgb,var(--em-core) 60%,transparent) 62%,transparent 80%)}
+.fin-cool{right:0;transform:translate3d(100%,0,0);
+  background:radial-gradient(90% 60% at 100% 100%,color-mix(in srgb,var(--tw-a) 40%,transparent),transparent 75%),
+    linear-gradient(270deg,var(--tw-c) 0,var(--tw-c) 42%,color-mix(in srgb,var(--tw-c) 60%,transparent) 62%,transparent 80%)}
+@keyframes fin-meet{to{transform:translate3d(0,0,0)}}
+.fin[data-phase=out] .fin-half{transform:none;animation:fin-dissolve 1.1s ease forwards}
+@keyframes fin-dissolve{to{opacity:0;transform:scale(1.06)}}
+
+html.et-hidden .fin *{animation-play-state:paused!important}
+@media (prefers-reduced-motion:reduce){
+  .fin{display:none}
+  .pa *,.pa-mid *,.wp-chosen,.wp-folded .wp-how{animation:none!important}
+  .wl-morehint,.wl-radio::after{transition:opacity .2s!important}
 }

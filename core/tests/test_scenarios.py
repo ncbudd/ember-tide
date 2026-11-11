@@ -64,7 +64,7 @@ class Night:
 async def test_normal_weeknight_scripted(tmp_path):
     n = Night(tmp_path, "2026-11-05T21:00", scripted=True)
     await n.until("2026-11-05T21:35")
-    assert n.side("left").on and n.side("left").setpoint == pytest.approx(f_to_c(68), abs=0.1)   # pre-cool
+    assert n.side("left").on and n.side("left").setpoint == pytest.approx(f_to_c(68), abs=0.1)   # pre-condition
     await n.until("2026-11-06T00:30")
     assert n.e(n.p1).s.started and n.e(n.p1).s.phase_id == "deep"
     assert n.side("left").setpoint == pytest.approx(f_to_c(63), abs=0.1)
@@ -79,7 +79,7 @@ async def test_away_then_home_late(tmp_path):
     n = Night(tmp_path, "2026-11-05T21:00")
     n.c.home[n.p1.id] = False
     await n.until("2026-11-05T22:00")
-    assert n.e(n.p1).s.state == "away" and not n.side("left").on                               # no pre-cool while away
+    assert n.e(n.p1).s.state == "away" and not n.side("left").on                               # no pre-condition while away
     assert n.side("right").on                                                                  # partner unaffected
     n.c.home[n.p1.id] = True
     await n.step(2)
@@ -89,11 +89,11 @@ async def test_away_then_home_late(tmp_path):
     assert n.e(n.p1).s.started and n.e(n.p1).s.phase_id == "fall_asleep"
 
 
-# 3 ─ arriving after "keep pre-cooling until"
+# 3 ─ arriving after "keep pre-conditioning until"
 async def test_late_arrival_still_starts(tmp_path):
     n = Night(tmp_path, "2026-11-06T01:00")
     await n.until("2026-11-06T02:10")
-    assert n.e(n.p1).s.state == "missed" and not n.side("left").on                              # stopped pre-cooling an empty side
+    assert n.e(n.p1).s.state == "missed" and not n.side("left").on                              # stopped pre-conditioning an empty side
     n.present("left", True)
     await n.until("2026-11-06T02:20")
     assert n.e(n.p1).s.started, "a 2 AM arrival must still get a working bed"

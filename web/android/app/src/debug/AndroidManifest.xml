@@ -12,5 +12,7 @@
         <receiver android:name=".FakeDial" android:exported="true" android:permission="android.permission.DUMP" />
         <!-- FakeWatchHr: pretend the watch sent a heart-rate batch (usage in FakeWatchHr.kt) -->
         <receiver android:name=".FakeWatchHr" android:exported="true" android:permission="android.permission.DUMP" />
+        <!-- FakePush: show an app notification locally (usage in FakePush.kt) -->
+        <receiver android:name=".FakePush" android:exported="true" android:permission="android.permission.DUMP" />
     </application>
 </manifest>

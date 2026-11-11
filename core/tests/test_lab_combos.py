@@ -257,16 +257,16 @@ def test_fortnight_bed_ready_before_arriving_home(fortnight):
     arrive = at(thu, "23:20")
     rows = lab.tl("p1", at(thu, "22:00"), arrive)
     on = [r for r in rows if r[2] == "waiting" and r[4]]
-    assert on, "pre-cool never resumed before the arrival"
+    assert on, "pre-condition never resumed before the arrival"
     first = on[0][0]
     drive_start = arrive - 18.0 / 45.0 * 3600                    # a 24-minute drive: shorter than ready_min (30)
     # heading home needs a few readings showing a steady fall (so GPS jitter can't fake it): ~6-10 min into the drive
-    assert first <= drive_start + 10 * 60, f"pre-cool resumed {(first - drive_start) / 60:.0f} min into the drive home"
+    assert first <= drive_start + 10 * 60, f"pre-condition resumed {(first - drive_start) / 60:.0f} min into the drive home"
     assert any(r[7] for r in rows), "never saw 'heading home'"
 
 
 async def test_long_drive_home_bed_ready_ahead_of_arrival(tmp_path):
-    """A 60-minute drive home: pre-cool starts about ready_min (30) before arriving, not at the start of the drive."""
+    """A 60-minute drive home: pre-condition starts about ready_min (30) before arriving, not at the start of the drive."""
     night = "2026-11-03"
     plan = {night: dict(WEEKNIGHT, trip=("18:00", "23:30", 60.0, 60.0), **{"in": "23:45"})}
     lab = ComboLab(tmp_path, "2026-11-03T16:00", plans={"p1": plan}, defaults={"p1": WEEKNIGHT},
@@ -276,14 +276,14 @@ async def test_long_drive_home_bed_ready_ahead_of_arrival(tmp_path):
     on = [r for r in lab.tl("p1", at(night, "22:00"), arrive) if r[2] == "waiting" and r[4]]
     assert on
     lead = (arrive - on[0][0]) / 60
-    assert 25 <= lead <= 40, f"pre-cool started {lead:.0f} min before arriving"
+    assert 25 <= lead <= 40, f"pre-condition started {lead:.0f} min before arriving"
 
 
 def test_fortnight_gym_evening_resumes_after_return(fortnight):
     lab = fortnight
     tue = "2026-11-03"
     rows = lab.tl("p1", at(tue, "21:30"), at(tue, "22:15"))
-    assert rows and all(r[3] is True for r in rows)              # home long before pre-cool
+    assert rows and all(r[3] is True for r in rows)              # home long before pre-condition
     assert any(r[2] == "waiting" and r[4] for r in rows)
 
 
@@ -345,7 +345,7 @@ async def test_late_every_night_proposes_bedtime_and_applying_moves_precool(tmp_
     apply_schedule(lab.p1, b["proposal"])
     after = resolve(rh, date(2026, 11, 9), TZ).precool
     h, m = map(int, b["proposal"]["to"].split(":"))
-    assert after - before == ((h * 60 + m) - (22 * 60 + 15)) * 60                    # pre-cool moved with bedtime
+    assert after - before == ((h * 60 + m) - (22 * 60 + 15)) * 60                    # pre-condition moved with bedtime
 
 
 # fixed (was a known bug)
@@ -433,7 +433,7 @@ async def test_gps_jitter_parked_close_by_is_not_heading_home(tmp_path):
 
 async def test_gps_lost_while_driving_home(tmp_path):
     """GPS stops reporting 10 km out on the drive home: never stuck 'away' forever; once it's stale the side goes back
-    to 'unknown' and pre-cool runs."""
+    to 'unknown' and pre-condition runs."""
     night = "2026-11-03"
     plan = {night: dict(WEEKNIGHT, **{"in": "23:30"}, trip=("19:00", "23:15", 30.0, 60.0))}
     cut = at(night, "22:55")
@@ -468,13 +468,13 @@ async def test_driving_home_after_window_end_still_gets_a_working_bed(tmp_path):
     lab = ComboLab(tmp_path, "2026-11-03T16:00", plans={"p1": plan}, defaults={"p1": WEEKNIGHT},
                    devices=[dev("gps", "location", "location")])
     await lab.evenings([night], start="20:00", dt=60)
-    assert all(not r[4] for r in lab.tl("p1", at(night, "21:40"), at(night, "01:30")))     # no pre-cool for nobody
+    assert all(not r[4] for r in lab.tl("p1", at(night, "21:40"), at(night, "01:30")))     # no pre-condition for nobody
     started = lab.tl("p1", at(night, "02:45"), at(night, "05:00"))
     assert started and all(r[5] and r[4] for r in started), "a 2:35 AM arrival must still get a working bed"
 
 
 async def test_home_but_not_in_bed_precool_runs_but_not_forever(tmp_path):
-    """Home all evening but on the sofa until 02:10: pre-cool runs, stops after window end (+ hold), starts again
+    """Home all evening but on the sofa until 02:10: pre-condition runs, stops after window end (+ hold), starts again
     when they finally get in."""
     night = "2026-11-03"
     plan = {night: dict(WEEKNIGHT, **{"in": "02:10"})}

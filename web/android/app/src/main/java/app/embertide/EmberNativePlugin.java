@@ -74,6 +74,16 @@ public class EmberNativePlugin extends Plugin {
         call.resolve(r);
     }
 
+    /** The page a tapped notification wants opened, handed over once ({link: string|null}). */
+    @PluginMethod
+    public void takeLink(PluginCall call) {
+        JSObject r = new JSObject();
+        boolean stale = android.os.SystemClock.elapsedRealtime() - MainActivity.pendingLinkAt > MainActivity.PENDING_MAX_MS;
+        r.put("link", stale ? null : MainActivity.pendingLink);
+        MainActivity.pendingLink = null;
+        call.resolve(r);
+    }
+
     /** The current fold (hinge position in CSS px, posture), the same object the `et-fold` event carries. */
     @PluginMethod
     public void fold(PluginCall call) {

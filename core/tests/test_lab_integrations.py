@@ -60,13 +60,19 @@ class FakeSleep:
         await asyncio.sleep(0)
 
 
-async def run_until(task_factory, cond, steps=4000):
+async def run_until(task_factory, cond, steps=4000, wall_s=15.0):
+    # steps of the event loop, but parsing runs on a worker thread (asyncio.to_thread), which on a busy machine can
+    # take longer than a few thousand zero-length yields: keep yielding (with a short real pause) up to wall_s
+    import time as _t
     t = asyncio.create_task(task_factory())
     try:
-        for _ in range(steps):
+        deadline = _t.monotonic() + wall_s
+        n = 0
+        while n < steps or _t.monotonic() < deadline:
             if cond():
                 return True
-            await asyncio.sleep(0)
+            n += 1
+            await asyncio.sleep(0 if n < steps else 0.005)
         return cond()
     finally:
         t.cancel()

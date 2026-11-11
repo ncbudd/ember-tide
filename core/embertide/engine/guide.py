@@ -78,7 +78,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                      if e["kind"] == "home_changed" and e.get("person") == p.id and e["ts"] <= rn.bedtime + 2 * 3600),
                     key=lambda e: e["ts"])
         before = [e for e in hc if e["ts"] <= rn.precool]
-        # away if they were already out when pre-cool was due, or left during the evening
+        # away if they were already out when pre-condition was due, or left during the evening
         away = bool(before and before[-1].get("home") is False) or any(
             e.get("home") is False for e in hc if e["ts"] > rn.precool)
         late_event = None
@@ -113,7 +113,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                 out.append({"id": f"guide-bedtime-{rh.id}", "severity": "suggest", "kind": "guide",
                             "title": f"{rh.name}: you usually get into bed {abs(round(med))} min {'after' if med > 0 else 'before'} your set bedtime",
                             "detail": f"On {len(offs)} ordinary nights (late events and nights away left out). Moving bedtime to "
-                                      f"{to} lines up wind-down and pre-cool with when you actually go to bed.",
+                                      f"{to} lines up wind-down and pre-condition with when you actually go to bed.",
                             "evidence": [f"{r['date']}: in bed {_hm(r['in_bed'], tz)}" for r in mine][-7:],
                             "proposal": {"rhythm_id": rh.id, "schedule": "bedtime", "from": rh.schedule.bedtime, "to": to}})
         wo = [((r["out"] - r["rn"].wake) / 60, r) for r in mine if r["out"]]
@@ -158,7 +158,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
     away = [r for r in rows if r["away"]]
     if away:
         out.append({"id": "guide-away", "severity": "good", "kind": "guide",
-                    "title": f"Pre-cool held on {len(away)} evening{'s' if len(away) > 1 else ''} while you were out",
+                    "title": f"Pre-condition held on {len(away)} evening{'s' if len(away) > 1 else ''} while you were out",
                     "detail": "Your phone showed you away, so your side waited and started again as you headed home.",
                     "evidence": [r["date"] for r in away], "proposal": None})
 
@@ -183,7 +183,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
     if spread >= 45 and not (_sources(c, "home", p) or _sources(c, "location", p) or _sources(c, "calendar", p)):
         out.append({"id": "guide-add-context", "severity": "info", "kind": "guide",
                     "title": f"Bedtimes vary a lot (about ±{round(spread)} min)",
-                    "detail": "Adding your phone (home Wi-Fi or location) or your calendar in Studio → Devices lets pre-cool wait while "
+                    "detail": "Adding your phone (home Wi-Fi or location) or your calendar in Studio → Devices lets pre-condition wait while "
                               "you're out and start as you head home.", "evidence": [], "proposal": None})
     if not _sources(c, "room_temp"):
         out.append({"id": "guide-add-room", "severity": "info", "kind": "guide", "title": "No bedroom temperature sensor",

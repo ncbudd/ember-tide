@@ -11,13 +11,21 @@ export type Tone = NonNullable<PersonSettings["tone"]>;
 
 export const NOTIFY_TYPES: readonly (readonly [NotifyKey, string, string])[] = [
   ["morning", "A short morning summary", "how the night went, anything from overnight, and a one-tap check-in"],
-  ["away_precool", "Pre-cool is due and I'm not home", "with buttons: wait an hour, off tonight, start anyway"],
-  ["empty_side", "My side is pre-cooled but empty", "in the evening; after midnight it waits for the morning"],
+  ["away_precool", "Pre-conditioning is due and I'm not home", "with buttons: wait an hour, off tonight, start anyway"],
+  ["empty_side", "My side is pre-conditioned but empty", "in the evening; after midnight it waits for the morning"],
   ["left_on", "I turned my side on and left it empty", "after 20 min with nobody in it, with a Turn it off button"],
   ["not_started", "Ask to start my side if the bed isn't sure it's me", "after about 40 min lying down, with a Start now button"],
   ["pet_question", "Was the pet on the bed?", "daytime only; a question from the night comes with the morning summary"],
   ["problems", "Bed or sensor trouble", "the bed can't be reached or a sensor stops updating"],
   ["hub", "Bed hub needs a look", "a fault, or the water needs checking (owner only); once a day per problem"],
+  ["account", "A connected account needs signing in again", "Oura, Withings and similar; daytime only, at most once a day, with where to fix it"],
+  ["reach", "A phone stopped getting notifications", "owner only; tells you when someone's notifications no longer arrive; daytime only"],
+  ["bridge", "The Home Assistant link is down", "owner only; after a few hours without a connection; daytime only"],
+  ["storage", "The server is nearly out of space", "owner only; daytime only, at most once a day"],
+  ["wearable", "My watch or ring has gone quiet", "after two nights in bed with nothing from it; daytime only, at most once a day, with where to fix it"],
+  ["bed_silent", "The bed's sensors reported nothing all night", "told with the morning, once a night, when the bed had to run on your usual times"],
+  ["sensor", "A presence sensor keeps flipping or looks stuck", "owner only; daytime only, once a day per sensor (a stuck one once a week); opens Studio, Devices"],
+  ["target", "My side isn't reaching its temperature", "told with the morning; if a side is far off for over an hour, owners hear at once"],
   ["maintenance", "Care reminders", "a job like purification tablets is due; daytime only, at most one a day, with It's done and Remind me next week buttons"],
 ];
 const QUIET: readonly [NotifyKey, string, string] = ["quiet_hours", "Quiet while I sleep",

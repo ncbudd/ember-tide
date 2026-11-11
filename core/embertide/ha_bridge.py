@@ -209,7 +209,7 @@ class HaBridge:
             elif on and not n.get("phase_name"):
                 phase = "On"                             # turned on outside the rhythm: never say "Off" while it's running
             else:
-                phase = n.get("phase_name") or {"waiting": "Pre-cooling", "away": "Away", "paused": "Paused", "skipped": "Off tonight",
+                phase = n.get("phase_name") or {"waiting": "Pre-conditioning", "away": "Away", "paused": "Paused", "skipped": "Off tonight",
                                                 "out_of_bed": "Out of bed", "out_of_bed_hold": "Out of bed", "done": "Off",
                                                 "day": "Off", "missed": "Off", "no_rhythm": "No rhythm"}.get(n["state"], n["state"])
             out[self.t(p, "phase")] = phase

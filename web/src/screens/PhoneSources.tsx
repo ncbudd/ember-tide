@@ -50,14 +50,28 @@ function phoneSummary(st: PhoneStatus): string {
   return parts.join(" · ");
 }
 
-/** "From this phone": switches for what the Android app can tell the bed by itself. Only inside the app. */
-export default function PhoneSources({ compact = false }: { compact?: boolean }) {
+/** First-time setup: the same switches, each with one short line (Settings keeps the longer explanations). */
+const SHORT: Record<PhoneSource, string> = {
+  location: "Warms the bed when you're on your way home.",
+  wifi: "Knows you're home when the phone is on your home Wi-Fi.",
+  calendar: "Notices a late evening, or an early start tomorrow.",
+  alarm: "Wakes the bed gently in time for your alarm.",
+  charging: "Phone charging or on Do Not Disturb at night: you're winding down.",
+  watch: "Your watch nearby is a small sign you're home.",
+  watch_hr: "Your watch's heart rate at night helps tell you from a pet.",
+  dial: "Notices the bedside dial nearby while the phone charges.",
+};
+
+/** "From this phone": switches for what the Android app can tell the bed by itself. Only inside the app.
+ *  `compact`: the Simple app's short fold · `inline`: first-time setup, open, no fold, one line each. */
+export default function PhoneSources({ compact = false, inline = false }: { compact?: boolean; inline?: boolean }) {
   const [st, setSt] = useState<PhoneStatus | null>(null);
+  const [failed, setFailed] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [denied, setDenied] = useState<string | null>(null);
 
-  const load = () => phoneStatus().then(setSt).catch(() => setSt(null));
+  const load = () => phoneStatus().then(s => { setSt(s); setFailed(false); }).catch(() => { setSt(null); setFailed(true); });
   useEffect(() => {
     load(); const t = setInterval(load, 30_000);
     // back from the system permission pages: show what was allowed
@@ -65,7 +79,9 @@ export default function PhoneSources({ compact = false }: { compact?: boolean })
     document.addEventListener("visibilitychange", vis);
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
   }, []);
-  if (!st) return null;
+  if (!st) return inline
+    ? <p className="mute ps-inline-note" role="status">{failed ? "This phone can't share hints right now. You can turn them on later in Settings → From this phone." : "Checking this phone…"}</p>
+    : null;
 
   const run = async (label: string, f: () => Promise<PhoneStatus | void>) => {
     setBusy(label); setMsg(null); setDenied(null);
@@ -84,7 +100,7 @@ export default function PhoneSources({ compact = false }: { compact?: boolean })
   if (compact) {
     // Simple app: the same switches, without the extras (home spot, radius, Wi-Fi name)
     const onNames = SOURCES.filter(s => st.sources[s.key]?.on).map(s => s.label.replace(/ on this phone| connected| nearby| and bedtime mode/, ""));
-    return <Fold id="simple.phone" title="From this phone" attention={!!denied} summary={onNames.length ? `${onNames.join(", ")} on` : "Nothing shared"}>
+    return <Fold id="simple.phone" title="From this phone" attention={!!denied} summary={onNames.length ? `${onNames.length} shared` : "Nothing shared"}>
       <div className="card list">
         {anyOn && <p className="mute" style={{ fontSize: 12.5, padding: "10px 0 0" }} role="status">{status}</p>}
         {SOURCES.filter(s => st.sources[s.key] && st.sources[s.key].state !== "unavailable").map(s =>
@@ -102,10 +118,42 @@ export default function PhoneSources({ compact = false }: { compact?: boolean })
     </Fold>;
   }
 
+  if (inline) {
+    // first-time setup: every switch open, one plain line each; the home spot / Wi-Fi extras appear once switched on
+    return <div className="card list ps-inline">
+      {SOURCES.map(s => {
+        const src = st.sources[s.key];
+        if (!src || src.state === "unavailable") return null;
+        const note = src.on && src.state === "needs_permission" ? "Not allowed yet: switch it off and on to allow it."
+          : src.on && src.state === "needs_background" ? "Allow location \"all the time\" so it works with the app closed."
+          : src.on && src.state === "needs_watch_permission" ? "On your watch, open Ember & Tide and tap Allow."
+          : SHORT[s.key];
+        return <div key={s.key}>
+          <label className="row ps-row">
+            <span className="ps-text"><span className="ps-label">{s.label}</span><span className="mute ps-why">{note}</span></span>
+            <input type="checkbox" className="toggle" checked={src.on} disabled={!!busy} onChange={e => toggle(s.key, e.target.checked)} />
+          </label>
+          {s.key === "location" && src.on && <div className="pills ps-extra">
+            <button type="button" className="pill" disabled={!!busy} onClick={() => run("home", phoneSetHomeHere)}>{busy === "home" ? "Saving…" : st.home_set ? "Home is saved · I'm home: save it again" : "I'm home: save this spot"}</button>
+          </div>}
+          {s.key === "wifi" && src.on && <div className="pills ps-extra">
+            <span className="mute" style={{ fontSize: 13, alignSelf: "center" }}>{st.home_ssid ? `Home Wi-Fi: ${st.home_ssid}` : "On your home Wi-Fi now?"}</span>
+            {!st.home_ssid && <button type="button" className="pill" disabled={!!busy} onClick={() => run("wifi", phoneSetHomeWifi)}>Use this Wi-Fi</button>}
+          </div>}
+        </div>;
+      })}
+      {denied && <div className="row" style={{ padding: "8px 0" }} role="alert">
+        <span style={{ fontSize: 13.5 }}>{DENIED[denied] ?? "That permission wasn't allowed."} You can allow it in the phone's settings.</span>
+        <button type="button" className="btn" onClick={() => phoneOpenSettings()}>Open settings</button>
+      </div>}
+      {msg && <p style={{ fontSize: 13.5, paddingBottom: 8 }} role="status">{msg}</p>}
+    </div>;
+  }
+
   const onNames = SOURCES.filter(s => st.sources[s.key]?.on).map(s => s.label.replace(/ on this phone| connected| nearby| and bedtime mode/, ""));
-  const trouble = !!denied || !!st.last_error || SOURCES.some(s => st.sources[s.key]?.on && st.sources[s.key].state !== "ok");
+  const trouble =!!denied || !!st.last_error || SOURCES.some(s => st.sources[s.key]?.on && st.sources[s.key].state !== "ok");
   return <Fold id="settings.phone" title="From this phone" attention={trouble}
-    summary={trouble ? "Needs a look" : onNames.length ? `${onNames.join(", ")} on` : "Nothing shared"}>
+    summary={trouble ? "Needs a look" : onNames.length ? `${onNames.length} shared` : "Nothing shared"}>
     <div className="card list">
       <p className="mute" style={{ fontSize: 13, padding: "10px 0 2px" }}>Things this phone can tell the bed by itself. Each is sent only to your own server, and only while its switch is on.</p>
       {anyOn && <div className="row" style={{ minHeight: 52 }}>

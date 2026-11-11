@@ -4,7 +4,7 @@ export interface FlashSettings { target_c: number; relative: boolean; delta_c: n
 export interface AutopilotPolicy { mode: "off" | "suggest" | "act"; max_delta_c: number; floor_c: number; ceiling_c: number; max_actions: number; min_gap_min: number; phases: string[]; quiet_before_wake_min: number; signals: string[]; sensitivity: "low" | "medium" | "high"; respect_manual_min: number; ai_review: boolean; suggest_manual: boolean; suggest_cadence: "morning" | "weekly" | "monthly" | "off"; suggest_weekday: number; learn_nights: number; learn_skip: boolean; learn_since?: number | null; trust: { bed: number; wearable: number; room: number }; trust_more?: TrustMore }
 /** "Which to trust more" when the bed and a watch or ring disagree. */
 export type TrustMore = "wearable" | "balanced" | "bed";
-export interface Learning { need: number; have: number; done: boolean; skipped: boolean; paused?: boolean }
+export interface Learning { need: number; have: number; done: boolean; skipped: boolean; paused?: boolean; left_out?: { date: string; why: string }[] }
 export interface Band { bed_c?: [number, number]; hr?: [number, number]; br?: [number, number]; skin?: [number, number]; restless?: number; feel_rate?: number }
 export interface Baseline { nights: number; restless_p90: number; restless_median: number; hr: number | null; skin: number | null; band?: Band }
 interface Suggestion { id: string; kind: "manual" | "pattern"; title: string; detail: string; phase: string; proposal: { rhythm_id: string; phase_id: string; field: string; from?: number; to: number } }
@@ -16,7 +16,7 @@ export interface PersonSettings {
   units: "F" | "C"; weight_units?: "auto" | "lb" | "kg"; color: ColorKey; app_mode?: "full" | "simple"; welcomed?: boolean; default_view: View; simple_default: boolean; simple_at_night: boolean; simple_red: boolean;
   appearance: "system" | "dark" | "light" | "schedule"; light_from: string; dark_from: string;
   hot_flash: FlashSettings; cold_flash: FlashSettings; autopilot: AutopilotPolicy; partner_can_flash: boolean; partner_can_adjust: boolean;
-  notify: { away_precool: boolean; empty_side: boolean; left_on?: boolean; not_started?: boolean; morning: boolean; problems: boolean; hub?: boolean; maintenance?: boolean; pet_question?: boolean; quiet_hours?: boolean };
+  notify: { away_precool: boolean; empty_side: boolean; left_on?: boolean; not_started?: boolean; morning: boolean; problems: boolean; hub?: boolean; maintenance?: boolean; account?: boolean; reach?: boolean; bridge?: boolean; storage?: boolean; wearable?: boolean; bed_silent?: boolean; sensor?: boolean; target?: boolean; pet_question?: boolean; quiet_hours?: boolean };
   tone?: "calm" | "friendly" | "cheeky";
   work_days?: number[]; wearable?: string; setup_steps?: string[];
   pet_questions?: boolean; wake_with_alarm?: boolean; in_bed_after_min?: number | null; up_after_min?: number | null;
@@ -30,9 +30,12 @@ export interface NightView {
   /** Settling in: gate false = the start is held until the bed backs the presence; absent when no bed radar is in use */
   settle?: { gate: boolean; why: string; share?: number } | null; context?: NightContext | null;
   guest?: GuestSide | null;
+  /** In bed before the usual bedtime: waiting for a sign of sleep, or when (at) and why the night moved on */
+  sleep?: { waiting: boolean; at: number | null; why: string | null } | null;
   flash: FlashState | null; override: { until: string; temp_c: number | null; delta_c: number | null; phase_id: string | null; end_ts?: number | null; manual?: boolean } | null;
 }
-interface PhaseView { id: string; name: string; start: number; temp_c: number; adjusted_c?: number | null }
+/** when_settled: in bed early, this phase starts once they settle to sleep (the usual bedtime at the latest) */
+interface PhaseView { id: string; name: string; start: number; temp_c: number; adjusted_c?: number | null; when_settled?: boolean }
 export interface PersonView {
   id: string; name: string; persona: "tide" | "ember" | "neutral"; zone: "left" | "right"; settings: PersonSettings;
   night: NightView;
@@ -40,7 +43,7 @@ export interface PersonView {
   presence: { present: boolean | null; fusion: { present: boolean | null; score: number | null; votes: { signal: string; weight: number; value: number }[] } | null; bed_present: boolean | null; starts_in_s: number | null; occupied: boolean | null; since: number | null; echo: boolean; stale: boolean; hr: number | null; br: number | null; status: number | null; status_text: string | null };
   schedule: { bedtime: number; precool: number; window_start: number; window_end: number; wake: number; end: number; rhythm_id: string } | null;
   phases: PhaseView[];
-  next: { phase: string; name: string; at: number; temp_c: number | null } | null;
+  next: { phase: string; name: string; at: number; temp_c: number | null; when_settled?: boolean } | null;
   curve: [number, number][];
   rhythm_curve?: [number, number][] | null;   // the rhythm without tonight's change, when there is one
   actual: [number, number][];
@@ -85,6 +88,6 @@ export interface Snapshot {
 }
 interface Anchor { kind: "bedtime" | "in_bed" | "clock" | "wake"; offset_min: number; time: string | null }
 export interface Phase { id: string; name: string; temp_c: number; start: Anchor; ramp_min: number; autopilot: boolean }
-export interface Schedule { bedtime: string; wake: string; window_start: string; window_end: string; precool_lead_min: number; confirm_min: number; after_wake_min: number; absent_hold_min: number; start_on_presence: boolean }
+export interface Schedule { bedtime: string; wake: string; window_start: string; window_end: string; precool_lead_min: number; confirm_min: number; after_wake_min: number; absent_hold_min: number; start_on_presence: boolean; wait_for_sleep?: boolean }
 export interface Rhythm { id: string; name: string; days: number[]; schedule: Schedule; phases: Phase[]; nights?: "" | "work" | "off" }
 export interface EventRow { ts: number; kind: string; person: string | null; source: string | null; [k: string]: unknown }

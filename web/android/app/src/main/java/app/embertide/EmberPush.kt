@@ -29,6 +29,8 @@ object EmberPush {
     private val ALLOWED = setOf("pause", "skip", "start_now", "resume", "manual_off", "feel_cold", "feel_right", "feel_warm",
         "pet_yes", "pet_me", "pet_unsure", "away_away", "away_night", "away_home", "away_back", "away_still",
         "care_done", "care_later")
+    /** Buttons about one night (the server's NIGHT_ACTS): the notification must go when that night ends. */
+    private val NIGHT_BOUND = setOf("pause", "skip", "start_now")
 
     fun distributors(c: Context): List<String> = UnifiedPush.getDistributors(c)
     fun saved(c: Context): String? = UnifiedPush.getAckDistributor(c) ?: UnifiedPush.getSavedDistributor(c)
@@ -139,7 +141,7 @@ object EmberPush {
 
     fun channel(c: Context) {
         val ch = NotificationChannel(CHANNEL, "Alerts", NotificationManager.IMPORTANCE_HIGH)
-        ch.description = "Your side left on, pre-cool while you're away, the morning summary, bed problems"
+        ch.description = "Your side left on, pre-condition while you're away, the morning summary, bed problems"
         c.getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
     }
 
@@ -155,8 +157,11 @@ object EmberPush {
     internal fun show(c: Context, m: JSONObject) {
         channel(c)
         val id = idFor(m.optString("kind"))
-        val open = PendingIntent.getActivity(c, id, Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        // a tap opens the page that fixes it (the server's `link`), if it is a plain in-app path; otherwise just the app.
+        // The request code is this notification's own id, so one message's link never overwrites another's.
+        val tap = Intent(c, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        EmberLink.clean(m.optString("link"))?.let { tap.putExtra(MainActivity.EXTRA_LINK, it) }
+        val open = PendingIntent.getActivity(c, id, tap, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val b = Notification.Builder(c, CHANNEL)
             .setSmallIcon(R.drawable.ic_stat_flash)
             .setContentTitle(m.optString("title").take(120))
@@ -167,15 +172,24 @@ object EmberPush {
             .setColor(0xFF5FB8B0.toInt())
         val acts = m.optJSONArray("actions")
         val person = m.optString("person").ifEmpty { Ember.person(c) }
+        var nightBound = false
         if (acts != null) for (i in 0 until minOf(3, acts.length())) {
             val a = acts.getJSONObject(i)
             val act = a.optString("act")
             if (act !in ALLOWED) continue                     // only things the app knows how to do
+            if (act in NIGHT_BOUND) nightBound = true
             val intent = Intent(c, FlashNotifier.Receiver::class.java).setAction("app.embertide.NOTIF_ACT")
                 .putExtra("act", act).putExtra("minutes", a.optInt("minutes", 0)).putExtra("label", a.optString("label").take(40))
                 .putExtra("person", person).putExtra("nid", id).putExtra("ref", a.optString("ref").take(40))
             val pi = PendingIntent.getBroadcast(c, id * 4 + i, intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
             b.addAction(Notification.Action.Builder(null, a.optString("label").take(40), pi).build())
+        }
+        if (nightBound) {
+            // "expires" (epoch seconds) is when the server's button codes stop working (the night's end); without it, 12 hours
+            val endMs = m.optLong("expires", 0L) * 1000L
+            val leftMs = if (endMs > 0L) endMs - System.currentTimeMillis() else 12L * 3600L * 1000L
+            if (leftMs <= 0L) return                          // its night is already over (a late push): show nothing
+            b.setTimeoutAfter(leftMs)
         }
         c.getSystemService(NotificationManager::class.java).notify(id, b.build())
     }

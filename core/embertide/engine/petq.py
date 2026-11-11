@@ -208,8 +208,10 @@ def consider(controller, zone: str, ep: dict, now: float) -> dict | None:
     from . import away
     if away.is_away(controller.store, person.id, now):
         # they're away: whatever lay there wasn't them. Keep it to teach as the pet later, ask nobody
-        if len(pets) == 1 and not ep.get("with_person") and not ep.get("active"):
-            away.hold(controller, person.id, zone, ep, pets[0].id)
+        # (with several pets, only when the stay was told apart as one of them)
+        pet_id = pets[0].id if len(pets) == 1 else next((p.id for p in pets if p.id == ep.get("pet_id")), None)
+        if pet_id and not ep.get("with_person") and not ep.get("active"):
+            away.hold(controller, person.id, zone, ep, pet_id)
         return None
     pet_ticks, ticks, in_bed = ep.get("pet_ticks", 0), max(1, ep.get("ticks", 0)), ep.get("in_bed_ticks", 0)
     if ep.get("with_person"):

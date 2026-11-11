@@ -8,7 +8,7 @@ Rules
 - A phone only counts as away after it has explicitly reported "not home" for `away_after_min` (default 20 min).
   A phone that simply goes quiet (flat battery, switched off, app killed) is unknown, never away.
 - Heading home needs a steady fall in distance over about ten minutes, bigger than the GPS jitter; with the
-  arrival estimate inside `ready_min`, the person counts as home so pre-cool runs and the bed is ready.
+  arrival estimate inside `ready_min`, the person counts as home so pre-condition runs and the bed is ready.
 - A calendar event keeps the person "busy" until it ends plus the travel time home, even after the calendar
   has moved on to the next event. All-day events don't count.
 - No context devices for a person: nothing is known and nothing changes (the manual home switch still works).

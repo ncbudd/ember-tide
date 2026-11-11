@@ -1,6 +1,6 @@
 """Shared harness for the edge-case simulations (test_rhythm_edges, test_power_loss, test_active_period).
 
-- `household()`: the default two-person household with a work-night rhythm of bed 22:30 / wake 07:00 (pre-cool,
+- `household()`: the default two-person household with a work-night rhythm of bed 22:30 / wake 07:00 (pre-condition,
   wind-down, fall asleep, deep, late night at 03:00, warm wake) and a day-off rhythm of 23:30 / 09:00.
 - `PowerBed`: the simulated topper with a power switch and a broker link. Off = no reports at all and both zones
   really off; back on = a boot of ~90 s with both zones off at the topper's default, status 1 then 255, a frozen

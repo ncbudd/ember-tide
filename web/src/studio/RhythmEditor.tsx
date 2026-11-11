@@ -3,6 +3,7 @@ import { api } from "../api";
 import { useApp } from "../ctx";
 import { cToF, fToC, nightsText, personaColor } from "../format";
 import type { Phase, Rhythm } from "../types";
+import Tip from "../components/Tip";
 
 // minutes on a nominal night: 12:00 → 0 … 11:59 next morning → 1439; evening times keep their clock minutes
 const hmToM = (hm: string) => { const [h, m] = hm.split(":").map(Number); return (h < 12 ? h + 24 : h) * 60 + m; };
@@ -154,7 +155,7 @@ export default function RhythmEditor() {
               <text x={L - 10} y={Y(c) + 4} fontSize="11" textAnchor="end" fill="var(--faint)">{Math.round(toUnits(c))}°</text></g>)}
             {/* when the night may start */}
             <rect x={X(hmToM(sch.window_start))} y={H - B + 8} width={Math.max(2, X(Math.min(hmToM(sch.window_end), x1)) - X(hmToM(sch.window_start)))} height="6" rx="3" fill="var(--acc)" opacity=".25" />
-            <text x={X(hmToM(sch.window_start))} y={H - B + 28} fontSize="10.5" fill="var(--faint)">night can start {fmtM(hmToM(sch.window_start))} · pre-cool empty side until {fmtM(hmToM(sch.window_end))}</text>
+            <text x={X(hmToM(sch.window_start))} y={H - B + 28} fontSize="10.5" fill="var(--faint)">night can start {fmtM(hmToM(sch.window_start))} · keep pre-conditioning an empty side until {fmtM(hmToM(sch.window_end))}</text>
             {/* bedtime + wake */}
             {[[bed, `In bed ~${fmtM(bed)}`], [wake, `Wake ${fmtM(wake)}`]].map(([m, l]) => <g key={l as string}>
               <line x1={X(m as number)} x2={X(m as number)} y1={T - 22} y2={H - B} stroke="var(--text)" strokeOpacity=".28" strokeDasharray="3 4" />
@@ -210,17 +211,18 @@ export default function RhythmEditor() {
         </div>
         <div className="box">
           <span className="k">Schedule</span>
-          {([["bedtime", "Usually in bed", "Used to time the pre-cool and as the start when presence is off"], ["wake", "Wake", "Warm wake is timed from this (or from your phone alarm)"],
-             ["window_start", "Earliest start", "Getting in bed before this doesn't start the night"], ["window_end", "Pre-cool an empty side until", "After this an empty side stops cooling; getting in still starts the night"]] as const).map(([k, l, help]) => (
+          {([["bedtime", "Usually in bed", "Used to time the pre-condition and as the start when presence is off"], ["wake", "Wake", "Warm wake is timed from this (or from your phone alarm)"],
+             ["window_start", "Earliest start", "Getting in bed before this doesn't start the night"], ["window_end", "Keep pre-conditioning an empty side until", "After this an empty side stops cooling; getting in still starts the night"]] as const).map(([k, l, help]) => (
             <label key={k} className="row" style={{ fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}><span>{l}<br /><span className="faint" style={{ fontSize: 11.5 }}>{help}</span></span>
               <input type="time" value={sch[k]} onChange={e => setDraft({ ...draft, schedule: { ...sch, [k]: e.target.value } })} /></label>))}
-          {([["precool_lead_min", "Pre-cool starts before bedtime", "Time for the pad to reach your first temperature. Recommended: 45 min.", 180],
+          {([["precool_lead_min", "Start pre-conditioning before bedtime", "Time for the pad to reach your first temperature. Recommended: 45 min.", 180],
              ["confirm_min", "In bed this long before starting", inBedOwn != null ? `Your own setting (${inBedOwn} min, in Your settings → Sleep data) is used instead for every rhythm.` : "Stops a quick sit on the bed from starting the night. Recommended: 3 min.", 30],
              ["absent_hold_min", "Hold my side when I get up", "Keeps your temperature while you're up, then turns off until you're back. Recommended: 30 min.", 240],
              ["after_wake_min", "Turn off after wake", "How long the warm wake carries on after your wake time. Recommended: 15 min.", 180]] as const).map(([k, l, help, max]) => (
             <label key={k} className="row" style={{ fontSize: 13.5, padding: "6px 0", borderBottom: "1px solid var(--line)" }}><span>{l}<br /><span className="faint" style={{ fontSize: 11.5 }}>{help}</span></span>
               <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><input type="number" min={0} max={max} disabled={k === "confirm_min" && inBedOwn != null} style={{ width: 72 }} value={sch[k]} onChange={e => setDraft({ ...draft, schedule: { ...sch, [k]: Math.max(0, Math.min(max, parseInt(e.target.value || "0") || 0)) } })} /><span className="faint">min</span></span></label>))}
           <label className="row" style={{ fontSize: 13.5, padding: "6px 0" }}><span>Start when I'm in bed on my side</span><input type="checkbox" className="toggle" checked={sch.start_on_presence} onChange={e => setDraft({ ...draft, schedule: { ...sch, start_on_presence: e.target.checked } })} /></label>
+          {sch.start_on_presence && <label className="row" style={{ fontSize: 13.5, padding: "6px 0" }}><span>Wait until I'm settling to sleep<Tip label="About waiting until you settle" text="In bed before your usual bedtime (to read, say)? Your side holds its getting-into-bed temperature, and the later phases start once you settle to sleep: the bed goes still and your heart rate drops, your phone goes on its bedside charger or into bedtime mode, or the lights go off. At your usual bedtime at the latest." /></span><input type="checkbox" className="toggle" checked={sch.wait_for_sleep ?? true} onChange={e => setDraft({ ...draft, schedule: { ...sch, wait_for_sleep: e.target.checked } })} /></label>}
         </div>
       </div>
     </>

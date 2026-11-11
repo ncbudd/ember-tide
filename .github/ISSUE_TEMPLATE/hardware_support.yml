@@ -1,0 +1,41 @@
+name: Hardware support
+description: Another bed, sensor, watch, or ring you would like to see supported
+labels: [hardware]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Only the Orion Sleep topper is supported today. Support for other hardware depends on a documented or well-understood local protocol.
+        Please don't post anything that would break a maker's terms, and never post account tokens.
+  - type: input
+    id: device
+    attributes:
+      label: Device and model
+      description: Maker, product name, firmware or app version.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: [Bed or topper, Presence radar, Bed scale, Room sensor, Watch or ring, Bedside dial or display, Other]
+    validations:
+      required: true
+  - type: textarea
+    id: how
+    attributes:
+      label: How does it talk?
+      description: Local MQTT, a local HTTP API, Home Assistant entities, Bluetooth, a cloud API (link the developer documentation), Health Connect data types.
+  - type: textarea
+    id: sample
+    attributes:
+      label: Sample messages or entity list
+      description: A few example messages or the entity ids and their meaning. Remove serial numbers, tokens and addresses.
+      render: text
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I can test changes on this hardware
+        - label: I can capture traffic or logs

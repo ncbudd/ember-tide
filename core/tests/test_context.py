@@ -92,7 +92,7 @@ async def test_driving_home_starts_precool_before_arrival(tmp_path):
     await n.until("2026-11-05T22:40")                                 # 20 min out, heading home
     c = n.ctx()
     assert c["heading_home"] and c["eta_min"] is not None and c["eta_min"] <= 30
-    assert c["home"] is True and n.side("left").on, "bed should be pre-cooling for the arrival"
+    assert c["home"] is True and n.side("left").on, "bed should be pre-conditioning for the arrival"
     assert "on the way home" in c["why"]
     await n.until("2026-11-05T23:05")
     assert n.ctx()["home"] is True and n.ctx()["distance_km"] == 0

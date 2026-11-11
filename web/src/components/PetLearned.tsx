@@ -33,19 +33,20 @@ export default function PetLearned({ r, canForget, busy, onForget }: { r: PetRep
   const [ask, setAsk] = useState(false);
   const l = r.learned, w = r.waiting;
   const readings = l && [l.hr != null ? `Heart rate around ${l.hr}` : null, l.br != null ? `breathing around ${l.br}` : null].filter(Boolean).join(", ");
-  const basis = l && (l.stays ? `learned from ${l.stays} stay${l.stays === 1 ? "" : "s"}` : `learned from about ${Math.max(1, l.minutes)} minutes of readings`);
+  const basis = l && (l.stays ? `learned from ${l.stays} visit${l.stays === 1 ? "" : "s"}` : `learned from about ${Math.max(1, l.minutes)} minutes of readings`);
   return (
     <div className="pet-learned">
       {l
         ? <p className="pet-l-main">{readings} · {basis}{l.updated ? ` · last updated ${whenText(l.updated)}` : ""}</p>
-        : <p className="mute pet-l-main">Nothing learned yet. This fills in after a few stays you confirm were {r.name}.</p>}
+        : <p className="mute pet-l-main">Nothing learned yet. This fills in after a few visits you confirm were {r.name}.</p>}
       {l && r.distinct === false && <p className="pet-l-note">{r.name}'s readings look a lot like an adult's, so the bed leans on the radar and your watch to tell you apart.</p>}
       {r.visits.length > 0 && <>
-        <span className="k pet-l-k">Recent visits you confirmed</span>
+        <span className="k pet-l-k">{l ? "Recent visits you confirmed" : "Visits you confirmed earlier"}</span>
+        {!l && <p className="mute pet-l-note">Kept as a record only. Learning starts again from the next visit you confirm.</p>}
         <ShowMore items={r.visits} limit={3} noun="visits" render={shown => (
           <ul className="pet-l-visits">{shown.map(v => <li key={v.start}>{visitWhen(v.start)} · {v.zone === "left" || v.zone === "right" ? sideTitle(v.zone).toLowerCase() : "whole bed"} · {mins(v.seconds)}</li>)}</ul>)} />
       </>}
-      {w.count > 0 && <p className="pet-l-wait">{w.count} stay{w.count === 1 ? "" : "s"} waiting to be learned{w.next_at ? ` · the first ${w.next_at * 1000 <= Date.now() ? "is learned shortly" : `is learned ${whenText(w.next_at)} around ${clockText(w.next_at)}`}` : ""}</p>}
+      {w.count > 0 && <p className="pet-l-wait">{w.count} visit{w.count === 1 ? "" : "s"} waiting to be learned{w.next_at ? ` · the first ${w.next_at * 1000 <= Date.now() ? "is learned shortly" : `is learned ${whenText(w.next_at)} around ${clockText(w.next_at)}`}` : ""}</p>}
       {canForget && (l || w.count > 0) && (ask
         ? <span className="pet-sum-btns"><span className="pet-q">Forget what's been learned about {r.name}?</span>
           <button type="button" className="btn" disabled={busy} onClick={() => setAsk(false)}>Keep it</button>

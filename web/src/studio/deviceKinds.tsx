@@ -38,7 +38,7 @@ export const TILES: Tile[] = [
   { id: "scale", icon: "scale", title: "Bed scale", adds: "Weight under each side: the most reliable in-bed signal, and it tells sleepers and pets apart.", kinds: ["scale"] },
   { id: "room", icon: "thermo", title: "Room temperature", adds: "Lets Autopilot tell a warm bedroom from a rhythm that's set too warm.", kinds: ["room"] },
   { id: "light", icon: "bulb", title: "Bedroom light", adds: "Lights-off compared with your bedtime, in the tuning guide and the nights explorer.", kinds: ["light"] },
-  { id: "calendar", icon: "calendar", title: "Calendar", adds: "Late evenings and early starts are known, so pre-cool waits and wake-ups fit.", kinds: ["calendar"] },
+  { id: "calendar", icon: "calendar", title: "Calendar", adds: "Late evenings and early starts are known, so pre-condition waits and wake-ups fit.", kinds: ["calendar"] },
   { id: "other", icon: "plus", title: "Something else", adds: "Any Home Assistant entity, MQTT topic or web hook: you say what it measures.", kinds: ["custom"] },
 ];
 

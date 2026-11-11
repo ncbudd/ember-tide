@@ -460,7 +460,7 @@ OWNER_ONLY = [
 PUBLIC_PATTERNS = [("GET", re.compile(r"^/api/cloud/[a-z]{2,20}/callback$")), ("POST", re.compile(r"^/api/hooks/[A-Za-z0-9_]{2,20}/[A-Za-z0-9_\-]{16,64}$"))]
 # a person's own data that the partner and view-only accounts don't read (the owner can, and each person their own):
 # where they are, their phone and watch, every night's detail, Autopilot's view of them, their imports and questions
-PRIVATE_READS = ("/phone-context", "/watch-hr", "/nights", "/night", "/sleeps", "/stages", "/compare", "/autopilot",
+PRIVATE_READS = ("/phone-context", "/watch-hr", "/nights", "/night", "/sleeps", "/stages", "/compare", "/autopilot", "/wearable",
                  "/insights", "/imports", "/pet-question")
 PERSON_PATH = re.compile(r"^/api/people/([^/]+)(/.*)?$")
 FLASH = re.compile(r"^/flash(/extend|/stop)?$")

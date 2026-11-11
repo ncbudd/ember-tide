@@ -164,7 +164,9 @@ def lag_detail(wear: list[tuple[float, float]], bed: list[tuple[float, float]], 
     far = [s[1] for s in scores if abs(s[0] - pick[0]) > 20 and abs(s[0] - best[0]) > 20]
     runner = max(far) if far else None
     distinct = runner is None or pick[1] - runner >= 0.1
-    return {"lag": pick[0], "r": pick[1], "overlap": pick[2], "runner_up": runner, "distinct": distinct}
+    zero = next((s for s in scores if s[0] == 0), None)
+    return {"lag": pick[0], "r": pick[1], "overlap": pick[2], "runner_up": runner, "distinct": distinct,
+            "r0": zero[1] if zero else None}
 
 
 def best_lag(wear: list[tuple[float, float]], bed: list[tuple[float, float]], max_lag_min: int = 13 * 60) -> tuple[int, float, int] | None:
@@ -205,6 +207,75 @@ def in_bed_spans(rows: list[dict], gap_s: float = 600) -> list[tuple[float, floa
             else:
                 spans.append([r["ts"], r["ts"]])
     return [(a, b) for a, b in spans if b - a >= 600]
+
+
+# When is a clock shift real? Readings that come through the phone (Health Connect, the live watch path) carry the
+# phone's own clock, so a shift is rare and the default is to leave times alone. A shift is applied only on strong
+# evidence: a clear, distinct best fit over a long overlap that beats "no shift" by a wide margin. A short or patchy
+# import (a morning sync with an hour of readings) can't prove anything, so its times are kept as recorded.
+SHIFT_MIN_OVERLAP = 120          # minutes of heart rate overlapping the bed before a shift can be believed
+SHIFT_MIN_R = 0.6                # the best fit must be at least this good
+SHIFT_BEATS_ZERO = 0.15          # ... and this much better than leaving the times alone
+ZERO_OK_R = 0.35                 # "no shift" fits this well: nothing to correct
+UNLIKE_OVERLAP = 180             # this much overlap and still no resemblance: maybe not this person's heart rate
+
+
+def judge(d: dict | None) -> str:
+    """What one night's lag measurement says: "shift" (strong evidence of a clock error), "zero" (lines up as
+    recorded), "unlike" (plenty of overlap, no resemblance at any shift) or "weak" (too little to tell)."""
+    if not d:
+        return "weak"
+    lag, r, n, r0 = d["lag"], d["r"], d["overlap"], d.get("r0")
+    if abs(lag) < 3 and r >= ZERO_OK_R:
+        return "zero"
+    if d["distinct"] and r >= SHIFT_MIN_R and n >= SHIFT_MIN_OVERLAP and (r0 is None or r - r0 >= SHIFT_BEATS_ZERO):
+        return "shift"
+    if r0 is not None and r0 >= ZERO_OK_R and n >= SHIFT_MIN_OVERLAP:
+        return "zero"                       # some other shift fits about as well, but so does none: keep the times
+    if n >= UNLIKE_OVERLAP and r < ZERO_OK_R:
+        return "unlike"
+    return "weak"
+
+
+def live_agreement(pts: list[tuple[float, float]], live: list[tuple[float, float]], within_s: float = 60.0) -> dict | None:
+    """The same watch's live heart rate (sent by our own watch app with the phone's clock) next to an import from
+    that watch: pairs of readings within a minute, as recorded. {pairs, median_diff, agree} or None if too few."""
+    import bisect
+    if not pts or not live:
+        return None
+    ts = [t for t, _ in live]
+    diffs = []
+    for t, v in pts:
+        i = bisect.bisect_left(ts, t - within_s)
+        best = None
+        while i < len(ts) and ts[i] <= t + within_s:
+            if best is None or abs(ts[i] - t) < abs(ts[best] - t):
+                best = i
+            i += 1
+        if best is not None:
+            diffs.append(abs(live[best][1] - v))
+    if len(diffs) < 20:
+        return None
+    med = statistics.median(diffs)
+    return {"pairs": len(diffs), "median_diff": round(med, 1), "agree": med <= 4.0}
+
+
+def decide_shift(verdicts: list[tuple[str, int]], live_agrees: bool) -> tuple[int | None, str]:
+    """From each night's (verdict, lag): the shift in minutes to apply (None = leave the times alone) and why, as a
+    short key: "strong" (apply), "lines_up", "live" (the live watch heart rate agrees as recorded), "mixed"
+    (nights disagree), "small" (under 3 min), "unproven" (nothing strong either way)."""
+    shifts = [lag for v, lag in verdicts if v == "shift"]
+    zeros = sum(1 for v, _ in verdicts if v == "zero")
+    if not shifts:
+        return None, ("lines_up" if zeros else ("live" if live_agrees else "unproven"))
+    if live_agrees:
+        return None, "live"
+    if zeros or max(shifts) - min(shifts) > 3:
+        return None, "mixed"
+    lag = round(statistics.median(shifts))
+    if abs(lag) < 3:
+        return None, "small"
+    return lag, "strong"
 
 
 def describe_lag(lag_min: int) -> str:

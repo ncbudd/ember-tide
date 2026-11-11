@@ -1,4 +1,4 @@
-"""One person's night: when the side pre-cools, when the rhythm starts (in bed, on their side, inside the
+"""One person's night: when the side pre-conditions, when the rhythm starts (in bed, on their side, inside the
 window), overrides, flashes, absences, and what temperature the side should be right now."""
 
 from __future__ import annotations
@@ -58,6 +58,9 @@ class NightState:
     out_since: float | None = None       # when the current time out of bed began (absent_since, never moved by a restart)
     # a night given up early that waits to start again from the beginning: {"in_bed": the old anchor, "up_since": ...}
     reanchor: dict | None = None
+    # in bed before the usual bedtime: when the night moved on from "Fall asleep" (a sign of sleep, or bedtime), and why
+    sleep_at: float | None = None
+    sleep_why: str | None = None
     events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -83,6 +86,8 @@ class NightEngine:
         self.pad_model: dict = {}
         self.hold_warm = False
         self.lead_s = 0.0                          # how early the coming change started (for the snapshot)
+        # a sign that they are going to sleep, set by the controller each tick: (when, why) or None (engine/sleepsign.py)
+        self.sleep_sign: tuple[float, str] | None = None
 
     # ---------- actions ----------
     def flash(self, kind: str, now: float, minutes: int | None = None, source: str = "app") -> Flash:
@@ -223,13 +228,13 @@ class NightEngine:
             self.s.state, self.s.target_c = "no_rhythm", None
             return None
         sched = rhythm.schedule
-        n = resolve(rhythm, d, self.tz, in_bed=self.s.in_bed, wake=self.s.wake_override)
+        n = self._resolve(rhythm, d)
         self.night = n
         if self._given_up_early(now, n, sched, present, active):
             # back in bed after giving the night up early (a false start in the evening): it starts again from the
             # beginning, through the same start as a first one, instead of resuming hours along its timeline
             self._start_again(now)
-            n = resolve(rhythm, d, self.tz, in_bed=None, wake=self.s.wake_override)
+            n = self._resolve(rhythm, d)
             self.night = n
 
         # presence bookkeeping
@@ -255,15 +260,16 @@ class NightEngine:
         if (not self.s.started and not away and self.start_gate is not False and sched.start_on_presence and present
                 and self.s.presence_since
                 and n.window_start <= now < n.wake - 3600 and now - self.s.presence_since >= confirm_min(self.person, sched) * 60):
-            # earliest start = window_start; after window_end the empty side stops pre-cooling, but getting in still
+            # earliest start = window_start; after window_end the empty side stops pre-conditioning, but getting in still
             # starts the night (a 2:40 AM arrival should get a working bed), up to an hour before wake
             self.s.started, self.s.in_bed = True, max(self.s.presence_since, n.window_start)
-            n = resolve(rhythm, d, self.tz, in_bed=self.s.in_bed, wake=self.s.wake_override)
-            self.night = n
+            self.s.sleep_at = self.s.sleep_why = None
             late = fitted_late(rhythm, d, self.tz, self.s.in_bed, self.s.wake_override)
             self._ev(now, "rhythm_started", in_bed=self.s.in_bed, **({"fitted": True} if late else {}),
                      **({"restarted": True} if self.s.reanchor else {}))
             self._began(now, "presence")
+            n = self._resolve(rhythm, d)
+            self.night = n
             o = self.s.override
             if o and o.until == "next_phase":
                 # a change made while settling in is meant for the night you're starting, not the phase that just ended
@@ -288,6 +294,7 @@ class NightEngine:
             self._ev(now, "rhythm_started", in_bed=self.s.in_bed, reason="no presence data, started on schedule",
                      **({"restarted": True} if self.s.reanchor else {}))
             self._began(now, "schedule")
+        n = self._sleep_tick(now, rhythm, d, n, present, active)
 
         base: float | None
         phase = None
@@ -385,6 +392,58 @@ class NightEngine:
             self._ev(now, "adjust_ended", reason="night started again")
         s.started, s.in_bed, s.started_by = False, None, None
         s.absent_since = s.out_since = s.presence_since = None
+        s.sleep_at = s.sleep_why = None
+
+    # ---------- in bed early: wait for a sign of sleep before the night moves on ----------
+    # Getting in before the usual bedtime (to read, to watch something) starts the night as always, but the bed holds
+    # the getting-in ("Fall asleep") temperature: the in-bed phases after it (e.g. "Deep" at in-bed + 40 min) count
+    # from the first sign that they are going to sleep (engine/sleepsign.py, set by the controller as `sleep_sign`),
+    # or from the usual bedtime at the latest. With no sign at all the night runs exactly as if they had got in at
+    # bedtime. Getting in at or after bedtime is unchanged. Setting: Schedule.wait_for_sleep (on by default).
+
+    def waiting_bedtime(self, rhythm, d) -> float | None:
+        """The usual bedtime this night waits for (in bed early, started by getting in, setting on), else None."""
+        s = self.s
+        if not (s.started and s.started_by == "presence" and s.in_bed is not None
+                and getattr(rhythm.schedule, "wait_for_sleep", True) and getattr(rhythm.schedule, "start_on_presence", True)):
+            return None
+        from .rhythm import local_ts
+        bedtime = local_ts(d, rhythm.schedule.bedtime, self.tz)
+        return bedtime if s.in_bed < bedtime else None
+
+    def _resolve(self, rhythm, d) -> ResolvedNight:
+        bt = self.waiting_bedtime(rhythm, d)
+        sleep = None if bt is None else (self.s.sleep_at if self.s.sleep_at is not None else bt)
+        return resolve(rhythm, d, self.tz, in_bed=self.s.in_bed, wake=self.s.wake_override, sleep_at=sleep)
+
+    def waiting_for_sleep(self) -> bool:
+        """In bed early and no sign of sleep yet: the later in-bed phases start "when you settle"."""
+        n = self.night
+        if n is None or self.s.sleep_at is not None:
+            return False
+        rhythm = next((r for r in self.person.rhythms if r.id == n.rhythm_id), None)
+        return rhythm is not None and self.waiting_bedtime(rhythm, n.date) is not None
+
+    def _sleep_tick(self, now: float, rhythm, d, n: ResolvedNight, present: bool | None, active: float | None) -> ResolvedNight:
+        bt = self.waiting_bedtime(rhythm, d)
+        if bt is None or self.s.sleep_at is not None:
+            return n
+        cands = []
+        if now >= bt:
+            cands.append((bt, "bedtime"))                 # the backstop: as if they had got in at bedtime
+        sign = self.sleep_sign
+        # a sign only counts with them in bed on their side, settled enough to be still (not up, not active)
+        if sign and present and active is None and self.s.absent_since is None and sign[0] <= now:
+            cands.append(sign)
+        if not cands:
+            return n
+        at, why = min(cands, key=lambda c: c[0])
+        at = max(at, self.s.in_bed or at)
+        self.s.sleep_at, self.s.sleep_why = at, why
+        self._ev(now, "sleep_anchor", at=at, why=why, in_bed=self.s.in_bed, bedtime=bt)
+        n = self._resolve(rhythm, d)
+        self.night = n
+        return n
 
     def _began(self, now: float, by: str) -> None:
         """The night has just started (any way): note how, and whether it started again after being given up."""
@@ -511,7 +570,18 @@ class NightEngine:
         p = next_phase(night, now)
         if p is None:
             return {"phase": "off", "name": "Side off", "at": night.end, "temp_c": None}
-        return {"phase": p.id, "name": p.name, "at": p.start, "temp_c": p.temp_c}
+        out = {"phase": p.id, "name": p.name, "at": p.start, "temp_c": p.temp_c}
+        if p.id in self.settle_phase_ids():
+            out["when_settled"] = True                  # starts once they settle to sleep (bedtime at the latest)
+        return out
+
+    def settle_phase_ids(self) -> set[str]:
+        """While waiting for a sign of sleep: the phases that start "when you settle" (none otherwise)."""
+        if not self.waiting_for_sleep():
+            return set()
+        from .rhythm import sleep_phase_ids
+        rhythm = next((r for r in self.person.rhythms if r.id == self.night.rhythm_id), None)
+        return sleep_phase_ids(rhythm) if rhythm else set()
 
     def _ev(self, ts: float, kind: str, **data) -> None:
         self.s.events.append({"ts": ts, "kind": kind, "person": self.person.id, **data})

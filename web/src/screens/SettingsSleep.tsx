@@ -23,7 +23,7 @@ const IN_BED = [0, 1, 3, 5, 10, 15];
 const UP = [1, 3, 5, 10, 15];
 
 export const sleepDataSummary = (s: PersonSettings) =>
-  `Trusting ${TRUST.find(t => t.key === (s.autopilot.trust_more ?? "wearable"))?.label.toLowerCase()}${s.in_bed_after_min != null || s.up_after_min != null ? " · tuned" : ""}`;
+  `${TRUST.find(t => t.key === (s.autopilot.trust_more ?? "wearable"))?.key === "balanced" ? "Bed and watch count the same" : `${TRUST.find(t => t.key === (s.autopilot.trust_more ?? "wearable"))?.label} counts more`}${s.in_bed_after_min != null || s.up_after_min != null ? " · own timings" : ""}`;
 
 /** Watch or ring vs the bed, pet questions, and how quickly "in bed" / "got up" count. Phone Settings fold. */
 export default function SettingsSleep({ s, upd }: { s: PersonSettings; upd: (p: Partial<PersonSettings>) => void }) {
@@ -47,21 +47,21 @@ export function SleepDataRows({ s, upd }: { s: PersonSettings; upd: (p: Partial<
           <TrustPicker value={trust} onChange={v => upd({ autopilot: { ...s.autopilot, trust_more: v } })} />
           <span className="faint" style={{ fontSize: 12 }}>Used for your in-bed and asleep times, sleep stages, heart rate, your normal range and whether it's you in bed.</span>
         </div>
-        <div className="row"><span>Wake with my phone's alarm<br /><span className="mute" style={{ fontSize: 12 }}>The warm wake lines up with your next alarm: earlier, or a little later if you set a second one to sleep in. Needs "next alarm" shared from your phone.</span></span>
+        <div className="row"><span>Wake with my phone's alarm<br /><span className="mute" style={{ fontSize: 12 }}>The warm wake moves to match your next alarm, earlier or later (set a second alarm to sleep in). Needs your phone to share its next alarm.</span></span>
           <input type="checkbox" className="toggle" aria-label="Wake with my phone's alarm" checked={s.wake_with_alarm ?? true} onChange={e => upd({ wake_with_alarm: e.target.checked })} /></div>
-        <div className="row"><span>Ask me about the pet<br /><span className="mute" style={{ fontSize: 12 }}>When something stayed on your side for half an hour or more and didn't seem like you: "Was it the dog?" Answer right from the notification. One question a night at most.</span></span>
+        <div className="row"><span>Ask me about the pet<br /><span className="mute" style={{ fontSize: 12 }}>If something on your side for half an hour or more didn't seem like you, you're asked "Was it the dog?". One question a night at most.</span></span>
           <input type="checkbox" className="toggle" aria-label="Ask me about the pet" checked={s.pet_questions ?? true} onChange={e => upd({ pet_questions: e.target.checked })} /></div>
-        {(s.pet_questions ?? true) && <div className="row"><span>Also as a notification<br /><span className="mute" style={{ fontSize: 12 }}>Only between 8 AM and 9 PM.</span></span>
+        {(s.pet_questions ?? true) && <div className="row"><span>Also as a notification<br /><span className="mute" style={{ fontSize: 12 }}>Only between 8 AM and 9 PM. You can answer right from it.</span></span>
           <input type="checkbox" className="toggle" aria-label="Pet questions as a notification" checked={s.notify?.pet_question ?? true} onChange={e => upd({ notify: { ...s.notify, pet_question: e.target.checked } })} /></div>}
-        <div className="row"><span>Lying down before the night starts<br /><span className="mute" style={{ fontSize: 12 }}>Recommended: 3 min. Used by all your rhythms.</span></span>
+        <div className="row"><span>Lying down before the night starts<br /><span className="mute" style={{ fontSize: 12 }}>Recommended: 3 min. Applies to all your rhythms.</span></span>
           <select aria-label="Minutes lying down before the night starts" value={inBed} onChange={e => upd({ in_bed_after_min: Number(e.target.value) })}>
             {IN_BED.map(m => <option key={m} value={m}>{m === 0 ? "At once" : `${m} min`}</option>)}
           </select></div>
-        <div className="row"><span>Out of bed before it counts as up<br /><span className="mute" style={{ fontSize: 12 }}>Recommended: 3 min. Shorter trips, like the bathroom, stay out of your night's story.</span></span>
+        <div className="row"><span>Out of bed before it counts as up<br /><span className="mute" style={{ fontSize: 12 }}>Recommended: 3 min. Shorter trips, like to the bathroom, aren't counted.</span></span>
           <select aria-label="Minutes out of bed before it counts as getting up" value={up} onChange={e => upd({ up_after_min: Number(e.target.value) })}>
             {UP.map(m => <option key={m} value={m}>{m} min</option>)}
           </select></div>
-        {tuned && <div className="row"><span className="mute" style={{ fontSize: 13 }}>Changed from the recommended times</span>
+        {tuned && <div className="row"><span className="mute" style={{ fontSize: 13 }}>You changed these from the recommended times</span>
           <button className="btn" onClick={() => upd({ in_bed_after_min: null, up_after_min: null })}>Back to recommended</button></div>}
       </>
   );

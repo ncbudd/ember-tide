@@ -52,6 +52,7 @@ screens/SettingsSleep.tsx) so the two always use the same words and limits.
 | phases (temperature, start anchor, offset, change over, Autopilot may adjust) | Studio → Rhythm editor (all); Phone Rhythm tab (temperatures, anchors, change over); Simple app → Schedule (overall warmer/cooler) | Person |
 | `bedtime`, `wake`, `window_start`, `window_end` | Phone Rhythm tab, Rhythm editor, Simple app → Schedule (bedtime/wake), Setup | Person |
 | `precool_lead_min`, `start_on_presence` | Phone Rhythm tab, Rhythm editor | Person |
+| `wait_for_sleep` ("Wait until I'm settling to sleep", default on; shown when `start_on_presence` is on) | Phone Rhythm tab, Rhythm editor | Person |
 | `confirm_min`, `after_wake_min`, `absent_hold_min` | Rhythm editor | Person |
 | `days`, `nights` (follow work days) | Rhythm editor; follows `work_days` | Person |
 

@@ -70,6 +70,17 @@ def pet_moments(events: list[dict], zone: str, pets: list[dict], until: float) -
     return out
 
 
+def sleep_text(why: str | None, at: float, tz: ZoneInfo) -> str:
+    """The story line for when an early night moved on from "Fall asleep"."""
+    clk = datetime.fromtimestamp(at, tz).strftime("%I:%M %p").lstrip("0")
+    return {"settled": f"You settled around {clk}, so the night moved on",
+            "bedtime_mode": f"Your phone's bedtime mode came on around {clk}, so the night moved on",
+            "charger": f"Your phone went on the charger by the bed around {clk}, so the night moved on",
+            "watch": f"Your watch said you were asleep around {clk}, so the night moved on",
+            "lights_off": f"The lights went off around {clk}, so the night moved on",
+            }.get(why or "", f"In bed early: the night moved on at your usual bedtime, {clk}")
+
+
 def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | None = None,
              zone: str | None = None, pets: list[dict] | None = None, until: float | None = None) -> list[dict]:
     """Collapse the raw log into a short story: flashes, grouped adjustments, starts, skips, and (with a zone) pets
@@ -143,6 +154,12 @@ def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | Non
                 m["fitted"] = True                        # a late start: the rhythm was squeezed to fit before the wake
                 m["text"] = "Later than usual: the rhythm was fitted into the time before your warm wake"
             out.append(m)
+        elif k == "sleep_anchor" and e.get("at"):
+            # in bed early: when (and why) the night moved on from "Fall asleep" (engine/night.py, engine/sleepsign.py)
+            if restart is not None and e["ts"] < restart["ts"]:
+                continue                                  # belonged to the start that was given up
+            out.append({"kind": "sleep", "ts": e["at"], "why": e.get("why"), "source": "system",
+                        "text": sleep_text(e.get("why"), e["at"], tz)})
         elif k == "room_cold":
             if not any(m["kind"] == k and m.get("text") == e.get("text") for m in out):
                 out.append({"kind": k, "ts": e["ts"], "text": e.get("text"), "phase": e.get("phase"), "source": "system"})
@@ -309,6 +326,26 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
         if first_in is not None and fell is not None and b <= fell and b > (settle_from or 0):
             settle_from = b
     act_min = round(sum(max(0.0, min(b, end) - a) for a, b in act) / 60)
+    # no rows at all for a while between getting in and getting up: the bed or the server was off (a power cut, a hub
+    # or server outage). Rows come every 15 s while the bed reports; a hole longer than 10 min (the cap each row's
+    # duration has above) is counted whole. Autopilot leaves a night with an hour or more of it out of its learning.
+    outage_s = 0.0
+    if first_in is not None:
+        inside_rows = [r["ts"] for r in rows if first_in <= r["ts"] <= (last_out or first_in)]
+        outage_s = sum(b - a for a, b in zip(inside_rows, inside_rows[1:]) if b - a > 600)
+    # awake and moving while in bed, in 10-minute steps, by the same signs as engine/active.py (moving in 35%+ of the
+    # readings with a heart rate of 90+). Unlike the active period this has no 2-hour limit: a fever night counts whole.
+    # (Older history is thinned to a few rows per step, so two readings are enough to judge a step.)
+    from .active import MOVING as _MV, START_HR, START_MOVE
+    bins: dict[int, list[dict]] = {}
+    for r in occ:
+        bins.setdefault(int(r["ts"] // 600), []).append(r)
+    awake_bins = 0
+    for b_ in bins.values():
+        st = [x["status"] for x in b_ if x["status"] is not None]
+        hh = [x["hr"] for x in b_ if x["hr"]]
+        if len(st) >= 2 and len(hh) >= 2 and sum(1 for s_ in st if s_ in _MV) / len(st) >= START_MOVE and median(hh) >= START_HR:
+            awake_bins += 1
     on = [r for r in rows if r["on"] and r["measured"] is not None and r["target"] is not None]
     track = median(abs(r["measured"] - r["target"]) for r in on) if on else None   # median: flashes deliberately jump the target
     lows = [r["measured"] for r in occ if r["measured"] is not None]
@@ -327,6 +364,9 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
         "settled_min": round(settled_s / 60), "fell_asleep_est": fell,
         "time_to_settle_min": round((fell - settle_from) / 60) if fell and settle_from else None,
         "active_min": act_min or None,
+        "outage_min": round(outage_s / 60) or None,           # the bed or server off while in bed (no readings)
+        "awake_moving_min": awake_bins * 10 or None,          # awake and moving in bed (fast heart), whole night
+        "awake_moving_share": round(awake_bins / len(bins), 2) if bins else None,
         "times_up": len(gaps), "up_minutes": sum(g["minutes"] for g in gaps),
         "hr_avg": round(sum(hrs) / len(hrs)) if hrs else None, "hr_low": min(hrs) if hrs else None,
         "br_avg": round(sum(brs) / len(brs), 1) if brs else None,

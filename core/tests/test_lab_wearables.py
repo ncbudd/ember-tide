@@ -94,7 +94,7 @@ def test_partial_coverage_is_flagged(tmp_path):
     lab = lab_at(tmp_path)
     bed = put_bed_night(lab)
     r = imp(lab, "hr", [[t, hr] for t, hr in bed[:500:2]])          # first ~2 hours of a 7.5 h night
-    assert any("covers only" in w for w in r["warnings"]), r["warnings"]
+    assert any("covers only" in w for w in r["notes"]), r["notes"]
 
 
 def test_gappy_watch_still_aligns(tmp_path):

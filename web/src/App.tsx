@@ -13,6 +13,7 @@ import Settings from "./screens/Settings";
 import SimpleApp from "./screens/SimpleApp";
 import Welcome, { needsWelcome } from "./screens/Welcome";
 import { useAuth } from "./auth";
+import { useNotificationLink } from "./notifyLink";
 import SleepScreen from "./screens/SleepScreen";
 import Tonight from "./screens/Tonight";
 
@@ -29,7 +30,7 @@ function WhoAmI() {
     <div className="screen" style={{ justifyContent: "center", gap: 16 }}>
       <div style={{ display: "grid", gap: 16, width: "100%", maxWidth: 560, margin: "0 auto", justifyItems: "center" }}>
       <h1 style={{ fontSize: 34, justifySelf: "stretch" }}>Who's using this phone?</h1>
-      <p className="mute" style={{ justifySelf: "stretch" }}>This sets your side, your default view and your controls. You can change it in Settings.</p>
+      <p className="mute" style={{ justifySelf: "stretch" }}>Tap your side of the bed. You can change this later in Settings.</p>
       <BedSidePicker value={null} halves={halves} label="Whose phone is this"
         onChange={z => { const p = snap.people.find(x => x.zone === z); if (p) setMe(p.id); }} />
       {snap.people.filter(p => p.zone !== "left" && p.zone !== "right").map(p => (
@@ -94,11 +95,14 @@ function PhoneApp() {
           <NavLink end to="/"><kbd>1</kbd>Tonight</NavLink><NavLink to="/rhythm"><kbd>2</kbd>Rhythm</NavLink><NavLink to="/sleep"><kbd>3</kbd>Sleep</NavLink><NavLink to="/settings"><kbd>4</kbd>More</NavLink>
         </nav>
       )}
-      {lostServer && <div className="banner">Reconnecting to your server…</div>}
-      {!snap.system.online && <div className="banner">The bed isn't reporting right now. What you see may be out of date.</div>}
-      {snap.system.online && snap.system.hub && !snap.system.hub.ok && (easy || simpleOn || loc.pathname === "/") && <div className="banner" role="status">
-        {snap.system.hub.line === "Check the water" ? "The bed hub's water needs a look." : `The bed hub reports: ${snap.system.hub.line ?? "a problem"}.`}
-        {auth.isOwner && " Details are in Settings."}</div>}
+      {/* one banner at a time, the most urgent: no connection > the bed isn't reporting > a bed hub problem. While one
+          shows, Tonight's own notes (away, pet question, care) step aside (theme.css .app:has(> .banner) .notes). */}
+      {lostServer ? <div className="banner" role="status">Lost the connection. Trying again… What you see may be out of date.</div>
+        : !snap.system.online ? <div className="banner" role="status">The bed isn't answering right now. What you see may be out of date.</div>
+        : snap.system.hub && !snap.system.hub.ok && (easy || simpleOn || loc.pathname === "/") ? <div className="banner" role="status">
+          {snap.system.hub.line === "Check the water" ? "The bed hub's water needs a look." : `Bed hub: ${snap.system.hub.line ?? "something needs a look"}.`}
+          {auth.isOwner && " See Settings → Bed hub."}</div>
+        : null}
       <ErrorBoundary full name="phone" resetKey={`${loc.pathname}|${easy}|${simpleOn}`}>
       {me && !welcomeDone && needsWelcome(me, auth.state.enabled, auth.me?.person) ? <Welcome me={me} onDone={() => { setWelcomeDone(true); setArrive(true); }} /> :
        !me ? <WhoAmI /> : easy ? <SimpleApp /> : (
@@ -126,7 +130,8 @@ function PhoneApp() {
 
 export default function App() {
   const loc = useLocation();
-  useBedFromFoot();                                    // load the bed orientation once; left/right labels follow it everywhere
+  useNotificationLink();                               // a tapped notification opens the page that fixes it
+  useBedFromFoot();                                 // load the bed orientation once; left/right labels follow it everywhere
   const { me, snap } = useApp();
   // Studio follows the signed-in person's appearance; with sign-in off (no one signed in) the first person's
   const theme = useTheme(me?.settings ?? snap?.people[0]?.settings);

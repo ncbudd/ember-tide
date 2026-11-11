@@ -30,13 +30,16 @@ export default function Simple({ person, partner, onExit, night }: { person: Per
   const adjust = (sign: number) =>
     act(`${base}/adjust`, off && !resumable ? { temp_c: (person.bed.setpoint_c ?? fToC(70)) + sign * step, until: "next_phase" } : { delta_c: sign * step, until: "next_phase" });
 
+  // one short status line, and (when + or − would do something unexpected) a quieter hint under it
   const status = f
     ? `${f.kind === "hot" ? "Hot" : "Cold"} flash · ${mmss(f.end - snap.now)} left`
     : easing && n.base_c != null ? `Easing back to ${tempNum(n.base_c + (n.override?.delta_c ?? 0), u)}°`
-    : n.state === "paused" && n.pause_until ? `Paused until ${clock(n.pause_until, snap.tz)} · + or − resumes`
-    : off ? (n.skip ? "Off for tonight · + or − turns it back on" : "Side is off")
-    : n.override ? (n.override.temp_c != null && !n.phase_name ? "Turned on by hand" : `${n.override.delta_c != null ? deltaText(n.override.delta_c, u) : "Changed"} until next phase`)
+    : n.state === "paused" && n.pause_until ? `Paused until ${clock(n.pause_until, snap.tz)}`
+    : off ? (n.skip ? "Off for tonight" : "Your side is off")
+    : n.override ? (n.override.temp_c != null && !n.phase_name ? "Turned on by hand" : `${n.override.delta_c != null ? deltaText(n.override.delta_c, u) : "Changed"} until the next phase`)
     : n.phase_name ?? "";
+  const hint = !f && (n.state === "paused" || (off && n.skip)) ? "+ or − turns it back on" : !f && off ? "+ or − turns it on" : "";
+  const extra = person.settings[f?.kind === "cold" ? "cold_flash" : "hot_flash"].extend_min;
 
   return (
     <div className="simple">
@@ -59,7 +62,7 @@ export default function Simple({ person, partner, onExit, night }: { person: Per
           <div className="center">
             {off && !f ? <span className="big t" style={{ color: "var(--mute)" }}>Off</span>
               : <span className="big t" style={{ color: f ? ring : "var(--text)" }}>{tempNum(shown, u)}<span className="deg">°</span></span>}
-            <span className="s">{status}</span>
+            <span className="s">{status}{hint && <small>{hint}</small>}</span>
           </div>
         </div>
       </div>
@@ -67,7 +70,7 @@ export default function Simple({ person, partner, onExit, night }: { person: Per
       <div className="controls">
         <div className="col">
           {f ? <>
-            <button onClick={() => act(`${base}/flash/extend`)}>+5 min</button>
+            <button onClick={() => act(`${base}/flash/extend`)}>+{extra} min</button>
             <button onClick={() => act(`${base}/flash/stop`)}>Stop</button>
           </> : <>
             <button className="hot" onClick={() => act(`${base}/flash`, { kind: "hot" })}><Icon name="snow" className="fl-ico" /> Hot flash</button>

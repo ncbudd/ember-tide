@@ -72,7 +72,7 @@ export function SimpleScreenRows({ s, onChange }: { s: PersonSettings; onChange:
   return <>
     {row("simple_default", "Night screen by default", "No chart, just the temperature and flashes")}
     {row("simple_at_night", "Switch to the night screen once I'm in bed", "It stays until you tap Full app")}
-    {row("simple_red", "Red text on the night screen", "The night screen is always pure black; this makes the text deep red too")}
+    {row("simple_red", "Red text on the night screen", "The night screen is always black. This makes its text dim red too, easier on sleepy eyes")}
   </>;
 }
 

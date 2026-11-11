@@ -114,17 +114,17 @@ DEVICE_TYPES: list[dict] = [
      "examples": "Any light or lamp entity",
      "tuning": [_t("invert", "Reading is reversed", "bool", default=False), _VMAP, _MAXAGE]},
     {"id": "phone", "label": "Phone on home Wi-Fi", "role": "home", "votes": False, "side": False, "person": True,
-     "blurb": "Whether someone's phone is on the home network. Away holds that side's pre-cool so it doesn't run for nobody.",
+     "blurb": "Whether someone's phone is on the home network. Away holds that side's pre-condition so it doesn't run for nobody.",
      "examples": "UniFi or router device tracker, HA companion app Wi-Fi sensor, ping",
      "tuning": [_t("away_after_min", "Count as away after not seen for", default=20, unit="min", min=1, max=240, step=1,
                    help="Phones drop off Wi-Fi when they sleep. Too short and a sleeping phone looks like you left."),
                 _t("invert", "Reading is reversed", "bool", default=False), _VMAP]},
     {"id": "location", "label": "Phone location (GPS)", "role": "location", "votes": False, "side": False, "person": True,
-     "blurb": "Distance from home. When you are on the way back, pre-cool starts so the bed is ready when you arrive.",
+     "blurb": "Distance from home. When you are on the way back, pre-condition starts so the bed is ready when you arrive.",
      "examples": "HA Proximity integration (distance), companion app location",
      "tuning": [_t("home_radius_km", "Counts as home within", default=0.3, unit="km", min=0.05, max=5, step=0.05),
                 _t("ready_min", "Have the bed ready this long before you arrive", default=30, unit="min", min=0, max=120, step=5,
-                   help="Pre-cool starts when the estimated arrival is this close."),
+                   help="Pre-condition starts when the estimated arrival is this close."),
                 _t("speed_kmh", "Assumed travel speed when it can't tell", default=40, unit="km/h", min=5, max=150, step=5),
                 _MAXAGE | {"default": 1800}]},
     {"id": "calendar", "label": "Calendar", "role": "calendar", "votes": False, "side": False, "person": True,
@@ -646,7 +646,7 @@ class SourceManager:
                 if on and gap > max(hold, 5.0) or role == "home":
                     h["flips"] = [x for x in h["flips"] if ts - x <= win] + [ts]
                     if len(h["flips"]) >= n_max:
-                        self._erratic(c, h, ts, f"changed {len(h['flips'])} times in {round(win / 60)} min")
+                        self._erratic(c, h, ts, f"changed {len(h['flips'])} times in {round(win / 60)} min", flap=True)
             if on != last_on:
                 h["on"], h["on_since"] = on, ts
         # frozen: exactly the same reading for hours where it always moves
@@ -663,19 +663,47 @@ class SourceManager:
             self._recover(c, h, ts)
         return True
 
-    def _erratic(self, c: SourceConfig, h: dict, ts: float, why: str, stuck: bool = False) -> None:
+    def _erratic(self, c: SourceConfig, h: dict, ts: float, why: str, stuck: bool = False, flap: bool = False) -> None:
         h["last_problem"] = ts
         if h["status"] != "erratic":
-            h.update(status="erratic", why=why, since=ts, stuck=stuck)
+            h.update(status="erratic", why=why, since=ts, stuck=stuck, flap=flap)
             self._occ.pop(c.id, None)
             if self.events:
                 self.events(ts, "device_health", device=c.id, name=c.name, status="erratic", why=why,
                             trusted=bool(tuning_for(c.kind, c.tuning).get("ignore_health")))
 
     def _recover(self, c: SourceConfig, h: dict, ts: float) -> None:
-        h.update(status="ok", why="", since=ts, stuck=False, bad=[], flips=[])
+        h.update(status="ok", why="", since=ts, stuck=False, flap=False, bad=[], flips=[])
         if self.events:
             self.events(ts, "device_health", device=c.id, name=c.name, status="ok", why="behaving normally again")
+
+    # kinds whose "someone is here" is a sensing of the moment, so it can't honestly stay on for a day with the bed empty
+    # (a bed scale or pad holds what lies on it: luggage, a pet; a custom device is unknown, so never judged)
+    STUCK_KINDS = ("radar", "motion")
+
+    def attention(self, now: float | None = None) -> list[dict]:
+        """Presence sensors that may need a look (read-only; the notifier decides whether to say so). One row per sensor
+        that is on and not trusted blindly by its owner: `flapping_since` (set aside as erratic because it keeps flipping),
+        `on_since` (a radar or motion sensor that has said someone is here without a break since then, and is counting
+        in the vote). Paused, removed (not in the list), guest-side and trusted ("ignore_health") sensors never appear."""
+        now = now if now is not None else self.clock.now_ts()
+        out = []
+        for c in self.configs:
+            if not c.enabled or not c.zone or c.zone in self.paused_zones or not votes(c) or c.role not in ("presence", "weight"):
+                continue
+            if tuning_for(c.kind, c.tuning).get("ignore_health"):
+                continue
+            h = self.health.get(c.id) or {}
+            flapping = h.get("status") == "erratic" and bool(h.get("flap")) and not h.get("stuck")
+            on_since = None
+            if c.kind in self.STUCK_KINDS and not self.quarantined(c):
+                st = self._occ.get(c.id) or {}
+                if st.get("raw") and self.vote_value(c, now) == 1.0:
+                    on_since = st.get("since")
+            if flapping or on_since is not None:
+                out.append({"id": c.id, "name": c.name, "zone": c.zone, "kind": c.kind,
+                            "flapping_since": h.get("since") if flapping else None, "on_since": on_since})
+        return out
 
     def quarantined(self, c: SourceConfig) -> bool:
         h = self.health.get(c.id)

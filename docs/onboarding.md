@@ -19,8 +19,8 @@ Settings → "Run first-time setup again" brings them all back.
 | App style Simple / Full | Onboarding | Changes the whole app; the single biggest comfort choice. |
 | Comfort start points | Onboarding (Ember / Tide / in between) | Sets the persona and, when it changes, the rhythm's starting temperatures. Fine-tuning is learned. |
 | Work days | Onboarding | Decides which rhythm runs which night (weekend workers). |
-| Bedtime / wake, work nights and days off | Onboarding | Pre-cool and the warm wake hang off these. The "night starts" window follows the bedtime. |
-| Pre-cool lead, warm wake length, phase temperatures | Default | Good defaults; tuning guide and Autopilot suggest changes from real nights. |
+| Bedtime / wake, work nights and days off | Onboarding | Pre-condition and the warm wake hang off these. The "night starts" window follows the bedtime. |
+| Pre-condition lead, warm wake length, phase temperatures | Default | Good defaults; tuning guide and Autopilot suggest changes from real nights. |
 | Autopilot mode | Onboarding (default Suggest) | Trust question: off / suggest / auto, with the 7-night learning explained. |
 | Autopilot limits, phases, cadence | Default, later | Safe defaults; power-user detail. |
 | Notifications per type | Onboarding | Four plain toggles, plus turning notifications on for this phone (Android native, iPhone Home Screen guide, browser Web Push). |

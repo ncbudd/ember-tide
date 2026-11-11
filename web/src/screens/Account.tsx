@@ -93,7 +93,7 @@ export default function Account() {
           ))}
           {sess.length > 1 && <button className="btn" onClick={async () => { await api.post("/api/auth/me/sessions/others"); loadSess(); }}>Sign out everywhere else</button>}
           {keys.length > 0 && <>
-            <small className="mute" style={{ paddingTop: 10 }}>Watch and widget keys. They can only show your side and change its temperature, flashes and tonight. Signing out of the phone that made one ends it.</small>
+            <small className="mute" style={{ paddingTop: 10 }}>Your watch and home-screen widget. They can only show your side and change its temperature, flashes and tonight. Signing out of the phone that set one up ends it.</small>
             {keys.map(k => (
               <div className="row" key={k.id}><span>{deviceKeyName(k)}{k.this_device && <small className="mute"> · from this phone</small>}<br /><small className="mute">{k.last_used ? `last used ${ago(k.last_used)}` : "not used yet"}</small></span>
                 <button className="pill" onClick={async () => { try { await api.del(`/api/auth/me/device-tokens/${k.id}`); setMsg(`${deviceKeyName(k)} key revoked. Opening the app on that phone makes a new one.`); } catch (e) { setMsg((e as Error).message); } loadSess(); }}>Revoke</button></div>
