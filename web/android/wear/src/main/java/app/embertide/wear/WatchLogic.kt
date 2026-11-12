@@ -20,6 +20,8 @@ data class Side(
     val state: String, val phaseName: String?, val targetC: Double?, val measuredC: Double?, val setpointC: Double?,
     val manual: Boolean, val manualUntilS: Double?, val flash: FlashInfo?, val nextName: String?, val nextAtS: Double?,
     val nextWhenSettled: Boolean, val firstPhaseC: Double?, val awayKnown: Boolean, val deltaC: Double?,
+    val bedtimeS: Double? = null, val firstPhaseName: String? = null, val firstPhaseStartS: Double? = null,
+    val inBed: Boolean? = null, val simpleRed: Boolean = false,
 )
 
 data class Snap(val nowS: Double, val tz: String, val minC: Double, val maxC: Double, val me: Side, val partner: Side?)
@@ -41,6 +43,8 @@ object WatchLogic {
         val nx = p.optJSONObject("next")
         val phases = p.optJSONArray("phases")
         val zone = p.optString("zone")
+        val sched = p.optJSONObject("schedule")
+        val first = if (phases != null && phases.length() > 0) phases.getJSONObject(0) else null
         val color = p.optJSONObject("settings")?.optString("color").orEmpty().ifEmpty { if (zone == "left") "teal" else "orange" }
         return Side(
             id = p.optString("id"), name = p.optString("name"), zone = zone, color = color,
@@ -50,8 +54,11 @@ object WatchLogic {
             manual = ov?.optBoolean("manual") == true, manualUntilS = ov?.dbl("end_ts"),
             flash = fl?.let { FlashInfo(it.optString("kind"), it.optDouble("end"), it.optDouble("ease_end", it.optDouble("end"))) },
             nextName = nx?.str("name"), nextAtS = nx?.dbl("at"), nextWhenSettled = nx?.optBoolean("when_settled") == true,
-            firstPhaseC = if (phases != null && phases.length() > 0) phases.getJSONObject(0).dbl("temp_c") else null,
+            firstPhaseC = first?.dbl("temp_c"),
             awayKnown = n.opt("away") is JSONObject, deltaC = ov?.dbl("delta_c"),
+            bedtimeS = sched?.dbl("bedtime"), firstPhaseName = first?.str("name"), firstPhaseStartS = first?.dbl("start"),
+            inBed = p.optJSONObject("presence")?.let { if (it.isNull("present") || !it.has("present")) null else it.optBoolean("present") },
+            simpleRed = p.optJSONObject("settings")?.optBoolean("simple_red") == true,
         )
     }
 
@@ -132,6 +139,27 @@ object WatchLogic {
         return if (s.nextWhenSettled) "$name when you settle" else "$name at ${clock(at, snap.tz)}"
     }
 
+    /**
+     * The times line on the main page. Before bedtime: when the wind-down starts and the usual time in bed
+     * ("Wind-down 10:15 PM · In bed 11:00 PM"); waiting for a sign of sleep: "... when you settle"; otherwise the next change.
+     * Nothing when the side is off tonight, paused or done.
+     */
+    fun timesLine(s: Side, snap: Snap): String? {
+        if (s.state == "skipped" || s.state == "done" || s.state == "paused") return null
+        if (s.nextWhenSettled) return nextLine(s, snap)
+        val bed = s.bedtimeS
+        val start = s.firstPhaseStartS
+        if (bed != null && snap.nowS < bed) {
+            val inBed = "In bed ${clock(bed, snap.tz)}"
+            if (start != null && snap.nowS < start && start < bed) {
+                val name = s.firstPhaseName?.takeIf { it.isNotBlank() } ?: "Wind-down"
+                return "$name ${clock(start, snap.tz)} · $inBed"
+            }
+            if (s.targetC == null) return inBed
+        }
+        return nextLine(s, snap)
+    }
+
     fun partnerLine(p: Side, snap: Snap): String {
         val base = stateLine(p, snap)
         val t = p.targetC?.let { degrees(it, p.fahrenheit) }
@@ -141,6 +169,16 @@ object WatchLogic {
     fun bigTemp(s: Side, pendingSteps: Int, snap: Snap): String =
         s.targetC?.let { degrees(clampC(it + pendingSteps * stepC(s.fahrenheit), snap), s.fahrenheit) } ?: "Off"
 
+    /** Idle (not running, not switched off for tonight): -/+ choose what "Turn on now" will start at; nothing is sent. */
+    fun canPreset(s: Side) = s.targetC == null && s.state != "skipped" && s.state != "paused"
+
+    /** The temperature "Turn on now" starts at after `steps` presses of -/+ (first phase, else a mild default; within the limits). */
+    fun startTemp(s: Side, snap: Snap, steps: Int): Double = clampC(turnOnTemp(s) + steps * stepC(s.fahrenheit), snap)
+
+    /** What the main page shows as the number: the running target, or (dimmed, labelled "Off") what it would run at. */
+    fun shownTemp(s: Side, pendingSteps: Int, presetSteps: Int, snap: Snap): String =
+        if (s.targetC != null) bigTemp(s, pendingSteps, snap) else degrees(startTemp(s, snap, if (canPreset(s)) presetSteps else 0), s.fahrenheit)
+
     // ---------- temperature ----------
     fun stepC(fahrenheit: Boolean): Double = if (fahrenheit) 5.0 / 9.0 else 0.5
 
@@ -148,8 +186,14 @@ object WatchLogic {
 
     /** Can another step this way go? (Off sides can always be turned on with a step.) */
     fun canStep(s: Side, snap: Snap, pendingSteps: Int, dir: Int): Boolean {
-        val t = s.targetC ?: return true
+        val t = s.targetC ?: return false                // off: handled by canPresetStep
         val next = t + (pendingSteps + dir) * stepC(s.fahrenheit)
+        return next >= snap.minC - 0.01 && next <= snap.maxC + 0.01
+    }
+
+    fun canPresetStep(s: Side, snap: Snap, presetSteps: Int, dir: Int): Boolean {
+        if (!canPreset(s)) return false
+        val next = turnOnTemp(s) + (presetSteps + dir) * stepC(s.fahrenheit)
         return next >= snap.minC - 0.01 && next <= snap.maxC + 0.01
     }
 
@@ -206,8 +250,34 @@ object WatchLogic {
         Power.TurnOnNow -> "On"
     }
 
-    /** The temperature "turn on now" starts at: the first phase, else a mild default. */
+    /** The temperature "turn on now" starts at before any -/+: the first phase, else a mild default. */
     fun turnOnTemp(s: Side): Double = s.firstPhaseC ?: FALLBACK_START_C
+
+    // ---------- the first page's two layouts ----------
+    enum class Layout { InBed, Full }
+
+    /** How long "not in bed" must hold before the full layout comes back (a bit under one 30 s refresh), so a blip never flickers. */
+    const val OUT_HOLD_MS = 25_000L
+
+    /**
+     * Which layout page 1 shows. In bed (the server's presence is true) switches at once; leaving bed only switches back
+     * after `absentMs` (time since the signal first said "not in bed") reaches the hold. Unknown presence counts as not in bed.
+     */
+    fun layoutFor(previous: Layout, inBed: Boolean, absentMs: Long): Layout = when {
+        inBed -> Layout.InBed
+        previous == Layout.InBed && absentMs < OUT_HOLD_MS -> Layout.InBed
+        else -> Layout.Full
+    }
+
+    /** The on/off button's words in the in-bed layout: just "On" / "Off" (or "Resume" after being switched off for tonight). */
+    fun bedPowerLabel(s: Side): String = when (powerAction(s)) {
+        Power.TurnOffManual, Power.OffTonight -> "Off"
+        Power.Resume -> "Resume"
+        Power.TurnOnNow -> "On"
+    }
+
+    /** Switching off (either kind) asks for a second tap in the in-bed layout. */
+    fun needsOffConfirm(s: Side): Boolean = powerAction(s).let { it == Power.TurnOffManual || it == Power.OffTonight }
 
     // ---------- freshness ----------
     const val STALE_AFTER_MS = 90_000L

@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlin.math.roundToInt
 
 enum class Problem { NotSignedIn, SignedOut, NoSide, Unreachable }
 
@@ -36,6 +37,7 @@ class BedModel(app: Application) : AndroidViewModel(app) {
     var busy by mutableStateOf(false); private set
     var toast by mutableStateOf<Pair<String, Boolean>?>(null); private set
     var pending by mutableIntStateOf(0); private set          // temperature steps tapped or turned, not sent yet
+    var preset by mutableIntStateOf(0); private set           // while the side is off: -/+ steps for what "Turn on now" starts at (nothing is sent)
 
     private var nudgeJob: Job? = null
     private var sending = false
@@ -50,7 +52,7 @@ class BedModel(app: Application) : AndroidViewModel(app) {
         try {
             val s = WatchLogic.snap(JSONObject(WearApi.call(c, "GET", "/api/snapshot")), WearApi.person(c))
             if (s == null) { snap = null; problem = Problem.NoSide }
-            else { snap = s; fetchedAt = SystemClock.elapsedRealtime(); problem = null }
+            else { snap = s; fetchedAt = SystemClock.elapsedRealtime(); problem = null; if (!WatchLogic.canPreset(s.me)) preset = 0 }
         } catch (e: Exception) {
             // 401: the watch key was revoked or the phone signed out; opening the app on the phone hands over a new one
             if (e.message?.startsWith("HTTP 401") == true) { snap = null; problem = Problem.SignedOut }
@@ -117,14 +119,16 @@ class BedModel(app: Application) : AndroidViewModel(app) {
                     val now = WatchLogic.snap(JSONObject(WearApi.call(c, "GET", "/api/snapshot")), WearApi.person(c))?.me
                     if (now != null && now.targetC == null) turnOn(now)
                 }
-                WatchLogic.Power.TurnOnNow -> turnOn(me)
+                WatchLogic.Power.TurnOnNow -> turnOn(me, preset)
             }
             null
         }
     }
 
-    private fun turnOn(s: Side) {
-        WearApi.call(c, "POST", path("adjust"), "{\"temp_c\":${WatchLogic.turnOnTemp(s)},\"until\":\"next_phase\",\"source\":\"watch\"}")
+    private fun turnOn(s: Side, steps: Int = 0) {
+        val sn = snap
+        val t = if (sn != null) WatchLogic.startTemp(s, sn, steps) else WatchLogic.turnOnTemp(s)
+        WearApi.call(c, "POST", path("adjust"), "{\"temp_c\":${(t * 100).roundToInt() / 100.0},\"until\":\"next_phase\",\"source\":\"watch\"}")
     }
 
     // ---------- temperature: taps and crown turns are gathered for a moment, then sent once ----------
@@ -132,6 +136,10 @@ class BedModel(app: Application) : AndroidViewModel(app) {
         val s = snap ?: return
         if (steps == 0 || problem == Problem.NotSignedIn) return
         val dir = if (steps > 0) 1 else -1
+        if (WatchLogic.canPreset(s.me)) {                 // off: choose the starting temperature, send nothing
+            if (WatchLogic.canPresetStep(s.me, s, preset, dir)) preset += dir
+            return
+        }
         if (!WatchLogic.canStep(s.me, s, pending, dir)) return
         pending += dir
         if (!sending) {

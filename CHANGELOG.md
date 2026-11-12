@@ -5,9 +5,10 @@ minor versions, and each entry says what to check when upgrading.
 
 ## 0.1.0 (first public release)
 
-- **Wear OS app screen.** Opening Ember & Tide on the watch now shows a proper bed-control screen (Compose for Wear OS): your side's state and next
-  change, temperature with − and + and the crown, Hot and Cold flash with +5 min and Stop, Off tonight / Resume / Turn on now, your partner's side
-  (read-only), and a "Heart rate at night" row. A tile and a watch-face complication too.
+- **Wear OS app.** Opening Ember & Tide on the watch shows pages you swipe between (Compose for Wear OS). Page 1 fits the round screen with
+  nothing to scroll: your side's state, the wind-down and in-bed times (or the next change), temperature with − and + and the crown, and
+  Off tonight / Resume / Turn on now. Page 2: Hot flash (snowflake) and Cold flash (sun) with +5 min and Stop. Page 3: your partner's side,
+  read-only, if the server shares it. Page 4: settings (Heart rate at night, who is signed in, version). A tile and a watch-face complication too.
 - Licensed under the PolyForm Noncommercial License 1.0.0: free for personal and noncommercial use, no commercial use without permission.
 
 The first version intended for other people's homes.

@@ -171,20 +171,36 @@ adb -s <watch-serial> install -r ember-tide-<version>-wear-os.apk
 Turn on the watch's developer options and ADB over Wi-Fi to get a serial (`adb pair` then `adb connect`). Then on the watch,
 swipe to the tile list, Add tile, **Ember & Tide**.
 
-**The watch app** (open Ember & Tide from the app list) is a bed-control screen for your side, built for a round screen and the
-rotary crown:
+**The watch app** (open Ember & Tide from the app list) is made of pages you swipe between sideways, built for a round screen and
+the rotary crown. The first page has everything you need in the night, with nothing to scroll:
 
-- Your name, what your side is doing in plain words ("Deep · 81°", "Pre-conditioning", "Off tonight", "Not in bed yet") and the next
-  change ("Warm wake at 9:00 AM"), in your colour.
-- The temperature with **−** and **+** (°F or °C as you set them, within the limits the server enforces). Tap the number, then turn the crown.
-  Taps and turns are gathered for half a second and sent once.
-- **Hot flash** and **Cold flash**. While one runs you see the minutes left, **+5 min** and **Stop**.
-- **Off tonight** (asks you to tap again), **Resume** and **Turn on now**, with the same rules as the tile's power button.
-- Your partner's side as one read-only line, only if the server sends it.
-- **Heart rate at night**: shows whether the permission is allowed and opens the explanation and permission steps. Heart rate goes to the
-  phone only while your night is on, and only if you switched it on in the phone app.
-- If the watch isn't signed in it says "Sign in on your phone"; if the server can't be reached, "Can't reach your bed right now" with Try again.
-  The screen refreshes when you open it and every 30 seconds while it is on screen, and stops when it isn't. Every change also refreshes the tile and complication.
+1. **Your bed.** Your name in your colour, what your side is doing in plain words ("Deep · 81°", "Pre-conditioning", "Off tonight",
+   "Not in bed yet") and the times: before bed "Wind-down 10:15 PM / In bed 11:00 PM" (from your rhythm; while waiting for a sign of sleep
+   "Fall asleep when you settle"), during the night the next change ("Warm wake at 9:00 AM"). Then the temperature with **−** and **+**
+   (°F or °C as you set them, within the server's limits; tap the number, then turn the crown; taps and turns are gathered for half a
+   second and sent once) and the power button: **Off tonight** (asks you to tap again), **Resume**, **Turn on now** or **Turn off**, with the
+   same rules as the tile. While your side is off the number is dimmed and labelled "Off": it shows the temperature "Turn on now" would
+   start at, and **−** / **+** choose that temperature (nothing is sent until you turn it on). When your side is off for tonight or
+   paused, **−** / **+** are dimmed; Resume goes back to your rhythm.
+
+   **In bed.** When the server says you are in bed (the same signal as "In bed" on the phone's Tonight screen), the first page
+   switches by itself to a quiet night layout: a big temperature in the middle, large **−** and **+**, and one big **Off** / **On** /
+   **Resume** button (**Off** asks you to tap again, so a bump in the night doesn't switch the bed off). No name, no sentences, no
+   times. The crown changes the temperature straight away, with no tap to arm it. A flash running shows as a small
+   "Hot flash · 12 min" chip you tap to stop, and a dim line appears only if the bed can't be reached. Colours follow the phone's night
+   screen: near-black, warm off-white numerals, or dim red if "Red text on the night screen" is on. The layout switches in at the next
+   refresh after you get in bed, and back to the full page only after you have been out of bed for about half a minute, so a blip in
+   the presence reading never flickers it. The other pages stay a swipe away.
+2. **Flashes.** **Hot flash** (snowflake: cooling relief) and **Cold flash** (sun: warming relief). While one runs you see the minutes left,
+   **+5 min** and **Stop**.
+3. **Your partner's side**, read-only, in their colour. This page is only there if the server shares the other side with you.
+4. **Settings.** **Heart rate at night** (shows whether the permission is allowed; tap it for the explanation and the permission steps;
+   heart rate goes to the phone only while your night is on, and only if you switched it on in the phone app), who and which server the
+   watch is signed in to, the app version, and "Sign in on your phone" when it isn't signed in.
+
+If the watch isn't signed in the first page says "Sign in on your phone"; if the server can't be reached, "Can't reach your bed right now"
+with Try again. The screen refreshes when you open it and every 30 seconds while it is on screen, and stops when it isn't. Every change also refreshes
+the tile and complication. The crown only changes the temperature after you tap the number; it never swipes between pages.
 
 **The tile** shows tonight, a Hot flash button and the on/off button (during a flash: +5 and Stop).
 

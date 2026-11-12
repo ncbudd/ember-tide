@@ -48,6 +48,37 @@ class WatchLogicTest {
         assertNull(WatchLogic.snap(one, "p1")!!.partner)
     }
 
+    @Test fun readsPresenceAndRedNightText() {
+        val j = JSONObject(json)
+        val p = j.getJSONArray("people").getJSONObject(0)
+        p.put("presence", JSONObject("""{"present":true}""")); p.getJSONObject("settings").put("simple_red", true)
+        val me = WatchLogic.snap(j, "p1")!!.me
+        assertEquals(true, me.inBed); assertTrue(me.simpleRed)
+        p.put("presence", JSONObject("""{"present":null}"""))
+        assertNull(WatchLogic.snap(j, "p1")!!.me.inBed)
+        assertNull(WatchLogic.snap(JSONObject(json), "p1")!!.me.inBed)          // not sent
+        assertFalse(WatchLogic.snap(JSONObject(json), "p1")!!.me.simpleRed)
+    }
+
+    @Test fun layoutSwitchesInAtOnceAndOutAfterTheHold() {
+
+        assertEquals(WatchLogic.Layout.InBed, WatchLogic.layoutFor(WatchLogic.Layout.Full, true, 0))
+        assertEquals(WatchLogic.Layout.InBed, WatchLogic.layoutFor(WatchLogic.Layout.InBed, true, 0))
+        assertEquals(WatchLogic.Layout.InBed, WatchLogic.layoutFor(WatchLogic.Layout.InBed, false, 0))                       // a blip
+        assertEquals(WatchLogic.Layout.InBed, WatchLogic.layoutFor(WatchLogic.Layout.InBed, false, WatchLogic.OUT_HOLD_MS - 1))
+        assertEquals(WatchLogic.Layout.Full, WatchLogic.layoutFor(WatchLogic.Layout.InBed, false, WatchLogic.OUT_HOLD_MS))
+        assertEquals(WatchLogic.Layout.Full, WatchLogic.layoutFor(WatchLogic.Layout.Full, false, 0))
+    }
+
+    @Test fun bedButtonWordsAndConfirm() {
+        assertEquals("Off", WatchLogic.bedPowerLabel(side())); assertTrue(WatchLogic.needsOffConfirm(side()))
+        assertEquals("Off", WatchLogic.bedPowerLabel(side(manual = true))); assertTrue(WatchLogic.needsOffConfirm(side(manual = true)))
+        val skipped = side(state = "skipped", target = null)
+        assertEquals("Resume", WatchLogic.bedPowerLabel(skipped)); assertFalse(WatchLogic.needsOffConfirm(skipped))
+        val idle = side(state = "day", target = null)
+        assertEquals("On", WatchLogic.bedPowerLabel(idle)); assertFalse(WatchLogic.needsOffConfirm(idle))
+    }
+
     @Test fun unknownPersonIsNull() = assertNull(WatchLogic.snap(JSONObject(json), "nobody"))
 
     // ---------- words ----------
@@ -151,6 +182,66 @@ class WatchLogicTest {
         val nothing = side(state = "day", target = null, setpoint = null, first = null)
         assertEquals(21.66, (WatchLogic.adjustPlan(nothing, snap(nothing), 1) as WatchLogic.Adjust.SetTo).tempC, 0.001)
         assertEquals("Off", WatchLogic.bigTemp(idle, 1, snap(idle)))
+    }
+
+    // ---------- the times line on the main page ----------
+    private fun at(h: Int, m: Int) = java.time.ZonedDateTime.of(2027, 1, 15, h, m, 0, 0, java.time.ZoneId.of("UTC")).toEpochSecond().toDouble()
+
+    private fun night(now: Double, state: String, target: Double?, next: Pair<String, Double>?, settle: Boolean = false, first: Double? = at(22, 15), bed: Double = at(23, 0)) =
+        Snap(now, "UTC", 12.0, 35.0, side(state = state, target = target, next = next, settle = settle)
+            .copy(bedtimeS = bed, firstPhaseName = "Wind-down", firstPhaseStartS = first), null)
+
+    @Test fun timesBeforeWindDown() {
+        val sn = night(at(19, 0), "day", null, "Wind-down" to at(22, 15))
+        assertEquals("Wind-down 10:15 PM · In bed 11:00 PM", WatchLogic.timesLine(sn.me, sn))
+    }
+
+    @Test fun timesDuringWindDownShowsTheNextChange() {
+        val sn = night(at(22, 30), "rhythm", 21.0, "Fall asleep" to at(23, 0))
+        assertEquals("Fall asleep at 11:00 PM", WatchLogic.timesLine(sn.me, sn))
+    }
+
+    @Test fun timesWhileWaitingForSleepKeepsTheSettleWording() {
+        val sn = night(at(23, 30), "rhythm", 21.0, "Fall asleep" to at(23, 40), settle = true)
+        assertEquals("Fall asleep when you settle", WatchLogic.timesLine(sn.me, sn))
+    }
+
+    @Test fun timesDuringTheNightAndAtWake() {
+        val deep = night(at(2, 0), "rhythm", 27.0, "Warm wake" to at(7, 0), first = at(22, 15) - 86400, bed = at(23, 0) - 86400)
+        assertEquals("Warm wake at 7:00 AM", WatchLogic.timesLine(deep.me, deep))
+        val none = night(at(9, 0), "day", null, null, first = at(22, 15) - 86400, bed = at(23, 0) - 86400)
+        assertNull(WatchLogic.timesLine(none.me, none))
+    }
+
+    @Test fun timesWhenOffTonightOrPaused() {
+        val skipped = night(at(19, 0), "skipped", null, "Wind-down" to at(22, 15))
+        assertNull(WatchLogic.timesLine(skipped.me, skipped))
+        val paused = night(at(23, 30), "paused", null, "Deep" to at(1, 0))
+        assertNull(WatchLogic.timesLine(paused.me, paused))
+    }
+
+    @Test fun timesIdleBeforeBedWithoutAWindDownAhead() {
+        val sn = night(at(22, 40), "day", null, "Fall asleep" to at(23, 0), first = at(22, 15))
+        assertEquals("In bed 11:00 PM", WatchLogic.timesLine(sn.me, sn))
+    }
+
+    // ---------- off sides: -/+ preset what "Turn on now" starts at ----------
+    @Test fun presetWhenIdle() {
+        val idle = side(state = "day", target = null, first = 22.0)
+        val sn = snap(idle)
+        assertTrue(WatchLogic.canPreset(idle))
+        assertEquals(22.0 + 2 * 5.0 / 9.0, WatchLogic.startTemp(idle, sn, 2), 0.001)
+        assertEquals("74°", WatchLogic.shownTemp(idle, 0, 2, sn))      // 22 C is 71.6 F; two steps up is 73.6
+        assertTrue(WatchLogic.canPresetStep(idle, sn, 0, 1))
+        assertFalse(WatchLogic.canPresetStep(side(state = "day", target = null, first = 35.0), snap(side(state = "day", target = null, first = 35.0)), 0, 1))
+        assertFalse(WatchLogic.canStep(idle, sn, 0, 1))
+    }
+
+    @Test fun noPresetWhenOffTonightOrPaused() {
+        val off = side(state = "skipped", target = null, first = 22.0)
+        assertFalse(WatchLogic.canPreset(off))
+        assertFalse(WatchLogic.canPresetStep(off, snap(off), 0, 1))
+        assertEquals("72°", WatchLogic.shownTemp(off, 0, 3, snap(off)))   // the plan's temperature, unchanged
     }
 
     // ---------- the power button (the tile's rules) ----------
