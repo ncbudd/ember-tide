@@ -51,7 +51,7 @@ def build_assistant_router(state) -> APIRouter:
     @r.get("/status")
     async def status(person_id: str):
         p = person(person_id)
-        cfg = state.cfg
+        cfg = ai.effective(state.cfg, ctl().store)
         return {"configured": ai.configured(cfg), "model": ai.model_name(cfg) if ai.configured(cfg) else None,
                 "provider": ai.provider(cfg), "small_changes": p.settings.assistant_small_changes,
                 "limits": {"small_c": A.SMALL_C, "changes_per_hour": A.CHANGES_PER_HOUR, "auto_per_night": A.AUTO_PER_NIGHT}}
@@ -120,7 +120,7 @@ def build_assistant_router(state) -> APIRouter:
                 return f"Tried, but the app refused: {entry['error']}"
             return f"Proposed: {plan.summary}. The person will see a card and decide."
 
-        if not ai.configured(state.cfg) and getattr(req.app.state, "assistant_model", None) is None:
+        if not ai.configured(ai.effective(state.cfg, c.store)) and getattr(req.app.state, "assistant_model", None) is None:
             if not private_ok:
                 return {"answer": "No AI model is connected, and their sleep details are theirs to see.", "model": None,
                         "proposals": [], "applied": [], "ignored": []}
@@ -136,9 +136,9 @@ def build_assistant_router(state) -> APIRouter:
                                                       **({"temp_c": prop["to"]} if prop["field"] == "temp_c" else {"ramp_min": int(prop["to"])})})
             return {"answer": text, "model": None, "proposals": [A.card(e) for e in made if e["status"] == "proposed"],
                     "applied": [], "ignored": ignored}
-        model = getattr(req.app.state, "assistant_model", None) or ai.model_client(state.cfg)
+        model = getattr(req.app.state, "assistant_model", None) or ai.model_client(ai.effective(state.cfg, c.store))
         try:
-            reply = await model.run(A.system_prompt(voice.tone_of(p)), A.user_message(b.question, A.context(c, p, now, private=private_ok)), A.tool_schemas(), on_call)
+            reply = await model.run(A.system_prompt(voice.tone_of(p), p.settings), A.user_message(b.question, A.context(c, p, now, private=private_ok)), A.tool_schemas(), on_call)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(502, f"The AI model didn't answer ({type(e).__name__}).")
         text = reply.text or (voice.say("assistant_proposed", person=p, store=c.store) if made else "I don't have an answer for that.")
@@ -148,7 +148,7 @@ def build_assistant_router(state) -> APIRouter:
             items = A.log(c.store, p.id)
             ids = {e["id"]: e for e in made}
             A.save_log(c.store, p.id, [ids.get(x["id"], x) for x in items])
-        return {"answer": text, "model": reply.model or ai.model_name(state.cfg),
+        return {"answer": text, "model": reply.model or ai.model_name(ai.effective(state.cfg, c.store)),
                 "proposals": [A.card(e) for e in made if e["status"] == "proposed"],
                 "applied": [A.card(e) for e in made if e["status"] == "applied"], "ignored": ignored}
 

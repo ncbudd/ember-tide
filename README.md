@@ -46,7 +46,7 @@ Studio, the power tools on a computer or tablet:
   start now, and turn on by hand with a timer for naps.
 
 **Flashes and quick controls**
-- **Hot flash and cold flash** with sensible defaults (55 °F or 86 °F for 15 minutes, easing back), tunable per person.
+- **Hot flash and cold flash** with sensible defaults (13 °C / 55 °F or 30 °C / 86 °F for 15 minutes, easing back), tunable per person.
 - A **Simple screen for 3 AM**: one temperature, big buttons, deep-red night colours. Optionally a **Simple app** for the less technical
   sleeper: temperature, flashes and an easy schedule, with the detail left in Studio.
 
@@ -160,6 +160,7 @@ All settings are in [docs/configuration.md](docs/configuration.md).
 | [Bed cutover](docs/bed-cutover.md) | The local DNS record, checking the connection, blocking the hub's internet, rolling back, firmware updates |
 | [Android](docs/android.md) | Download the APK (Google push or no Google), build it yourself, your own Firebase project, Health Connect, widget and tile, Wear OS |
 | [Talk to your bed](docs/voice.md) | Siri, Google Assistant, Alexa and Assist through Home Assistant; Siri with Apple Shortcuts; voice on Android |
+| [Connect an AI app](docs/mcp.md) | Ask Claude, Copilot, Cursor or any MCP app about your sleep, and let it propose small changes, through a private key per person |
 | [Configuration](docs/configuration.md) | Every environment variable, the data folder, ports |
 | [Troubleshooting](docs/troubleshooting.md) | Hub won't connect, unknown sides, echo, push, Home Assistant, Health Connect |
 | [Notifications](docs/notifications.md), [Care](docs/care.md), [Cycle](docs/cycle.md), [Integrations](docs/integrations.md), [Onboarding](docs/onboarding.md), [Settings map](docs/settings-map.md) | How the parts work |

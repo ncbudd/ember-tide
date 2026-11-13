@@ -17,6 +17,7 @@ import math
 import time
 import uuid
 from datetime import datetime, timedelta
+from ..units import fmt_clock
 
 MIN_EPISODE_S = 10 * 60       # a stay this long is worth noting (added to a question that's already open: no new ping)
 ASK_AFTER_S = 30 * 60         # only a stay this long starts a new question: a quick hop on and off isn't worth a ping
@@ -358,15 +359,15 @@ def open_for(store, pid: str, now: float) -> dict | None:
     return out
 
 
-def _clock(ts: float, tz) -> str:
-    return datetime.fromtimestamp(ts, tz).strftime("%I:%M %p").lstrip("0")
+def _clock(ts: float, tz, style: str = "24") -> str:
+    return fmt_clock(ts, style, tz)
 
 
-def view(q: dict, household, tz) -> dict:
+def view(q: dict, household, tz, clock: str = "24") -> dict:
     pets = {p.id: p for p in household.pets}
     names = [pets[i].name for i in q["pets"] if i in pets]
     a, b = q["spans"][0]["start"], q["spans"][-1]["end"]
-    when = f"{_clock(a, tz)}–{_clock(b, tz)}"
+    when = f"{_clock(a, tz, clock)}–{_clock(b, tz, clock)}"
     who = names[0] if len(names) == 1 else "one of your pets"
     side = "your side of the bed" if q["zone"] in ("left", "right") else "the bed"   # asked of that side's sleeper
     them = names[0] if len(names) == 1 else "your pets"

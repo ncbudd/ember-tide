@@ -13,10 +13,11 @@ from datetime import datetime
 
 from .rhythm import pick_rhythm, resolve
 from .summary import recent
+from ..units import clock_style, fmt_clock
 
 
-def _hm(ts: float, tz) -> str:
-    return datetime.fromtimestamp(ts, tz).strftime("%I:%M %p").lstrip("0")
+def _hm(ts: float, tz, style: str = "24") -> str:
+    return fmt_clock(ts, style, tz)
 
 
 def _shift(hm: str, minutes: int) -> str:
@@ -57,6 +58,7 @@ def _ups_with_light(c, start: float, end: float) -> int:
 
 def tuning_guide(c, p, now: float) -> list[dict]:
     tz = c.clock.tz
+    ck = clock_style(p.settings)
     nights = [n for n in recent(c.store, p, tz, now, 14) if n.get("has_data") and not n.get("in_progress")]
     out: list[dict] = []
     lr = c.autopilot.learning(p, now) if getattr(c, "autopilot", None) else None
@@ -114,7 +116,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                             "title": f"{rh.name}: you usually get into bed {abs(round(med))} min {'after' if med > 0 else 'before'} your set bedtime",
                             "detail": f"On {len(offs)} ordinary nights (late events and nights away left out). Moving bedtime to "
                                       f"{to} lines up wind-down and pre-condition with when you actually go to bed.",
-                            "evidence": [f"{r['date']}: in bed {_hm(r['in_bed'], tz)}" for r in mine][-7:],
+                            "evidence": [f"{r['date']}: in bed {_hm(r['in_bed'], tz, ck)}" for r in mine][-7:],
                             "proposal": {"rhythm_id": rh.id, "schedule": "bedtime", "from": rh.schedule.bedtime, "to": to}})
         wo = [((r["out"] - r["rn"].wake) / 60, r) for r in mine if r["out"]]
         if len(wo) >= need:
@@ -124,7 +126,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                 out.append({"id": f"guide-wake-{rh.id}", "severity": "suggest", "kind": "guide",
                             "title": f"{rh.name}: you usually get up {abs(round(med))} min {'before' if med < 0 else 'after'} your wake time",
                             "detail": f"The warm wake is timed for {rh.schedule.wake}. Setting wake to {to} times it for when you really get up.",
-                            "evidence": [f"{r['date']}: up {_hm(r['out'], tz)}" for _, r in wo][-7:],
+                            "evidence": [f"{r['date']}: up {_hm(r['out'], tz, ck)}" for _, r in wo][-7:],
                             "proposal": {"rhythm_id": rh.id, "schedule": "wake", "from": rh.schedule.wake, "to": to}})
 
     # 3. lights: reading in bed, getting up in the night
@@ -136,7 +138,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                         "title": f"Lights usually go off about {round(gap)} min after you get into bed",
                         "detail": "Reading or winding down in bed is fine: the Fall asleep phase starts when you get in. If it feels too "
                                   "cool while you read, make Fall asleep a little longer or one degree warmer.",
-                        "evidence": [f"{r['date']}: in bed {_hm(r['in_bed'], tz)}, lights off {_hm(r['lights_off'], tz)}" for r in lit][-5:],
+                        "evidence": [f"{r['date']}: in bed {_hm(r['in_bed'], tz, ck)}, lights off {_hm(r['lights_off'], tz, ck)}" for r in lit][-5:],
                         "proposal": None})
     ups = [r["ups_light"] for r in rows]
     if len(ups) >= 5 and statistics.mean(ups) >= 1.5:
@@ -154,7 +156,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                     "title": f"{len(late)} late evening event{'s' if len(late) > 1 else ''} in two weeks",
                     "detail": f"On those nights you got to bed about {round(delay)} min after bedtime. The schedule fallback waited for the "
                               "event to end, so the bed didn't run for nobody.",
-                    "evidence": [f"{r['date']}: event until {_hm(r['late_event'], tz)}" for r in late], "proposal": None})
+                    "evidence": [f"{r['date']}: event until {_hm(r['late_event'], tz, ck)}" for r in late], "proposal": None})
     away = [r for r in rows if r["away"]]
     if away:
         out.append({"id": "guide-away", "severity": "good", "kind": "guide",

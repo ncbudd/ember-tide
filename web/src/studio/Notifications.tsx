@@ -1,13 +1,18 @@
 import { useEffect, useState } from "react";
+import { h12 } from "../format";
 import { api } from "../api";
 import { useAuth } from "../auth";
 import { useApp } from "../ctx";
 
-interface Provider { id: string; kind: "ntfy" | "ha"; name: string; person: string | null; enabled: boolean; settings: Record<string, string | null>; one_tap?: boolean; one_tap_error?: string | null }
+interface Provider { id: string; kind: "ntfy" | "ha" | "webhook" | "apprise"; name: string; person: string | null; enabled: boolean; settings: Record<string, string | null | Record<string, string>>; one_tap?: boolean; one_tap_error?: string | null }
 interface Sent { ts: number; person: string | null; title: string; body: string }
 interface Delivery { ts: number; provider: string; title: string; ok: boolean; error?: string }
 
-const BLANK = { ntfy: { url: "https://ntfy.sh", topic: "", token: "" }, ha: { url: "", token: "", service: "notify.mobile_app_" } };
+const BLANK = { ntfy: { url: "https://ntfy.sh", topic: "", token: "" }, ha: { url: "", token: "", service: "notify.mobile_app_" }, webhook: { url: "", headers: "" }, apprise: { url: "", key: "", urls: "", tag: "", headers: "" } };
+type Kind = keyof typeof BLANK;
+// "Name: value" lines in the form <-> the headers object the server stores
+const parseHeaders = (t: string) => Object.fromEntries(t.split("\n").map(l => l.split(/:(.*)/s)).filter(x => x[0]?.trim() && x[1]?.trim()).map(x => [x[0].trim(), x[1].trim()]));
+const LABEL: Record<Kind, string> = { ntfy: "ntfy", ha: "Home Assistant", webhook: "Webhook", apprise: "Apprise" };
 
 export default function Notifications() {
   const { snap, say } = useApp();
@@ -18,7 +23,7 @@ export default function Notifications() {
   const [pushTok, setPushTok] = useState("");
   const [pubEdit, setPubEdit] = useState("");
   const [log, setLog] = useState<{ sent: Sent[]; deliveries: Delivery[]; reach?: Record<string, number> }>({ sent: [], deliveries: [] });
-  const [kind, setKind] = useState<"ntfy" | "ha">("ntfy");
+  const [kind, setKind] = useState<Kind>("ntfy");
   const [form, setForm] = useState<Record<string, string>>({ ...BLANK.ntfy });
   const [name, setName] = useState("");
   const [person, setPerson] = useState<string | null>(null);
@@ -40,7 +45,9 @@ export default function Notifications() {
 
   const add = async () => {
     try {
-      await api.post("/api/notify/providers", { kind, name: name.trim() || (kind === "ntfy" ? `ntfy · ${form.topic}` : "Home Assistant"), person, enabled: true, settings: form });
+      const settings: Record<string, unknown> = { ...form };
+      if (kind === "webhook" || kind === "apprise") settings.headers = parseHeaders(form.headers ?? "");
+      await api.post("/api/notify/providers", { kind, name: name.trim() || (kind === "ntfy" ? `ntfy · ${form.topic}` : LABEL[kind]), person, enabled: true, settings });
       setForm({ ...BLANK[kind] }); setName(""); say("Added. Press Test to check it arrives."); load();
     } catch (e) { say((e as Error).message); }
   };
@@ -72,7 +79,7 @@ export default function Notifications() {
             <table className="t"><tbody>
               {items.map(p => (
                 <tr key={p.id}>
-                  <td><b style={{ fontWeight: 500 }}>{p.name}</b><br /><small className="mute">{p.kind === "ntfy" ? `ntfy · ${p.settings.topic}` : `Home Assistant · ${p.settings.service}`} · {pname(p.person)}</small>
+                  <td><b style={{ fontWeight: 500 }}>{p.name}</b><br /><small className="mute">{p.kind === "ntfy" ? `ntfy · ${p.settings.topic}` : p.kind === "ha" ? `Home Assistant · ${p.settings.service}` : `${LABEL[p.kind]} · ${String(p.settings.url ?? "").replace(/^https?:\/\//, "").slice(0, 40)}`} · {pname(p.person)}</small>
                     {p.kind === "ha" && <><br /><small style={{ color: p.one_tap ? "var(--good)" : "var(--mute)" }}>{p.one_tap ? "One-tap buttons: on" : `One-tap buttons: off${p.one_tap_error ? ` (${p.one_tap_error})` : ""}, so buttons open a confirm page`}</small></>}
                     {test[p.id] && <><br /><small style={{ color: test[p.id].startsWith("Sent") ? "var(--good)" : test[p.id] === "Sending…" ? "var(--mute)" : "var(--bad)" }}>{test[p.id]}</small></>}</td>
                   <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
@@ -126,20 +133,26 @@ export default function Notifications() {
               const got = log.deliveries.filter(d => Math.abs(d.ts - s.ts) < 60 && d.title === s.title);
               // the delivery log only covers this server run, so stay quiet when there's no record either way
               const status = got.some(d => d.ok) ? "delivered" : got.length ? "couldn't be delivered" : items.length === 0 && !pub?.fcm ? "not sent: no phone set up" : "";
-              return <div key={i} className="row"><span>{s.title}<br /><small className="mute">{pname(s.person)} · {new Date(s.ts * 1000).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit", timeZone: snap?.tz })} {status && "· "}<span style={{ color: status === "delivered" ? "var(--good)" : status.startsWith("couldn't") ? "var(--bad)" : undefined }}>{status}</span></small></span></div>;
+              return <div key={i} className="row"><span>{s.title}<br /><small className="mute">{pname(s.person)} · {new Date(s.ts * 1000).toLocaleString([], { ...h12(), weekday: "short", hour: "numeric", minute: "2-digit", timeZone: snap?.tz })} {status && "· "}<span style={{ color: status === "delivered" ? "var(--good)" : status.startsWith("couldn't") ? "var(--bad)" : undefined }}>{status}</span></small></span></div>;
             })}
             {log.deliveries.filter(d => !d.ok).slice(0, 3).map((d, i) => <span key={i} style={{ fontSize: 12.5, color: "var(--bad)" }}>{d.provider}: {d.error}</span>)}
           </div>
         </div>
 
         <div className="box" style={{ alignContent: "start" }}>
-          <span className="k">Add a phone</span>
+          <span className="k">Add a target</span>
           <div className="seg" style={{ maxWidth: 360 }}>
             <button aria-pressed={kind === "ntfy"} onClick={() => { setKind("ntfy"); setForm({ ...BLANK.ntfy }); }}>ntfy app</button>
             <button aria-pressed={kind === "ha"} onClick={() => { setKind("ha"); setForm({ ...BLANK.ha }); }}>Home Assistant app</button>
+            <button aria-pressed={kind === "apprise"} onClick={() => { setKind("apprise"); setForm({ ...BLANK.apprise }); }}>Apprise</button>
+            <button aria-pressed={kind === "webhook"} onClick={() => { setKind("webhook"); setForm({ ...BLANK.webhook }); }}>Webhook</button>
           </div>
           {kind === "ntfy"
             ? <span className="mute" style={{ fontSize: 13 }}>Install ntfy on the phone (Android or iPhone), subscribe to the topic below, and that's it. Buttons work on Android. Use your own ntfy server if you have one; on the public ntfy.sh, pick a hard-to-guess topic.</span>
+            : kind === "apprise"
+            ? <span className="mute" style={{ fontSize: 13 }}>Sends through an Apprise API server you run, which reaches Gotify, Pushover, Telegram, Matrix, Discord, email and many more. Buttons aren't included; the message opens the app.</span>
+            : kind === "webhook"
+            ? <span className="mute" style={{ fontSize: 13 }}>Posts JSON (title, body, kind, person, priority, url, ts) to an address you choose, for your own automations. Buttons aren't included.</span>
             : <span className="mute" style={{ fontSize: 13 }}>Uses the Home Assistant Companion app's notify service. Find its name in HA under Developer tools → Actions, search "notify.mobile_app".</span>}
           <div className="authform">
             {kind === "ntfy" ? <>
@@ -147,12 +160,21 @@ export default function Notifications() {
               <label className="field"><span>Topic</span>
                 <div className="row" style={{ gap: 8 }}><input type="text" style={{ flex: 1 }} value={form.topic ?? ""} onChange={e => setForm({ ...form, topic: e.target.value })} /><button className="pill" onClick={randomTopic}>Make one up</button></div></label>
               {f("token", "Access token (optional)", "tk_…", "password")}
+            </> : kind === "apprise" ? <>
+              {f("url", "Apprise API address", "http://apprise:8000")}
+              {f("key", "Config key (saved on the Apprise server)", "embertide")}
+              {f("urls", "…or Apprise addresses (comma-separated)", "tgram://bottoken/chatid", "password")}
+              {f("tag", "Tag (optional)", "")}
+              <label className="field"><span>Headers (optional, one per line)</span><textarea rows={2} value={form.headers ?? ""} placeholder="Authorization: Bearer …" onChange={e => setForm({ ...form, headers: e.target.value })} /></label>
+            </> : kind === "webhook" ? <>
+              {f("url", "Address to post to", "https://example.com/hook")}
+              <label className="field"><span>Headers (optional, one per line)</span><textarea rows={2} value={form.headers ?? ""} placeholder="Authorization: Bearer …" onChange={e => setForm({ ...form, headers: e.target.value })} /><small className="mute">Saved values are never shown again.</small></label>
             </> : <>
               {f("url", "Home Assistant address", "http://homeassistant.local:8123")}
               {f("token", "Long-lived access token", "", "password")}
               {f("service", "Notify service", "notify.mobile_app_pixel_9")}
             </>}
-            <label className="field"><span>Whose phone?</span>
+            <label className="field"><span>{kind === "webhook" || kind === "apprise" ? "Whose alerts?" : "Whose phone?"}</span>
               <div className="seg" style={{ maxWidth: 360 }}>{snap.people.map(p => <button key={p.id} aria-pressed={person === p.id} onClick={() => setPerson(p.id)}>{p.name}</button>)}
                 <button aria-pressed={person === null} onClick={() => setPerson(null)}>Household</button></div>
               <small className="mute">{person ? `${pname(person)}'s alerts, with buttons for their side.` : "Bed problems: offline, a frozen sensor."}</small></label>

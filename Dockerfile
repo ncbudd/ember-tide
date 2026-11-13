@@ -15,7 +15,7 @@ WORKDIR /app
 # Debian security fixes published after the base image was built (the release scan fails on fixed HIGH/CRITICAL ones)
 RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY core/ /app/core
-RUN pip install --no-cache-dir /app/core
+RUN pip install --no-cache-dir "/app/core[claude]"
 COPY --from=web /web/dist /app/web
 ENV ET_WEB_DIR=/app/web \
     ET_DATA_DIR=/data \
@@ -26,5 +26,5 @@ RUN groupadd --system --gid 1000 embertide && useradd --system --uid 1000 --gid 
 USER 1000:1000
 VOLUME /data
 EXPOSE 8790
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:8790/healthz')" || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:${ET_PORT:-8790}/healthz')" || exit 1
 CMD ["python", "-m", "embertide"]

@@ -34,6 +34,8 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .units import clock_style, fmt_delta, fmt_temp, language_line
+
 SMALL_C = 1.5                    # automatic changes: at most this much warmer/cooler in total for one night
 PROPOSAL_TTL_S = 30 * 60         # a card older than this has to be asked for again
 ASKS_PER_HOUR = 30
@@ -42,8 +44,10 @@ AUTO_PER_NIGHT = 3
 LOG_KEEP = 100
 
 ASSIST_SYSTEM = """You are the sleep assistant inside Ember & Tide, a controller for a dual-zone water-cooled mattress topper.
-You help one person with their side of the bed. Answer briefly, concretely and kindly, in °F unless they use °C
-(tool arguments are always °C). Never give medical advice.
+You help one person with their side of the bed. Answer briefly, concretely and kindly. Never give medical advice.
+Assume nothing about where the person lives, their culture, work week or holidays; use only what the data says.
+Temperatures in the data are already written in the person's own unit; use that unit in your reply, and keep tool
+arguments in °C (the *_c values).
 
 You can propose changes with the tools. A proposal is shown to the person as a card; nothing changes until they tap
 Apply (some small changes may apply right away if they turned that on). Rules:
@@ -60,9 +64,16 @@ TONE_LINE = {"calm": "Tone: plain, calm and quiet.",
              "cheeky": "Tone: playful and lightly teasing, never rude, never about bodies or weight, never at anyone's expense."}
 
 
-def system_prompt(tone: str = "calm") -> str:
-    """The system prompt in the person's tone (voice.py). What changed, limits and safety notes always stay plain."""
-    return ASSIST_SYSTEM + "\n" + TONE_LINE.get(tone, TONE_LINE["calm"]) + " Say what you changed or proposed plainly."
+def system_prompt(tone: str = "calm", settings=None) -> str:
+    """The system prompt in the person's tone (voice.py), unit, clock and language (their settings). What changed,
+    limits and safety notes always stay plain."""
+    out = ASSIST_SYSTEM + "\n" + TONE_LINE.get(tone, TONE_LINE["calm"]) + " Say what you changed or proposed plainly."
+    if settings is not None:
+        unit = "degrees Fahrenheit (°F)" if settings.units == "F" else "degrees Celsius (°C)"
+        clk = "12-hour (1:30 PM)" if clock_style(settings) == "12" else "24-hour (13:30)"
+        out += (f"\nThis person uses {unit} and a {clk} clock; dates and times in the data are ISO / 24-hour, so show times "
+                f"the way they read them. {language_line(settings.language, can_follow_question=True)}")
+    return out
 
 
 class ActionError(Exception):
@@ -273,9 +284,7 @@ class Assistant:
 
     # ----- formatting -----
     def deg(self, c: float, delta: bool = False) -> str:
-        if self.p.settings.units == "C":
-            return f"{c:+.1f} °C" if delta else f"{c:.1f} °C"
-        return f"{c * 9 / 5:+.0f} °F" if delta else f"{c * 9 / 5 + 32:.0f} °F"
+        return fmt_delta(c, self.p.settings.units) if delta else fmt_temp(c, self.p.settings.units)
 
     # ----- plans: summary + the API calls + the undo -----
     async def plan(self, name: str, args: BaseModel) -> Plan:
@@ -482,13 +491,18 @@ def context(c, p, now: float, private: bool = True) -> dict:
     except Exception:  # noqa: BLE001
         pass
     out = {
-        "person": {"id": p.id, "name": clean(p.name, 40), "units": p.settings.units, "runs": {"tide": "warm", "ember": "cold"}.get(p.persona, "varies")},
-        "now": datetime.fromtimestamp(now, c.clock.tz).strftime("%A %H:%M"),
-        "tonight": {"state": e.s.state, "phase": e.s.phase_id, "target_c": e.s.target_c, "off_tonight": e.s.skip,
-                    "my_change": None if not e.s.override else {"until": e.s.override.until, "delta_c": e.s.override.delta_c, "temp_c": e.s.override.temp_c},
+        "person": {"id": p.id, "name": clean(p.name, 40), "units": p.settings.units, "language": p.settings.language,
+                   "clock": clock_style(p.settings), "runs": {"tide": "warm", "ember": "cold"}.get(p.persona, "varies")},
+        "now": datetime.fromtimestamp(now, c.clock.tz).isoformat(timespec="minutes"),
+        "weekday_now": datetime.fromtimestamp(now, c.clock.tz).strftime("%A"),
+        "tonight": {"state": e.s.state, "phase": e.s.phase_id, "target_c": e.s.target_c,
+                    "target_shown_as": None if e.s.target_c is None else fmt_temp(e.s.target_c, p.settings.units), "off_tonight": e.s.skip,
+                    "my_change": None if not e.s.override else {"until": e.s.override.until, "delta_c": e.s.override.delta_c, "temp_c": e.s.override.temp_c,
+                                                                "shown_as": (fmt_delta(e.s.override.delta_c, p.settings.units) if e.s.override.delta_c is not None
+                                                                             else None if e.s.override.temp_c is None else fmt_temp(e.s.override.temp_c, p.settings.units))},
                     "flash": None if not (f and now < f.end) else {"kind": f.kind, "minutes_left": round((f.end - now) / 60)}},
         "rhythms": [{"id": rh.id, "name": clean(rh.name, 40), "days": rh.days, "bedtime": rh.schedule.bedtime, "wake": rh.schedule.wake,
-                     "phases": [{"id": ph.id, "name": clean(ph.name, 40), "temp_c": ph.temp_c, "ramp_min": ph.ramp_min,
+                     "phases": [{"id": ph.id, "name": clean(ph.name, 40), "temp_c": ph.temp_c, "shown_as": fmt_temp(ph.temp_c, p.settings.units), "ramp_min": ph.ramp_min,
                                  "start": {"kind": ph.start.kind, "offset_min": ph.start.offset_min, "time": ph.start.time}} for ph in rh.phases]}
                     for rh in p.rhythms],
         "autopilot": {"mode": p.settings.autopilot.mode,
@@ -499,7 +513,7 @@ def context(c, p, now: float, private: bool = True) -> dict:
         "nights": [{"date": n.get("date"), "in_bed_min": n.get("in_bed_min"), "times_up": n.get("times_up"), "hr_avg": n.get("hr_avg"),
                     "hot_flashes": n.get("hot_flashes"), "cold_flashes": n.get("cold_flashes"),
                     "felt": (n.get("feedback") or {}).get("temp")} for n in nights if n.get("has_data")],
-        "notes_from_the_household": [f"{datetime.fromtimestamp(x['ts'], c.clock.tz).strftime('%a %H:%M')} {x.get('feel') or x['kind']}: {clean(x.get('note'), 200)}"
+        "notes_from_the_household": [f"{datetime.fromtimestamp(x['ts'], c.clock.tz).strftime('%Y-%m-%d %H:%M')} {x.get('feel') or x['kind']}: {clean(x.get('note'), 200)}"
                                      for x in evs if x.get("note")][-10:],
         "devices": devices,
     }

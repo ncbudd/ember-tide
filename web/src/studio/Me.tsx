@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import BedSidePicker, { peopleHalves, type Side, SideCheck, sideTitle, useBedFromFoot } from "../components/BedSidePicker";
 import Fold, { FoldLock } from "../components/Fold";
 import { NOTIFY_TYPES, NotifyToggles, notifyOnCount, TonePicker } from "../components/NotifyPrefs";
-import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, TempUnits, WeightUnits } from "../components/PersonPrefs";
+import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, TempUnits, WeightUnits, ClockPick, LanguagePick, RegionRows } from "../components/PersonPrefs";
 import { FlashBlock, flashSummary } from "../components/FlashPrefs";
 import Tip from "../components/Tip";
 import WorkDays, { workDaysText } from "../components/WorkDays";
@@ -87,10 +87,13 @@ export default function Me() {
         <div className="grid2 even">
           <div style={{ display: "grid", gap: 16, alignContent: "start", minWidth: 0 }}>
             <YouBox key={person.id} p={person} s={s} partner={partner} people={snap.people} save={save} profile={profile} say={say} />
-            <Fold id="studio.me.units" className="box" title="Units" keepSummary defaultOpen summary={`°${s.units} · ${weightUnit(s)}`}>
+            <Fold id="studio.me.units" className="box" title="Units" keepSummary defaultOpen summary={`°${s.units} · ${weightUnit(s)} · ${(s.clock ?? "auto") === "auto" ? "auto clock" : `${s.clock} h`}`}>
               <div className="list">
                 <div className="row"><span>Temperature</span><TempUnits s={s} onChange={u => save({ units: u })} /></div>
                 <div className="row"><span>Weight<br /><small className="mute">Pets, bed scales and body weight</small></span><WeightUnits s={s} onChange={w => save({ weight_units: w })} /></div>
+                <div className="row"><span>Clock<br /><small className="mute">Times in the app and in messages. Auto follows this device.</small></span><ClockPick s={s} onChange={k => save({ clock: k })} /></div>
+                <div className="row"><span>Assistant language<br /><small className="mute">Ask and night reviews answer in it. Buttons and screens are English for now.</small></span><LanguagePick s={s} onChange={k => save({ language: k })} /></div>
+                <RegionRows canEdit={!readOnly} />
                 <div className="item mute" style={{ fontSize: 12.5 }}>
                   {(s.weight_units ?? "auto") === "auto"
                     ? `Follows the temperature: ${s.units === "F" ? "pounds with °F" : "kilograms with °C"}. Pick one to keep it either way.`

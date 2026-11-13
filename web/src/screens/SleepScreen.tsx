@@ -8,7 +8,7 @@ import NapsCard, { type Nap } from "../components/NapsCard";
 import PetQuestion from "../components/PetQuestion";
 import Tip from "../components/Tip";
 import { useApp } from "../ctx";
-import { clock, cToF, deltaText, hm12, sourceText, tempNum } from "../format";
+import { clock, cToF, deltaText, hm12, sourceText, tempNum, h12 } from "../format";
 
 interface Moment { kind: string; ts: number; end?: number; who?: string; pet?: string | null; corrected?: boolean; count?: number; delta_c?: number; temp_c?: number | null; minutes?: number; extended?: number; stopped_at?: number; source?: string | null; phase?: string | null; phase_name?: string | null; home?: boolean | null; why?: string; text?: string; with_person?: boolean; fitted?: boolean }
 interface Night {
@@ -43,7 +43,7 @@ function Hypnogram({ src, tz }: { src: StageSrc; tz: string }) {
     <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", touchAction: "pan-y" }} role="img" aria-label="Sleep stages through the night. Slide along it to see each stage.">
       {STAGE_ROWS.map((r, i) => <line key={r} x1="0" x2={W} y1={i * rowH + rowH / 2} y2={i * rowH + rowH / 2} stroke="var(--line)" />)}
       {g.map((x, i) => { const row = STAGE_ROWS.indexOf(x.stage); return <rect key={i} x={X(x.start)} y={row * rowH + 2} width={Math.max(1, X(x.end) - X(x.start))} height={rowH - 4} rx="2" fill={STAGE_COLOR[x.stage]} />; })}
-      {ticks.map(t => <text key={t} x={X(t)} y={H - 4} fontSize="9" textAnchor="middle" fill="var(--faint)">{new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", timeZone: tz })}</text>)}
+      {ticks.map(t => <text key={t} x={X(t)} y={H - 4} fontSize="9" textAnchor="middle" fill="var(--faint)">{new Date(t * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", timeZone: tz })}</text>)}
       {sc.st && <line x1={X(sc.st.t)} x2={X(sc.st.t)} y1={0} y2={rowH * 4} stroke="var(--text)" strokeOpacity=".5" />}
     </svg>
     </div>
@@ -125,7 +125,7 @@ function NightChart({ n, units, tz }: { n: Night; units: "F" | "C"; tz: string }
       {hrs.length > 0 && <text x="0" y={H - 26} fontSize="9" fill="var(--faint)">heart rate</text>}
       <text x={W} y={T + 8} fontSize="9" textAnchor="end" fill="var(--faint)">{tempNum(hi - 0.5, units)}°</text>
       <text x={W} y={H - B - 2} fontSize="9" textAnchor="end" fill="var(--faint)">{tempNum(lo + 0.5, units)}°</text>
-      {ticks.map(t => <text key={t} x={X(t)} y={H + 10} fontSize="9" textAnchor="middle" fill="var(--faint)">{new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", timeZone: tz })}</text>)}
+      {ticks.map(t => <text key={t} x={X(t)} y={H + 10} fontSize="9" textAnchor="middle" fill="var(--faint)">{new Date(t * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", timeZone: tz })}</text>)}
       {near && <line x1={X(near.ts)} x2={X(near.ts)} y1={T} y2={H - 2} stroke="var(--text)" strokeOpacity=".45" />}
     </svg>
     </div>

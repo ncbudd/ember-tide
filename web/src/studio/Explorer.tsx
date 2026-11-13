@@ -7,7 +7,7 @@ import { api } from "../api";
 import ShowMore from "../components/ShowMore";
 import { useApp } from "../ctx";
 import { useOwnPerson } from "../auth";
-import { clock, cToF, sourceText, weight, weightUnit } from "../format";
+import { clock, cToF, sourceText, weight, weightUnit, h12 } from "../format";
 
 export interface Series { id: string; label: string; source: string; device: string; driver: string; unit: string; lane: string; kind: "line" | "step"; color: string; points: [number, number][]; role?: string; ghost?: boolean }
 interface Moment { kind: string; ts: number; end?: number; count?: number; delta_c?: number; temp_c?: number | null; minutes?: number; extended?: number; source?: string | null; home?: boolean | null; why?: string; text?: string }
@@ -221,7 +221,7 @@ export default function Explorer() {
 
   const ticks: number[] = []; const span = x1 - x0; const stepS = span > 6 * 3600 ? 3600 : span > 2 * 3600 ? 1800 : span > 3600 ? 900 : 300;
   for (let t = Math.ceil(x0 / stepS) * stepS; t <= x1; t += stepS) ticks.push(t);
-  const fmtT = (t: number) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", minute: stepS < 3600 ? "2-digit" : undefined, timeZone: data.tz });
+  const fmtT = (t: number) => new Date(t * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", minute: stepS < 3600 ? "2-digit" : undefined, timeZone: data.tz });
   const phaseAt = (t: number) => [...data.phases].reverse().find(p => p.start <= t);
   const momentsIn = data.moments.filter(m => m.ts >= x0 && m.ts <= x1);
 
@@ -264,7 +264,7 @@ export default function Explorer() {
   }).filter(Boolean) as { s: Series; avg: number; min: number; max: number }[];
   const fmtV = (s: Series, v: number) => (s.role === "home" ? (v >= 0.5 ? "phone at home" : "phone away")
     : s.role === "location" ? (v < 0.3 ? "home" : `${v.toFixed(1)} km from home`)
-    : s.role === "calendar" ? (v > 0 ? `busy until ${new Date(v * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: data.tz })}` : "free")
+    : s.role === "calendar" ? (v > 0 ? `busy until ${new Date(v * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", minute: "2-digit", timeZone: data.tz })}` : "free")
     : s.role === "light" ? (v >= 0.5 ? "on" : "off") : s.unit === "°C" ? `${conv(s, v).toFixed(1)}°${units}` : s.lane === "presence" ? (v >= (s.role === "weight" ? 20 : 0.5) ? (s.role === "weight" ? `${weight(v, wu, 1)} · occupied` : "occupied") : (s.role === "weight" ? `${weight(v, wu, 1)} · empty` : "empty")) : s.id === "status" ? `${v}` : `${Math.round(v * 10) / 10} ${s.unit}`);
 
   return (

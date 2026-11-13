@@ -201,6 +201,9 @@ def person_color(p: Person) -> str:
 class PersonSettings(BaseModel):
     units: Literal["F", "C"] = "F"
     weight_units: Literal["auto", "lb", "kg"] = "auto"   # pets, bed scales; "auto" = lb with °F, kg with °C
+    clock: Literal["auto", "12", "24"] = "auto"          # times in server text: auto = 24 h with °C, 12 h with °F
+    # BCP-47 ("en", "de", "pt-BR"); "auto" = the AI replies in the language you write in (English for reviews)
+    language: str = Field("auto", max_length=12, pattern=r"^(auto|[a-z]{2,3}(-[A-Za-z0-9]{2,8})?)$")
     color: ColorKey = ""               # "" = side default
     app_mode: Literal["full", "simple"] = "full"   # simple: just temperature, flashes and an easy schedule (details in Studio)
     welcomed: bool = False                         # has seen the first-time welcome (app style choice + short tour)
@@ -287,4 +290,5 @@ class Household(BaseModel):
     user_max_c: float = 35.0
     guest: dict[Literal["left", "right"], GuestSide] = Field(default_factory=dict)
     pets: list[Pet] = Field(default_factory=list, max_length=12)
+    hemisphere: Literal["auto", "north", "south", "none"] = "auto"   # season words in AI reviews; auto = from the time zone
     pets_ignore: bool = True              # ignore bed readings that look like a pet (only matters when pets are set)
