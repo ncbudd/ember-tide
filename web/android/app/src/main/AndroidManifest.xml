@@ -55,7 +55,7 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true">
 
-        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -- the launcher activity must be exported -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity (reason: the launcher activity must be exported) -->
         <activity
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|smallestScreenSize|screenLayout|uiMode|navigation|density"
             android:name=".MainActivity"
@@ -147,13 +147,13 @@
         </service>
 
         <!-- Health Connect: the privacy explanation it links to (Android 13 and older, then 14+) -->
-        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -- Health Connect must be able to open this static privacy page -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity (reason: Health Connect must be able to open this static privacy page) -->
         <activity android:name=".HealthRationaleActivity" android:exported="true" android:theme="@style/AppTheme.NoActionBar">
             <intent-filter>
                 <action android:name="androidx.health.ACTION_SHOW_PERMISSIONS_RATIONALE" />
             </intent-filter>
         </activity>
-        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -- permission-protected alias that Health Connect requires to be exported -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity (reason: permission-protected alias that Health Connect requires to be exported) -->
         <activity-alias android:name="ViewPermissionUsageActivity" android:exported="true"
             android:targetActivity=".HealthRationaleActivity" android:permission="android.permission.START_VIEW_PERMISSION_USAGE">
             <intent-filter>
