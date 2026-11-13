@@ -20,9 +20,10 @@ services:
     ports:
       - "8790:8790"                            # web app and Studio; put HTTPS in front before exposing it (docs/install.md)
     volumes:
-      - ./data:/data                           # the whole database lives here: back this folder up
-    # The container runs as uid/gid 1000. If ./data is owned by someone else (an old root-owned folder, or Unraid's 99:100),
-    # run `chown -R 1000:1000 ./data` once, or uncomment this to run as the folder's owner instead (see `ls -ln`):
+      - embertide-data:/data                   # the whole database lives here (a Docker volume: works on first start; backup in docs/install.md)
+    # Prefer a plain folder you can see? Use "- ./data:/data" instead, and before the first start run
+    #   mkdir -p data && sudo chown 1000:1000 data
+    # (the container runs as uid/gid 1000). Or keep a folder owned by someone else and run as its owner (see `ls -ln`):
     # user: "99:100"                           # Unraid (nobody:users); use your own uid:gid elsewhere
     environment:
       TZ: Etc/UTC                              # CHANGE ME to your time zone, e.g. Europe/London, Asia/Tokyo, Australia/Sydney (schedules are local time)
@@ -31,7 +32,7 @@ services:
       # --- Which bed? Pick ONE of A, B or C. ---
       # A) Simulator: try everything without a bed.
       ET_BED: sim
-      # B) Orion fully local over MQTT, through the broker below (recommended; needs the DNS step in docs/install.md
+      # B) Orion fully local over MQTT, through the broker below (advanced; needs the DNS step in docs/install.md
       #    and the "local-bed" profile: docker compose --profile local-bed up -d).
       # ET_BED: orion-mqtt
       # ET_MQTT_URL: mqtt://mosquitto:1883
@@ -70,3 +71,6 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+volumes:
+  embertide-data:                              # created on first start, owned by the container's user
