@@ -1304,3 +1304,11 @@ button.bedpick-half:focus-visible,.bedpick-whole:focus-visible{outline:2px solid
 .revnote .revtext{margin:4px 0 6px;font-size:14px;line-height:1.45;white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
 .revnote .revtext.open{-webkit-line-clamp:unset;display:block}
 .revnote .link,.revnote .icon-btn{min-height:44px}
+
+/* Studio, AI model: big tappable preset cards */
+.aigrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-bottom:6px}
+.aicard{display:grid;gap:2px;text-align:left;min-height:64px;padding:12px 14px;border:1px solid var(--line2);border-radius:14px;background:transparent;color:var(--text);cursor:pointer;font:inherit}
+.aicard b{font-weight:600;font-size:15px}
+.aicard span{font-size:12px;color:var(--mute)}
+.aicard[aria-pressed="true"]{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
+.aiform{display:grid;gap:12px}

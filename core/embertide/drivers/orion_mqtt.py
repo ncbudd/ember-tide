@@ -15,7 +15,6 @@ import logging
 import math
 import re
 import time
-from urllib.parse import urlparse
 
 from . import profiles
 from .base import BedFrame, Cap, CommandError, SensorFrame, HubHealth, ZoneFrame
@@ -208,11 +207,14 @@ class OrionMqtt:
     profile = profiles.ORION      # care tasks and the hub light guide (drivers/profiles.py)
     zones = ["left", "right"]
 
-    def __init__(self, url: str, serial: str | None = None, username: str | None = None, password: str | None = None) -> None:
-        u = urlparse(url)
-        self.host, self.port = u.hostname or "localhost", u.port or 1883
-        self.username = username or u.username
-        self.password = password or u.password
+    def __init__(self, url: str, serial: str | None = None, username: str | None = None, password: str | None = None,
+                 ca_file: str | None = None, insecure: bool = False) -> None:
+        from ..mqtt_url import parse_mqtt_url
+        t = parse_mqtt_url(url)
+        self.host, self.port, self.tls = t.host, t.port, t.tls
+        self.ca_file, self.insecure = ca_file or None, insecure
+        self.username = username or t.username
+        self.password = password or t.password
         self.serial = serial
         self._frame: BedFrame | None = None
         self._client = None
@@ -248,7 +250,9 @@ class OrionMqtt:
         backoff = 1
         while True:
             try:
-                async with aiomqtt.Client(self.host, self.port, username=self.username, password=self.password,
+                from ..mqtt_url import tls_context
+                tls = {"tls_context": tls_context(self.ca_file, self.insecure)} if self.tls else {}
+                async with aiomqtt.Client(self.host, self.port, username=self.username, password=self.password, **tls,
                                           identifier=f"embertide-{int(time.time())}") as client:
                     self._client = client
                     self._state = "connected"

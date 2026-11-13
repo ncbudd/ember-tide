@@ -1,0 +1,30 @@
+# Example systemd unit for running Ember & Tide without Docker (see "Without Docker" in docs/install.md).
+# Copy to /etc/systemd/system/embertide.service, adjust the paths and time zone, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now embertide
+[Unit]
+Description=Ember & Tide
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=embertide
+Group=embertide
+WorkingDirectory=/opt/embertide
+Environment=ET_WEB_DIR=/opt/embertide/src/web/dist
+Environment=ET_DATA_DIR=/var/lib/embertide
+Environment=ET_PORT=8790
+Environment=ET_TZ=America/New_York
+# Secrets and the rest of the settings (ET_PUBLIC_URL, ET_BED, ...) can live in a file only the service user can read:
+EnvironmentFile=-/etc/embertide.env
+ExecStart=/opt/embertide/venv/bin/python -m embertide
+Restart=on-failure
+RestartSec=5
+# Hardening: it only needs to write its data folder
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/embertide
+
+[Install]
+WantedBy=multi-user.target

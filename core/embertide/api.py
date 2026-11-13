@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .drivers.base import CommandError
+from .units import clock_style
 from .models import Person, PersonSettings, Rhythm, off_nights, sync_rhythm_days, work_nights
 
 
@@ -138,6 +139,10 @@ def for_viewer(snap: dict | None, who) -> dict | None:
                  "away": {"since": away.get("since"), "until": away.get("until"), "by": None, "held": 0} if isinstance(away, dict) else away}
         people.append({**p, "presence": pres, "night": night})
     return {**snap, "people": people}
+
+
+class RegionBody(BaseModel):
+    hemisphere: Literal["auto", "north", "south", "none"]
 
 
 def build_router(app_state) -> APIRouter:
@@ -310,6 +315,21 @@ def build_router(app_state) -> APIRouter:
     async def household():
         return ctl().household.model_dump()
 
+    @r.get("/household/region")
+    async def region():
+        """The time zone the server runs in (Studio shows it so people can check) and the hemisphere used for seasons."""
+        from .units import hemisphere_of
+        c = ctl()
+        tzn = getattr(c.clock.tz, "key", str(c.clock.tz))
+        return {"timezone": tzn, "timezone_source": getattr(app_state.cfg, "tz_source", ""), "now": c.clock.now().isoformat(timespec="minutes"), "hemisphere_setting": c.household.hemisphere,
+                "hemisphere": hemisphere_of(tzn, c.household.hemisphere)}
+
+    @r.put("/household/region")
+    async def put_region(b: RegionBody):
+        ctl().household.hemisphere = b.hemisphere
+        ctl().reload_household(ctl().household)
+        return await region()
+
     @r.put("/people/{pid}/settings")
     async def put_settings(pid: str, s: PersonSettings):
         p = find(pid)
@@ -474,7 +494,7 @@ def build_router(app_state) -> APIRouter:
         from .engine import sleeps as SL
         if win:
             naps = SL.naps_before(c.store, p.id, win[0], c.clock.tz)
-            s["naps"] = [SL.view(x, c.clock.tz) for x in naps]
+            s["naps"] = [SL.view(x, c.clock.tz, clock_style(p.settings)) for x in naps]
             s["nap_min"] = sum(x.get("asleep_min") or 0 for x in naps)
             night = next((x for x in SL.all_for(c.store, p.id) if x["kind"] == "night" and x["start"] < win[1] and x["end"] > win[0]), None)
             s["night_asleep_min"] = night.get("asleep_min") if night else None      # the wearable's own "asleep" for the night
@@ -499,7 +519,7 @@ def build_router(app_state) -> APIRouter:
         p = find(pid)
         now = c.clock.now_ts()
         days = max(1, min(90, days))
-        items = [SL.view(x, c.clock.tz) for x in SL.all_for(c.store, p.id) if x["end"] >= now - days * 86400]
+        items = [SL.view(x, c.clock.tz, clock_style(p.settings)) for x in SL.all_for(c.store, p.id) if x["end"] >= now - days * 86400]
         for x in items:
             x.pop("segments", None)
         return {"sleeps": list(reversed(items)), "days": SL.day_totals(c.store, p.id, c.clock.tz, days, now)}

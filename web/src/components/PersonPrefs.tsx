@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+import { api } from "../api";
 import { colorKey, COLORS, weightUnit } from "../format";
 import type { PersonSettings, PersonView } from "../types";
 
@@ -26,6 +28,43 @@ export function TempUnits({ s, onChange, width = 120 }: { s: PersonSettings; onC
   return <div className="seg" style={{ width }} role="group" aria-label="Temperature units">
     {(["F", "C"] as const).map(k => <button key={k} type="button" aria-pressed={s.units === k} onClick={() => onChange(k)}>°{k}</button>)}
   </div>;
+}
+
+/** 12 h / 24 h clock. Automatic follows this device's own language settings. */
+export function ClockPick({ s, onChange, width = 190 }: { s: PersonSettings; onChange: (c: "auto" | "12" | "24") => void; width?: number }) {
+  const cur = s.clock ?? "auto";
+  return <div className="seg" style={{ width }} role="group" aria-label="Clock">
+    {([["auto", "Auto"], ["12", "12 h"], ["24", "24 h"]] as const).map(([k, l]) => <button key={k} type="button" aria-pressed={cur === k} onClick={() => onChange(k)}>{l}</button>)}
+  </div>;
+}
+
+/** The language the assistant and reviews answer in. The screens themselves are English for now. */
+export const LANGUAGES: [string, string][] = [["auto", "Automatic"], ["en", "English"], ["de", "Deutsch"], ["fr", "Français"], ["es", "Español"], ["it", "Italiano"],
+  ["pt", "Português"], ["pt-BR", "Português (Brasil)"], ["nl", "Nederlands"], ["sv", "Svenska"], ["da", "Dansk"], ["nb", "Norsk"], ["fi", "Suomi"], ["pl", "Polski"],
+  ["cs", "Čeština"], ["tr", "Türkçe"], ["ja", "日本語"], ["ko", "한국어"], ["zh", "中文 (简体)"], ["zh-TW", "中文 (繁體)"], ["hi", "हिन्दी"], ["ar", "العربية"], ["he", "עברית"]];
+export function LanguagePick({ s, onChange }: { s: PersonSettings; onChange: (l: string) => void }) {
+  const cur = s.language ?? "auto";
+  const known = LANGUAGES.some(([k]) => k === cur);
+  return <select aria-label="Assistant language" value={cur} onChange={e => onChange(e.target.value)} style={{ maxWidth: 190 }}>
+    {!known && <option value={cur}>{cur}</option>}
+    {LANGUAGES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+  </select>;
+}
+
+/** The server's time zone (so people can check it) and the hemisphere used for season words in reviews. */
+export function RegionRows({ canEdit }: { canEdit: boolean }) {
+  const [r, setR] = useState<{ timezone: string; timezone_source?: string; now: string; hemisphere_setting: string; hemisphere: string } | null>(null);
+  useEffect(() => { api.get<typeof r>("/api/household/region").then(setR).catch(() => {}); }, []);
+  if (!r) return null;
+  const save = (hemisphere: string) => api.put<typeof r>("/api/household/region", { hemisphere }).then(setR).catch(() => {});
+  return <>
+    <div className="row"><span>Time zone<br /><small className="mute">What the server uses for bedtimes. Set it with ET_TZ (see the docs).</small></span><span className="num">{r.timezone}{r.timezone_source ? <small className="mute"> ({r.timezone_source})</small> : null}</span></div>
+    <div className="row"><span>Seasons<br /><small className="mute">Which half of the world you are in, for "winter" or "summer" in reviews. Automatic comes from the time zone.</small></span>
+      <select aria-label="Hemisphere" disabled={!canEdit} value={r.hemisphere_setting} onChange={e => save(e.target.value)}>
+        <option value="auto">Automatic ({r.hemisphere === "none" ? "no seasons" : r.hemisphere === "south" ? "southern" : "northern"})</option>
+        <option value="north">Northern hemisphere</option><option value="south">Southern hemisphere</option><option value="none">No seasons (tropics)</option>
+      </select></div>
+  </>;
 }
 
 /** lb / kg for pets and bed scales. Until one is picked ("auto") it follows the temperature units: lb with °F, kg with °C. */

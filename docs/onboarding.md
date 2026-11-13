@@ -14,7 +14,7 @@ Settings → "Run first-time setup again" brings them all back.
 | Name | Onboarding (This is you) | Shown everywhere, on the dials and in Home Assistant; "Left"/"Right" is a placeholder. |
 | Side / zone | Onboarding, confirm only | Shown with a bed picture; changing it is "Swap sides" (affects both people), so it stays in Settings. |
 | Colour | Onboarding (This is you) | One tap, makes the chart and dials readable at a glance. |
-| Units °F / °C | Onboarding (This is you) | Every temperature on every screen depends on it. |
+| Units °F / °C | Onboarding (This is you) | Every temperature on every screen depends on it. Starts on the browser's region (°F for the US and a few others, °C elsewhere). The device's 12 h / 24 h clock style is saved at the same time; both can be changed in Settings. |
 | Appearance / theme | Default (follow the phone) | The phone's own light/dark setting is the right answer for almost everyone. |
 | App style Simple / Full | Onboarding | Changes the whole app; the single biggest comfort choice. |
 | Comfort start points | Onboarding (Ember / Tide / in between) | Sets the persona and, when it changes, the rhythm's starting temperatures. Fine-tuning is learned. |

@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import BedSidePicker, { sideTitle, type Side, useBedFromFoot } from "../components/BedSidePicker";
 import Tip from "../components/Tip";
 import { useApp } from "../ctx";
-import { personaColor, stepC, tempNum } from "../format";
+import { personaColor, stepC, tempNum, h12 } from "../format";
 import type { GuestSide, Snapshot } from "../types";
 
 /**
@@ -31,7 +31,7 @@ function fromInput(v: string, tz: string): number | null {
   const offset = Date.UTC(+b[1], +b[2] - 1, +b[3], +b[4], +b[5]) / 1000 - guess;
   return guess - offset;
 }
-const endText = (ts: number, tz: string) => new Date(ts * 1000).toLocaleString([], { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" });
+const endText = (ts: number, tz: string) => new Date(ts * 1000).toLocaleString([], { ...h12(), timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" });
 
 /** The guests staying now, grouped: the whole bed when both sides match, else each side. */
 function staying(snap: Snapshot): { zones: Side[]; g: GuestSide }[] {

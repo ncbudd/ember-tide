@@ -4,7 +4,7 @@ import { Chevron, useAuth } from "../auth";
 import { pushBack } from "../components/back";
 import { BrandMark, FinishMark, PersonaArt, PersonaScene, playFinale, type SceneMode, useKeyboardRoom, usePauseWhenHidden } from "../components/FirstRunArt";
 import { useApp } from "../ctx";
-import { colorKey, personaColor, weight, weightUnit } from "../format";
+import { colorKey, localeClock, localeUnits, personaColor, weight, weightUnit } from "../format";
 import { askNotifications, pushEnable } from "../native";
 import BedSidePicker, { personHalves, type Side, sideLower, sideTitle } from "../components/BedSidePicker";
 import PetsEditor, { type Pet } from "../components/PetsEditor";
@@ -78,7 +78,7 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
   // choices (each starts on what's already saved, so Next always works)
   const named = !placeholderName(me.name);
   const [name, setName] = useState(named ? me.name : "");
-  const [units, setUnits] = useState<"F" | "C">(s0.units);
+  const [units, setUnits] = useState<"F" | "C">(s0.welcomed ? s0.units : localeUnits());   // a new person starts on their region's unit
   const [side, setSide] = useState<Side>(me.zone as Side);
   const color = s0.color || colorKey(me);
   const [mode, setMode] = useState<"full" | "simple">(s0.app_mode === "simple" ? "simple" : "full");
@@ -191,7 +191,8 @@ export default function Welcome({ me, onDone }: { me: PersonView; onDone: () => 
     { key: "you", title: "About you", summary: `${shownName ? `${shownName} · ${sideLower(side)}` : sideTitle(side)} · °${units}`,
       save: async () => {
         if (name.trim() && name.trim() !== me.name) await api.put(`/api/people/${me.id}/profile`, { name: name.trim() });
-        if (units !== s0.units) await patch({ units });
+        const clockAuto = !s0.clock || s0.clock === "auto";          // first time: pin the device's own clock style
+        if (units !== s0.units || clockAuto) await patch({ units, ...(clockAuto ? { clock: localeClock() } : {}) });
         // tapped the other half: swap with the partner, or (alone) just move to that side
         const now = snap?.people.find(p => p.id === me.id)?.zone ?? me.zone;
         if (side !== now) {

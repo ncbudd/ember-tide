@@ -23,7 +23,7 @@ def build_integrations_router(state) -> APIRouter:
     def masked() -> dict:
         b = state.ha
         u = urlparse(b.url) if b.url else None
-        return {**b.status(), "host": u.hostname if u else "", "port": (u.port or 1883) if u else 1883,
+        return {**b.status(), "host": u.hostname if u else "", "port": (u.port or (8883 if u.scheme == "mqtts" else 1883)) if u else 1883, "tls": bool(u and u.scheme == "mqtts"),
                 "username": unquote(u.username or "") if u else "", "password_saved": bool(u and u.password),
                 "from_env": bool(state.cfg.ha_mqtt_url)}
 

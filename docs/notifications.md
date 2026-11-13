@@ -11,6 +11,33 @@ Home Screen app), and that person's ntfy / Home Assistant targets only if no pho
 trouble) follow the same rule: the phones of people who want them (`problems` on), and the household ntfy / HA target
 only as the fallback. Before 2026-11-08 a household message went to the household target **and** every phone.
 
+## Webhook and Apprise targets
+
+Besides ntfy and Home Assistant, Studio -> Notifications can add two generic targets. They follow exactly the same
+routing as ntfy: per person (or household), quiet hours, kinds and caps; they only step in when no phone took the message.
+Neither carries action buttons; the message opens the app.
+
+- **Webhook**: POSTs JSON `{"title", "body", "kind", "person", "priority", "url", "ts"}` to your address. `url` is the
+  public address (if set), `ts` is a Unix time. Optional headers (for example `Authorization: Bearer ...`).
+- **Apprise**: POSTs `{"title", "body", "type", "format"}` (and `tag` if given) to an [Apprise API](https://github.com/caronc/apprise-api)
+  server: `<address>/notify/<config key>` for a config saved on that server, or `<address>/notify` with Apprise
+  addresses typed in Studio. `type` is `warning` for urgent messages, otherwise `info`.
+
+Header values and Apprise addresses are secrets: they are stored on the server and Studio only shows "set". Changing the
+address means entering them again. Requests time out after 8 seconds and never follow redirects; a failure shows in
+the delivery log with a plain reason, and the Test button reports it.
+
+Apprise examples (use them as a saved config on the Apprise server, key e.g. `embertide`, or paste one in Studio):
+
+| Service | Apprise address |
+|---|---|
+| Gotify | `gotify://gotify.example.com/APP_TOKEN` |
+| Pushover | `pover://USER_KEY@APP_TOKEN` |
+| Telegram | `tgram://BOT_TOKEN/CHAT_ID` |
+| Matrix | `matrixs://user:secret@matrix.example.com/#room` |
+| Discord | `discord://WEBHOOK_ID/WEBHOOK_TOKEN` |
+| Email | `mailtos://user:secret@smtp.example.com?to=you@example.com` |
+
 ## Inventory
 
 Pushes (from the server):

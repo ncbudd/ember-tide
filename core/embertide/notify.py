@@ -29,6 +29,7 @@ import ipaddress
 import json
 import re
 from urllib.parse import urlsplit
+from .units import clock_style, fmt_clock, fmt_temp
 
 log = logging.getLogger(__name__)
 ACTION_TTL_S = 12 * 3600
@@ -357,7 +358,8 @@ class Notifier:
 
     def _held_lines(self, items: list[dict]) -> str:
         tz = self.c.clock.tz
-        return " ".join(f"{datetime.fromtimestamp(h['ts'], tz).strftime('%I:%M %p').lstrip('0')}: {h['title'].rstrip('.')}."
+        ck = self._household_clock()
+        return " ".join(f"{fmt_clock(h['ts'], ck, tz)}: {h['title'].rstrip('.')}."
                         for h in items[:4])
 
     def _allowed(self, m: Message, now: float) -> str | None:
@@ -667,7 +669,18 @@ class Notifier:
 
     @staticmethod
     def _deg(c: float, units: str) -> str:
-        return f"{round(c * 9 / 5 + 32)}°" if units == "F" else f"{round(c)} °C"
+        return fmt_temp(c, units)
+
+    def _pet_clock(self, q: dict) -> str:
+        try:
+            return clock_style(self.c.person(q["person"]).settings)
+        except (KeyError, TypeError):
+            return self._household_clock()
+
+    def _household_clock(self) -> str:
+        """Digest lines go to several people: their shared clock style, or 24 h when they differ."""
+        styles = {clock_style(p.settings) for p in self.c.household.people}
+        return styles.pop() if len(styles) == 1 else "24"
 
     def _tracked(self) -> dict:
         """What the checks below add up between ticks (kept in memory, saved every few minutes so a restart loses little):
@@ -1003,7 +1016,7 @@ class Notifier:
 
     def _pet_slots(self, q: dict) -> dict:
         from .engine import petq
-        v = petq.view(q, self.c.household, self.c.clock.tz)
+        v = petq.view(q, self.c.household, self.c.clock.tz, self._pet_clock(q))
         return {"who": v["who"], "when": v["when"]}
 
     def _pet_question(self, person, now: float) -> Message | None:
@@ -1029,7 +1042,7 @@ class Notifier:
         # answer right from the notification (one pet: "Yes, it was Rex"; with several, which one is picked in the app)
         acts = []
         if len(q["pets"]) == 1:
-            v = petq.view(q, self.c.household, self.c.clock.tz)
+            v = petq.view(q, self.c.household, self.c.clock.tz, self._pet_clock(q))
             yes = next(c for c in v["choices"] if c["answer"] == "yes")
             acts = [Action(yes["label"][:40], "pet_yes", ref=q["id"]), Action("No, it was me", "pet_me", ref=q["id"]),
                     Action("Not sure", "pet_unsure", ref=q["id"])]
@@ -1197,7 +1210,7 @@ class Notifier:
         e = self.c.engine_for(a["person"])
         name = self.c.person(a["person"]).name
         if a["act"] == "pause" and e.s.pause_until:
-            t = datetime.fromtimestamp(e.s.pause_until, self.c.clock.tz).strftime("%I:%M %p").lstrip("0")
+            t = fmt_clock(e.s.pause_until, clock_style(self.c.person(a["person"]).settings), self.c.clock.tz)
             return f"Paused {name}'s side until {t}"
         if a["act"].startswith("feel_"):
             return {"feel_cold": "Noted: too cold", "feel_right": "Noted: just right", "feel_warm": "Noted: too warm"}[a["act"]]
@@ -1393,6 +1406,10 @@ class Notifier:
                 await self._ntfy(p, m)
             elif p["kind"] == "ha":
                 await self._ha(p, m)
+            elif p["kind"] == "webhook":
+                await self._webhook(p, m)
+            elif p["kind"] == "apprise":
+                await self._apprise(p, m)
             else:
                 return {"ok": False, "error": f"Unknown kind {p['kind']}"}
             self._log_delivery({"provider": p.get("name"), "title": m.title, "ok": True})
@@ -1413,6 +1430,35 @@ class Notifier:
 
     def _client(self) -> httpx.AsyncClient:
         return self.client or httpx.AsyncClient(timeout=10)
+
+    async def _post_out(self, url: str, headers: dict, **kw) -> None:
+        """One short POST for the generic targets (webhook, Apprise). Raises on a non-2xx answer; never follows redirects."""
+        c = self.client or httpx.AsyncClient(timeout=8, follow_redirects=False)
+        try:
+            r = await c.post(url, headers=headers, timeout=8, **kw)
+            r.raise_for_status()
+        finally:
+            if c is not self.client:
+                await c.aclose()
+
+    async def _webhook(self, p: dict, m: Message) -> None:
+        s = p.get("settings", {})
+        pub = self.public_url
+        body = {"title": m.title, "body": m.body, "kind": m.kind, "person": m.person, "priority": m.priority,
+                "url": (pub + "/") if pub else None, "ts": int(self.c.clock.now_ts())}
+        await self._post_out(s["url"], {str(k): str(v) for k, v in (s.get("headers") or {}).items()}, json=body)
+
+    async def _apprise(self, p: dict, m: Message) -> None:
+        """Apprise API (https://github.com/caronc/apprise-api): POST {url}/notify/{key} (saved config) or {url}/notify (needs urls)."""
+        s = p.get("settings", {})
+        base = s["url"].rstrip("/")
+        key = (s.get("key") or "").strip()
+        body: dict[str, Any] = {"title": m.title, "body": m.body, "type": "warning" if m.priority >= 4 or m.urgent else "info", "format": "text"}
+        if s.get("tag"):
+            body["tag"] = s["tag"]
+        if not key and s.get("urls"):
+            body["urls"] = s["urls"]
+        await self._post_out(f"{base}/notify/{key}" if key else f"{base}/notify", {str(k): str(v) for k, v in (s.get("headers") or {}).items()}, json=body)
 
     async def _ntfy(self, p: dict, m: Message) -> None:
         s = p.get("settings", {})

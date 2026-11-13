@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { mins } from "../format";
+import { mins, h12 } from "../format";
 import { sideTitle } from "./BedSidePicker";
 import ShowMore from "./ShowMore";
 
@@ -27,7 +27,7 @@ export function whenText(ts: number, now = Date.now() / 1000): string {
   const days = Math.round((new Date(b.getFullYear(), b.getMonth(), b.getDate()).getTime() - new Date(a.getFullYear(), a.getMonth(), a.getDate()).getTime()) / 86400000);
   return days <= 0 ? "today" : days === 1 ? "yesterday" : days < 7 ? DAY.format(a) : a.toLocaleDateString([], { month: "short", day: "numeric" });
 }
-const clockText = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+const clockText = (ts: number) => new Date(ts * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", minute: "2-digit" });
 
 export default function PetLearned({ r, canForget, busy, onForget }: { r: PetReport; canForget: boolean; busy: boolean; onForget: () => void }) {
   const [ask, setAsk] = useState(false);

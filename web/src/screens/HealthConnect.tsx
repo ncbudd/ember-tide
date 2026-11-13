@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { h12 } from "../format";
 import { api } from "../api";
 import Fold from "../components/Fold";
 import { useApp } from "../ctx";
@@ -134,7 +135,7 @@ export default function HealthConnect() {
           {r.nights_rechecked > 0 && <span>Autopilot re-checked {r.nights_rechecked} night{r.nights_rechecked > 1 ? "s" : ""} with the new data.</span>}
           {r.warnings.map((w, i) => <span key={"w" + i} style={{ color: "var(--warn)" }}>{w}</span>)}
           {r.notes.map((n, i) => <span key={"n" + i} className="mute">{n}</span>)}
-          <span className="mute">Read from Health Connect{r.from ? ` (since ${new Date(r.from).toLocaleString([], { weekday: "short", hour: "numeric", minute: "2-digit" })})` : ""}: {Object.entries(r.read).filter(([, n]) => n > 0).map(([k, n]) => `${k.replace(/_/g, " ")} ${n}`).join(" · ") || "nothing"}</span>
+          <span className="mute">Read from Health Connect{r.from ? ` (since ${new Date(r.from).toLocaleString([], { ...h12(), weekday: "short", hour: "numeric", minute: "2-digit" })})` : ""}: {Object.entries(r.read).filter(([, n]) => n > 0).map(([k, n]) => `${k.replace(/_/g, " ")} ${n}`).join(" · ") || "nothing"}</span>
           {(r.detail ?? []).length > 0 && <span className="faint">By app: {r.detail!.filter(d => d.samples > 0 || d.records > 0).map(d => `${d.kind.replace(/_/g, " ")} from ${d.from} ${d.samples || d.records}`).join(" · ")}</span>}
         </div>}
         {nights.length > 0 && <Fold id="health.nights" title="Your recent nights" summary={`${nights.filter(n => n.stages.length).length} of ${nights.length} with sleep stages`}>

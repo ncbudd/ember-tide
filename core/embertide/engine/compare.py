@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import statistics
 from datetime import datetime
+from ..units import clock_style, fmt_clock
 
 PREFER = {"wearable": (0.8, 1.25), "balanced": (1.0, 1.0), "bed": (1.25, 0.8)}   # (bed, wearable) multipliers
 TIME_KEYS = ("in_bed_at", "asleep_at", "woke_at", "out_at")
@@ -219,8 +220,8 @@ def _corr(a: list[float], b: list[float]) -> float | None:
     return round(sum((x - ma) * (y - mb) for x, y in zip(a, b)) / (len(a) * sa * sb), 2)
 
 
-def _clock(ts: float | None, tz) -> str | None:
-    return datetime.fromtimestamp(ts, tz).strftime("%I:%M %p").lstrip("0") if ts else None
+def _clock(ts: float | None, tz, style: str = "24") -> str | None:
+    return fmt_clock(ts, style, tz) if ts else None
 
 
 def chosen_times(bed: dict, wear: dict | None, fix: dict | None, trust: str, off: dict) -> dict:
@@ -267,6 +268,7 @@ def compare_night(controller, p, d: str) -> dict:
     from .stages import agreement, estimate
     from .summary import night_window, summarize
     store, tz, now = controller.store, controller.clock.tz, controller.clock.now_ts()
+    ck = clock_style(p.settings)
     dd = _date.fromisoformat(d)
     win = night_window(p, dd, tz, now)
     if not win:
@@ -287,9 +289,9 @@ def compare_night(controller, p, d: str) -> dict:
         if tw or tb:
             parts = []
             if tw:
-                parts.append(f"{wear_name}: {label_w} {_clock(tw, tz)}")
+                parts.append(f"{wear_name}: {label_w} {_clock(tw, tz, ck)}")
             if tb:
-                parts.append(f"Bed: {label_b} {_clock(tb, tz)}")
+                parts.append(f"Bed: {label_b} {_clock(tb, tz, ck)}")
             lines.append(" · ".join(parts))
         if tw and tb and abs(tw - tb) >= 15 * 60:
             disagree.append(f"{what}: {round(abs(tw - tb) / 60)} min apart")
@@ -302,7 +304,7 @@ def compare_night(controller, p, d: str) -> dict:
     away_first = asleep_away_first(rows, wear, bed)
     if wear:
         if away_first:
-            lines.append(f"{wear_name}: asleep away from the bed {_clock(away_first[0], tz)}–{_clock(away_first[1], tz)}, "
+            lines.append(f"{wear_name}: asleep away from the bed {_clock(away_first[0], tz, ck)}–{_clock(away_first[1], tz, ck)}, "
                          f"then in bed")
         else:
             pair("in bed", "in bed", wear["start"], bed.get("in_bed_at"), "Got into bed")

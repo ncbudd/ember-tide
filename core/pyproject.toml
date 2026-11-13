@@ -17,6 +17,7 @@ dependencies = [
   "icalendar>=6",                # calendar feeds (Fastmail, iCloud, Google): evening events, early starts
   "recurring-ical-events>=3",
   "pywebpush>=2.0",              # Web Push (VAPID) for the iPhone / browser web app
+  "mcp==1.30.0",                 # MCP server at /mcp: talk to the bed from an AI app (docs/mcp.md)
 ]
 
 [project.optional-dependencies]

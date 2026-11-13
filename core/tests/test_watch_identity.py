@@ -209,7 +209,7 @@ async def test_afternoon_nap_asks_and_learns_the_person(tmp_path):
     await n.until("2026-11-06T14:45")
     q = petq.open_for(n.store, "p2", n.clock.now_ts())
     assert q and q["kind"] == "unexplained"
-    v = petq.view(q, n.hh, n.clock.tz)
+    v = petq.view(q, n.hh, n.clock.tz, "12")
     assert v["title"].startswith("Was Biscuit on the bed around 2:00 PM")
     assert [c["label"] for c in v["choices"]] == ["Yes, it was Biscuit", "No, it was me", "Not sure"]
     assert v["detail"] == "Something was on your side of the bed while it was off. Your answer helps tell you and Biscuit apart next time."

@@ -13,7 +13,7 @@ export interface Suggestions { items: Suggestion[]; waiting: number; cadence: st
 export type ColorKey = "" | "teal" | "orange" | "blue" | "violet" | "rose" | "green" | "gold";
 
 export interface PersonSettings {
-  units: "F" | "C"; weight_units?: "auto" | "lb" | "kg"; color: ColorKey; app_mode?: "full" | "simple"; welcomed?: boolean; default_view: View; simple_default: boolean; simple_at_night: boolean; simple_red: boolean;
+  units: "F" | "C"; weight_units?: "auto" | "lb" | "kg"; clock?: "auto" | "12" | "24"; language?: string; color: ColorKey; app_mode?: "full" | "simple"; welcomed?: boolean; default_view: View; simple_default: boolean; simple_at_night: boolean; simple_red: boolean;
   appearance: "system" | "dark" | "light" | "schedule"; light_from: string; dark_from: string;
   hot_flash: FlashSettings; cold_flash: FlashSettings; autopilot: AutopilotPolicy; partner_can_flash: boolean; partner_can_adjust: boolean;
   notify: { away_precool: boolean; empty_side: boolean; left_on?: boolean; not_started?: boolean; morning: boolean; problems: boolean; hub?: boolean; maintenance?: boolean; account?: boolean; reach?: boolean; bridge?: boolean; storage?: boolean; wearable?: boolean; bed_silent?: boolean; sensor?: boolean; target?: boolean; review?: boolean; pet_question?: boolean; quiet_hours?: boolean };
@@ -91,3 +91,15 @@ export interface Phase { id: string; name: string; temp_c: number; start: Anchor
 export interface Schedule { bedtime: string; wake: string; window_start: string; window_end: string; precool_lead_min: number; confirm_min: number; after_wake_min: number; absent_hold_min: number; start_on_presence: boolean; wait_for_sleep?: boolean }
 export interface Rhythm { id: string; name: string; days: number[]; schedule: Schedule; phases: Phase[]; nights?: "" | "work" | "off" }
 export interface EventRow { ts: number; kind: string; person: string | null; source: string | null; [k: string]: unknown }
+
+/** AI model settings (Studio, AI model). The key is never sent back: only whether one is saved and its last 4 characters. */
+export interface AiPreset {
+  id: string; group: "local" | "hosted"; name: string; kind: "openai" | "anthropic"; url: string; url_hint: string; model: string;
+  models: string[]; needs_key: boolean; key_optional?: boolean; key_label?: string; leaves_house: boolean; help: string; note: string;
+}
+export interface AiSettings {
+  source: "app" | "env"; preset: string; enabled: boolean; url: string; model: string; key_set: boolean; key_tail: string;
+  configured: boolean; needs_key: boolean; presets: AiPreset[];
+}
+export interface AiTestResult { ok: boolean; model?: string; ms?: number; reply?: string; error?: string }
+export interface AiModelList { ok: boolean; models: string[]; error?: string }

@@ -32,9 +32,30 @@ export function weight(kg: number | null | undefined, u: WeightUnit, digits = 0)
 /** One step on the controls: 1 °F or 0.5 °C, returned in °C. */
 export const stepC = (units: "F" | "C") => (units === "F" ? 5 / 9 : 0.5);
 
+/** Units for a brand-new person, from the browser's region: °F in the US (and its territories), Liberia and Myanmar, °C elsewhere. */
+const F_REGIONS = new Set(["US", "LR", "MM", "PR", "GU", "VI", "AS", "MP", "UM", "BS", "BZ", "KY", "PW", "FM", "MH"]);
+export function localeUnits(): "F" | "C" {
+  try {
+    const tag = (navigator.languages?.[0] || navigator.language || "").trim();
+    const region = (new Intl.Locale(tag).maximize().region || "").toUpperCase();
+    return F_REGIONS.has(region) ? "F" : "C";
+  } catch { return "C"; }
+}
+/** Does the browser's own locale use a 12-hour clock? */
+export function localeClock(): "12" | "24" {
+  try { return new Intl.DateTimeFormat(undefined, { hour: "numeric" }).resolvedOptions().hourCycle?.startsWith("h1") ? "12" : "24"; } catch { return "24"; }
+}
+/** The signed-in person's clock choice ("12" / "24"); "auto" and unknown leave the browser's own locale in charge. */
+let hour12Pref: boolean | undefined;
+export function setClockPref(s?: { clock?: "auto" | "12" | "24" } | null) {
+  hour12Pref = s?.clock === "12" ? true : s?.clock === "24" ? false : undefined;
+}
+/** Spread into toLocale*String options that show a time: `{ ...h12(), hour: "numeric" }`. */
+export const h12 = (): { hour12?: boolean } => (hour12Pref === undefined ? {} : { hour12: hour12Pref });
+
 export function clock(ts: number | null | undefined, tz: string): string {
   if (ts == null) return "—";
-  return new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: tz });
+  return new Date(ts * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", minute: "2-digit", timeZone: tz });
 }
 export function mins(sec: number): string {
   const m = Math.max(0, Math.round(sec / 60));

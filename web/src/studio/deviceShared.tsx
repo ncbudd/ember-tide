@@ -1,5 +1,5 @@
 import Tip from "../components/Tip";
-import { kgTo, toKg, type WeightUnit } from "../format";
+import { kgTo, toKg, type WeightUnit, h12 } from "../format";
 import { EFFECT, PURPOSE } from "./deviceInfo";
 
 /** Pieces shared by the Devices page, its Tune panel and the Home Assistant entity picker. */
@@ -91,7 +91,7 @@ export function ValueMap({ role, live, seen, values, set }: { role: string; live
     <span className="tf-label">What each reading means</span>
     <small className="faint">{live != null ? <>Right now it says <b className="vmap-live">{live || "(empty)"}</b>.</> : "No reading yet."} Recommended: {typical[0]} = {yes}, {typical[1]} = {no}.</small>
     {raws.map(r => <div key={r} className="vmap-row">
-      <span className="vmap-raw"><code>{r || "(empty)"}</code>{last(r) ? <small className="faint"> · seen {new Date(last(r)! * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</small> : null}</span>
+      <span className="vmap-raw"><code>{r || "(empty)"}</code>{last(r) ? <small className="faint"> · seen {new Date(last(r)! * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", minute: "2-digit" })}</small> : null}</span>
       <div className="seg" role="group" aria-label={`What "${r}" means`}>
         {([["yes", yes], ["no", no], ["ignore", "no reading"]] as const).map(([k, l]) =>
           <button type="button" key={k} aria-pressed={meaning(r) === k} onClick={() => change(r, k)}>{l}</button>)}

@@ -1,11 +1,13 @@
-# Ember & Tide with its own MQTT broker for the bed.
+# Ember & Tide, with an optional MQTT broker for the bed (the "local-bed" profile).
 #
 #   cp docker-compose.example.yml docker-compose.yml
 #   set your time zone below, then:   docker compose up -d
 #   open http://<this-machine>:8790 from a device on your home network
 #
-# It starts with the built-in simulator, so you can look around before touching the bed. To connect the bed,
-# switch to option B below (after the DNS step in docs/install.md) and run `docker compose up -d` again.
+# It starts with the built-in simulator, so you can look around before touching the bed. The broker below only starts
+# when you ask for it: to connect the bed locally, switch to option B below (after the DNS step in docs/install.md)
+# and run `docker compose --profile local-bed up -d` (or put COMPOSE_PROFILES=local-bed in a .env file).
+# Simulator and cloud users do not need the broker and never start it.
 # Ember & Tide never updates itself: when you choose, run `docker compose pull && docker compose up -d`.
 # Full guide: docs/install.md
 
@@ -19,19 +21,22 @@ services:
       - "8790:8790"                            # web app and Studio; put HTTPS in front before exposing it (docs/install.md)
     volumes:
       - ./data:/data                           # the whole database lives here: back this folder up
-    # user: "0:0"                              # the container runs as uid 1000; if an old root-owned ./data cannot be written, run `chown -R 1000:1000 ./data` once (or uncomment this)
+    # The container runs as uid/gid 1000. If ./data is owned by someone else (an old root-owned folder, or Unraid's 99:100),
+    # run `chown -R 1000:1000 ./data` once, or uncomment this to run as the folder's owner instead (see `ls -ln`):
+    # user: "99:100"                           # Unraid (nobody:users); use your own uid:gid elsewhere
     environment:
-      TZ: America/New_York                     # YOUR time zone: schedules are local time
-      ET_TZ: America/New_York
+      TZ: Etc/UTC                              # CHANGE ME to your time zone, e.g. Europe/London, Asia/Tokyo, Australia/Sydney (schedules are local time)
+      ET_TZ: Etc/UTC                           # same value again; Studio -> Your settings shows the zone in use so you can check
 
       # --- Which bed? Pick ONE of A, B or C. ---
       # A) Simulator: try everything without a bed.
       ET_BED: sim
-      # B) Orion fully local over MQTT, through the broker below (recommended; needs the DNS step in docs/install.md).
+      # B) Orion fully local over MQTT, through the broker below (recommended; needs the DNS step in docs/install.md
+      #    and the "local-bed" profile: docker compose --profile local-bed up -d).
       # ET_BED: orion-mqtt
       # ET_MQTT_URL: mqtt://mosquitto:1883
       # ET_ORION_SERIAL: OSCTXXXXXXXX          # optional; auto-detected from the first bed that reports
-      # C) Orion cloud with a personal API key (no broker needed; you can delete the mosquitto service).
+      # C) Orion cloud with a personal API key (no broker needed).
       # ET_BED: orion-cloud
       # ET_ORION_API_KEY: os_live_xxxxxxxx
 
@@ -39,17 +44,16 @@ services:
       # ET_PUBLIC_URL: https://sleep.example.com              # how phones reach the server; makes notification buttons work
       # ET_TRUST_PROXY: "on"                                  # only behind a reverse proxy or tunnel
       # ET_HA_MQTT_URL: mqtt://user:pass@192.168.1.10:1883    # Home Assistant's broker (docs/install.md)
-    depends_on:
-      mosquitto:
-        condition: service_healthy
     # The image has this check built in; it is spelled out here so `docker compose ps` shows it and you can tune it.
+    # ($$ keeps Compose from filling in ET_PORT itself: the container's own value is used.)
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request;urllib.request.urlopen('http://localhost:8790/healthz')"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:$${ET_PORT:-8790}/healthz')\""]
       interval: 30s
       timeout: 5s
       retries: 3
 
   mosquitto:
+    profiles: ["local-bed"]                    # starts only with --profile local-bed (or COMPOSE_PROFILES=local-bed)
     # The version is pinned on purpose. 2.0.20 is recommended: 2.0.21 changed keep-alive handling in a way the bed's
     # firmware does not like, and the bed drops off now and then. Move up only after checking the bed stays connected.
     image: eclipse-mosquitto:2.0.20

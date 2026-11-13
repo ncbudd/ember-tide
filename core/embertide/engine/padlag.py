@@ -18,6 +18,7 @@ measured 26.4 for hours; in the warm wake 30.0 set, 29.3 measured). So, per side
 from __future__ import annotations
 
 import statistics
+from ..units import fmt_temp
 
 LEARN_DAYS = 14
 BUCKET_C = 2.0
@@ -121,5 +122,5 @@ def precool_lead_s(model: dict, room_c: float | None, from_c: float | None, to_c
 
 def shortfall_text(room_c: float, target_c: float, units: str) -> str:
     def t(c: float) -> str:
-        return f"{round(c * 9 / 5 + 32)}°" if units == "F" else f"{round(c)} °C"
+        return fmt_temp(c, units)
     return f"The room is cold ({t(room_c)}), so your side is running a little below {t(target_c)}"
