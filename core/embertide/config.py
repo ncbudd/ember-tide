@@ -45,6 +45,20 @@ def resolve_tz() -> tuple[str, str]:
     return "UTC", "default (no time zone set: using UTC)"
 
 
+# Where phone pushes go when this server has no Firebase key of its own. One constant so it is easy to change; a
+# self-hoster points ET_PUSH_RELAY_URL at their own copy of relay/.
+DEFAULT_PUSH_RELAY_URL = "https://push.embertide.ncbudd.org"
+
+
+def push_relay_url() -> str:
+    return (_env("ET_PUSH_RELAY_URL", DEFAULT_PUSH_RELAY_URL) or DEFAULT_PUSH_RELAY_URL).rstrip("/")
+
+
+def push_relay_enabled() -> bool:
+    """ET_PUSH_RELAY: on by default; off/0/false/no turns the relay off. Read each time so tests and restarts agree."""
+    return (_env("ET_PUSH_RELAY", "on") or "on").lower() not in ("off", "0", "false", "no")
+
+
 @dataclass
 class Config:
     data_dir: Path = field(default_factory=lambda: Path(_env("ET_DATA_DIR", "./data")))
@@ -76,6 +90,8 @@ class Config:
     trusted_proxies: str = field(default_factory=lambda: _env("ET_TRUSTED_PROXIES", "") or "")      # CIDRs; empty = any private peer (required with ET_AUTH_HEADER)
     auth_header: str = field(default_factory=lambda: (_env("ET_AUTH_HEADER", "") or "").strip())      # forward-auth: header with the username
     auth_header_email: str = field(default_factory=lambda: (_env("ET_AUTH_HEADER_EMAIL", "") or "").strip())  # ...or the email
+    push_relay: bool = field(default_factory=push_relay_enabled)               # phone pushes via the Ember & Tide relay when there is no own Firebase key
+    push_relay_url: str = field(default_factory=push_relay_url)
     web_dir: Path | None = field(default_factory=lambda: Path(p) if (p := _env("ET_WEB_DIR")) else None)
 
     @property

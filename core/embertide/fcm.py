@@ -26,6 +26,24 @@ def _b64u(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 
 
+def build_message(token: str, e: str, urgent: bool, ios: bool = False, now: float | None = None) -> dict:
+    """The FCM v1 message. Android gets a data message (the app decrypts and shows it). iPhones don't reliably wake
+    for data-only pushes, so they get a placeholder alert with mutable-content: the app's notification service
+    extension decrypts the payload and replaces the text and buttons before anything is shown.
+
+    `e` is the encrypted payload, base64url. The push relay (relay/src/index.js) builds the very same message; the
+    shared fixture relay/test/fixtures/message.json is checked by both test suites so they cannot drift apart."""
+    msg = {"token": token, "data": {"e": e},
+           "android": {"priority": "high" if urgent else "normal", "ttl": "21600s"}}
+    if ios:
+        exp = int(time.time() if now is None else now) + 21600
+        msg["apns"] = {"headers": {"apns-priority": "10" if urgent else "5", "apns-push-type": "alert",
+                                   "apns-expiration": str(exp)},
+                       "payload": {"aps": {"alert": {"title": "Ember & Tide", "body": "New message"},
+                                           "mutable-content": 1, "sound": "default"}}}
+    return {"message": msg}
+
+
 class Fcm:
     def __init__(self, data_dir: Path, client: httpx.AsyncClient | None = None):
         self.data_dir = Path(data_dir)
@@ -88,17 +106,7 @@ class Fcm:
 
     @staticmethod
     def message(token: str, encrypted: bytes, urgent: bool, ios: bool = False) -> dict:
-        """The FCM v1 message. Android gets a data message (the app decrypts and shows it). iPhones don't reliably wake
-        for data-only pushes, so they get a placeholder alert with mutable-content: the app's notification service
-        extension decrypts the payload and replaces the text and buttons before anything is shown."""
-        msg = {"token": token, "data": {"e": _b64u(encrypted)},
-               "android": {"priority": "high" if urgent else "normal", "ttl": "21600s"}}
-        if ios:
-            msg["apns"] = {"headers": {"apns-priority": "10" if urgent else "5", "apns-push-type": "alert",
-                                       "apns-expiration": str(int(time.time()) + 21600)},
-                           "payload": {"aps": {"alert": {"title": "Ember & Tide", "body": "New message"},
-                                               "mutable-content": 1, "sound": "default"}}}
-        return {"message": msg}
+        return build_message(token, _b64u(encrypted), urgent, ios)
 
     async def send(self, token: str, encrypted: bytes, urgent: bool, ios: bool = False) -> str:
         """Returns "ok", "gone" (the phone's registration no longer exists) or raises."""
