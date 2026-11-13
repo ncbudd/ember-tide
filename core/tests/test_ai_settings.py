@@ -104,6 +104,18 @@ def test_only_the_owner(tmp_path):
         r = getattr(g, method)("/api/ai/settings" + path, headers=H, **({"json": {"preset": "ollama", "url": "http://h/v1"}} if method in ("put", "post") else {}))
         assert r.status_code == 403, (method, path)
     assert g.get("/api/ai/status").status_code == 200
+    st = c.get("/api/ai/status").json()
+    assert st["local"] is True and "preset_name" in st
+    meta = c.get("/api/autopilot/meta").json()
+    assert meta["local"] is True and "preset_name" in meta
+    c.put("/api/ai/settings", json={"preset": "openai", "model": "gpt-4.1", "key": KEY}, headers=H)
+    st_hosted = c.get("/api/ai/status").json()
+    assert st_hosted["local"] is False and st_hosted["preset"] == "openai" and st_hosted["preset_name"] == "OpenAI"
+    assert g.get("/api/ai/status").json()["url"] is None
+    assert c.get("/api/autopilot/meta").json()["local"] is False
+    c.put("/api/ai/settings", json={"preset": "off"}, headers=H)
+    ask_off = c.post("/api/ai/ask", json={"person_id": "p1", "question": "how was sleep"}, headers=H).json()
+    assert "Studio → AI model" in ask_off["answer"] and "ET_LLM_URL" not in ask_off["answer"]
 
 
 def cfg_for(preset, model, url="http://x.test/v1", key="k"):

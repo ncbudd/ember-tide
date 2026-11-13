@@ -431,7 +431,13 @@ class _Gate:
         if a is None or getattr(st, "controller", None) is None:
             return await self._deny(send, 503, "Still starting up.")
         headers = {k.decode().lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
-        peer = (scope.get("client") or ("?", 0))[0]
+        raw_peer = (scope.get("client") or ("?", 0))[0]
+        cfg = getattr(st, "cfg", None)
+        if cfg is not None:
+            from .auth_api import peer_ip
+            peer = peer_ip(headers, raw_peer, cfg)
+        else:
+            peer = raw_peer
         now = time.time()
         if a.enabled:
             if a.throttled(f"mcp:{peer}", now, 20, 300):

@@ -14,7 +14,7 @@ interface Reason { signal: string; label: string; value: string; detail: string;
 interface Decision { ts: number; phase: string | null; score: number; threshold: number; direction: "cooler" | "warmer" | "none"; delta_c: number;
   reasons: Reason[]; status: "watching" | "suggested" | "applied" | "blocked" | "learning"; blocked_by: string[]; target_before: number | null; target_after: number | null;
   signals?: Record<string, number | string | null> }
-interface Meta { signals: { id: string; label: string }[]; sensitivity: Record<string, number>; ai: boolean; model: string | null }
+interface Meta { signals: { id: string; label: string }[]; sensitivity: Record<string, number>; ai: boolean; model: string | null; local?: boolean; preset_name?: string }
 interface Status { policy: AutopilotPolicy; state: string; live: Decision | null; tonight: Decision[]; has_skin: boolean; learning?: Learning; baseline?: Baseline | null;
   current?: { bed_c: number | null; hr: number | null; skin: number | null } }
 interface Moment { ts: number; direction: "cooler" | "warmer"; delta_c: number; phase: string | null; missed: boolean; why: string }
@@ -351,7 +351,7 @@ export default function Autopilot() {
 
           <div className="box">
             <div className="row"><span className="k">AI review<Tip label="What the AI review reads" text={TIPS.ai} /></span>
-              <Tip text={meta.ai ? "An AI model is connected on the server (ET_LLM_URL)." : "No AI model is connected, so the built-in analysis writes the review. Set ET_LLM_URL on the server to use one."}>
+              <Tip text={meta.ai ? (meta.local === false ? `Reviews use ${meta.preset_name ?? "the hosted AI provider"} (Studio → AI model). Night summaries for the review go to that provider.` : `Reviews use ${meta.preset_name ?? "the AI model"} connected in Studio → AI model.`) : "No AI model is connected, so the built-in analysis writes the review. Connect one in Studio → AI model to use an AI."}>
                 <span className="chip" style={{ cursor: "default", color: meta.ai ? "var(--good)" : "var(--mute)" }}>{meta.ai ? `AI: ${meta.model}` : "built-in (no AI model connected)"}</span></Tip></div>
             <div className="row" style={{ justifyContent: "flex-start", gap: 8 }}><button className="btn pri" disabled={reviewing} onClick={runReview}>{reviewing ? "Thinking…" : `Review ${date ?? "last night"}`}</button>
               <label className="row" style={{ gap: 6, fontSize: 12.5 }}><input type="checkbox" className="toggle" checked={pol.ai_review} onChange={e => upd({ ai_review: e.target.checked })} />Every morning</label></div>

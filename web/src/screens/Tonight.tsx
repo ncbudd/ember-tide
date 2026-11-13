@@ -215,12 +215,12 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
   const pendingT = onTemp ?? target.phases[0]?.temp_c ?? 21.1;
   // "I'm up": a night is running and can be ended by hand. Big in the morning (the wake phase, or lying in past the end),
   // quiet in the Tonight menu the rest of the time
-  const canEnd = canAdjust && v !== "both" && !!n.running && !n.skip;
+  const canEnd = canAdjust && !!n.running && !n.skip;
   const morning = canEnd && (!!n.lie_in || n.phase_id === "wake");
   const endNight = () => {
     if (window.confirm(`End the night now? ${target.id === me.id ? "Your" : `${target.name}'s`} side turns off.`)) { setSheet(false); void act(`${base}/tonight`, { action: "end" }); say("Night ended. Your side is off."); }
   };
-  const showTurnOn = idle && canAdjust && v !== "both";
+  const showTurnOn = idle && canAdjust;
   const turnOn = () => { setOnTemp(null); return act(`${base}/adjust`, onLen ? { temp_c: pendingT, minutes: onLen, until: "next_phase" } : { temp_c: pendingT, until: "next_phase" }); };
   const endsAt = onLen ? `until ${clock(snap.now + onLen * 60, snap.tz)}` : "until bedtime";
   const nudge = (sign: number) => showTurnOn
@@ -308,48 +308,54 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         <CareTonight running={snap.people.some(p => p.night.state === "rhythm" || p.night.state === "out_of_bed_hold")} />
         {v === "me" && <GuideNote person={me.id} />}
       </div>
-      {flashOn && n.flash ? (
-        <div className="flashcard" style={{ borderColor: n.flash.kind === "hot" ? "var(--cool)" : "var(--warm)" }}>
-          <span><span style={{ display: "inline-flex", alignItems: "center", gap: 6, verticalAlign: "-3px" }}><Icon name={n.flash.kind === "hot" ? "snow" : "sun"} size={17} />{n.flash.kind === "hot" ? "Hot flash" : "Cold flash"}</span>{target.id !== me.id ? ` · ${target.name}` : ""}<br />
-            <span className="num fl-left">{mmss(n.flash.end - snap.now)} left</span></span>
-          <span className="pills"><button className="pill" onClick={() => act(`${base}/flash/extend`)}>+{target.settings[n.flash.kind === "hot" ? "hot_flash" : "cold_flash"].extend_min} min</button><button className="pill" onClick={() => act(`${base}/flash/stop`)}>Stop</button></span>
-        </div>
-      ) : showTurnOn ? (
-        <div className="turnon-slot">
-          {target.id === me.id && <TodayCard me={me} snap={snap} />}
-          <TurnOn t={pendingT} units={u} len={onLen} setLen={setOnLen} endsAt={endsAt} onStart={turnOn} connected={connected} />
-        </div>
-      ) : manualOn && v !== "both" ? (
-        <div className="flashcard" style={{ borderColor: color(target) }}>
-          <span>{doing}{target.id !== me.id ? ` · ${target.name}` : ""}<br />
-            <span className="mute num" style={{ fontSize: 13 }}>{n.override?.end_ts ? `${mins(n.override.end_ts - snap.now)} left, then off` : "Until your rhythm starts tonight"}</span></span>
-          <span className="pills">{n.override?.end_ts && <button className="pill" onClick={() => act(`${base}/adjust`, { delta_c: 0, minutes: Math.round((n.override!.end_ts! - snap.now) / 60) + 30, until: "next_phase" })}>+30 min</button>}
-            <button className="pill" onClick={() => act(`${base}/adjust/clear`)}>Turn off</button></span>
-        </div>
+      {v === "both" && n.guest ? (
+        <GuestCard person={target} />
       ) : (
-        <div className="plan" ref={planRef} style={{ minHeight: planMin || undefined }}>
-          {n.state === "waiting" && (held
-            ? <div className="planrow note">Waiting until {target.id === me.id ? "you've" : `${target.name} has`} settled in.</div>
-            : target.presence.starts_in_s != null
-            ? <div className="planrow note">{target.id === me.id ? "You're" : `${target.name}'s`} in bed. The night starts in about {Math.max(1, Math.ceil(target.presence.starts_in_s / 60))} min.</div>
-            : <div className="planrow note">The night starts when {target.id === me.id ? "you get" : `${target.name} gets`} into bed{target.schedule && snap.now < target.schedule.window_start ? `, from ${clock(target.schedule.window_start, snap.tz)}` : ""}.</div>)}
-          {v === "both" && <div className="planrow note" style={{ paddingBottom: 2 }}>{target.id === me.id ? "Your" : `${target.name}'s`} plan · tap a side above to switch</div>}
-          {!n.away && n.state === "away" && <div className="planrow note">Waiting until {target.id === me.id ? "you're" : `${target.name} is`} home</div>}
-          {target.phases.filter((_p, i, arr) => (arr[i + 1]?.start ?? Infinity) > snap.now).map(p => {
-            const cur = p.id === n.phase_id;
-            return <div key={p.id} className={`planrow ${cur ? "cur" : ""}`}>
-              <span className="num tm">{cur ? "Now" : p.when_settled ? <small style={{ fontSize: 11.5, display: "block", lineHeight: 1.2, whiteSpace: "normal" }}>When you settle</small> : clock(p.start, snap.tz)}</span>
-              <span>{p.name}</span>
-              <span className="num">{p.adjusted_c != null
-                ? <>{tempNum(p.adjusted_c, u)}°<small className="mute" style={{ marginLeft: 6, fontSize: 11 }}>usually {tempNum(p.temp_c, u)}°</small></>
-                : <>{tempNum(p.temp_c, u)}°</>}</span>
-            </div>;
-          })}
-          {target.schedule && <div className="planrow"><span className="num tm">{clock(target.schedule.end, snap.tz)}</span><span>Off</span><span /></div>}
-        </div>
-      )}
+        <>
+          {flashOn && n.flash ? (
+            <div className="flashcard" style={{ borderColor: n.flash.kind === "hot" ? "var(--cool)" : "var(--warm)" }}>
+              <span><span style={{ display: "inline-flex", alignItems: "center", gap: 6, verticalAlign: "-3px" }}><Icon name={n.flash.kind === "hot" ? "snow" : "sun"} size={17} />{n.flash.kind === "hot" ? "Hot flash" : "Cold flash"}</span>{target.id !== me.id ? ` · ${target.name}` : ""}<br />
+                <span className="num fl-left">{mmss(n.flash.end - snap.now)} left</span></span>
+              <span className="pills"><button className="pill" onClick={() => act(`${base}/flash/extend`)}>+{target.settings[n.flash.kind === "hot" ? "hot_flash" : "cold_flash"].extend_min} min</button><button className="pill" onClick={() => act(`${base}/flash/stop`)}>Stop</button></span>
+            </div>
+          ) : showTurnOn ? (
+            <div className="turnon-slot">
+              {target.id === me.id && <TodayCard me={me} snap={snap} />}
+              <TurnOn t={pendingT} units={u} len={onLen} setLen={setOnLen} endsAt={endsAt} onStart={turnOn} connected={connected} />
+            </div>
+          ) : manualOn ? (
+            <div className="flashcard" style={{ borderColor: color(target) }}>
+              <span>{doing}{target.id !== me.id ? ` · ${target.name}` : ""}<br />
+                <span className="mute num" style={{ fontSize: 13 }}>{n.override?.end_ts ? `${mins(n.override.end_ts - snap.now)} left, then off` : "Until your rhythm starts tonight"}</span></span>
+              <span className="pills">{n.override?.end_ts && <button className="pill" onClick={() => act(`${base}/adjust`, { delta_c: 0, minutes: Math.round((n.override!.end_ts! - snap.now) / 60) + 30, until: "next_phase" })}>+30 min</button>}
+                <button className="pill" onClick={() => act(`${base}/adjust/clear`)}>Turn off</button></span>
+            </div>
+          ) : (
+            <div className="plan" ref={planRef} style={{ minHeight: planMin || undefined }}>
+              {n.state === "waiting" && (held
+                ? <div className="planrow note">Waiting until {target.id === me.id ? "you've" : `${target.name} has`} settled in.</div>
+                : target.presence.starts_in_s != null
+                ? <div className="planrow note">{target.id === me.id ? "You're" : `${target.name}'s`} in bed. The night starts in about {Math.max(1, Math.ceil(target.presence.starts_in_s / 60))} min.</div>
+                : <div className="planrow note">The night starts when {target.id === me.id ? "you get" : `${target.name} gets`} into bed{target.schedule && snap.now < target.schedule.window_start ? `, from ${clock(target.schedule.window_start, snap.tz)}` : ""}.</div>)}
+              {v === "both" && <div className="planrow note" style={{ paddingBottom: 2 }}>{target.id === me.id ? "Your" : `${target.name}'s`} plan · tap a side above to switch</div>}
+              {!n.away && n.state === "away" && <div className="planrow note">Waiting until {target.id === me.id ? "you're" : `${target.name} is`} home</div>}
+              {target.phases.filter((_p, i, arr) => (arr[i + 1]?.start ?? Infinity) > snap.now).map(p => {
+                const cur = p.id === n.phase_id;
+                return <div key={p.id} className={`planrow ${cur ? "cur" : ""}`}>
+                  <span className="num tm">{cur ? "Now" : p.when_settled ? <small style={{ fontSize: 11.5, display: "block", lineHeight: 1.2, whiteSpace: "normal" }}>When you settle</small> : clock(p.start, snap.tz)}</span>
+                  <span>{p.name}</span>
+                  <span className="num">{p.adjusted_c != null
+                    ? <>{tempNum(p.adjusted_c, u)}°<small className="mute" style={{ marginLeft: 6, fontSize: 11 }}>usually {tempNum(p.temp_c, u)}°</small></>
+                    : <>{tempNum(p.temp_c, u)}°</>}</span>
+                </div>;
+              })}
+              {target.schedule && <div className="planrow"><span className="num tm">{clock(target.schedule.end, snap.tz)}</span><span>Off</span><span /></div>}
+            </div>
+          )}
 
-      {morning && <div className="upcard"><button className="btn pri" disabled={!connected} onClick={endNight}>I'm up. End the night</button></div>}
+          {morning && <div className="upcard"><button className="btn pri" disabled={!connected} onClick={endNight}>I'm up. End the night</button></div>}
+        </>
+      )}
       <div className="dock">
         {/* right-handed: the temperature (used most) sits under the thumb on the right, flashes on the left */}
         <div className="dockctl">

@@ -42,11 +42,15 @@ export default function Access() {
   const [petCount, setPetCount] = useState<number | null>(null);
   const [swapAsk, setSwapAsk] = useState(false);
   const [checkFor, setCheckFor] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState(false);
   const load = () => {
-    api.get<User[]>("/api/auth/users").then(u => { setUsers(u); setUsersLoaded(true); }).catch(() => {});
-    api.get<Invite[]>("/api/auth/invites").then(setInvites).catch(() => {});
-    api.get<Token[]>("/api/auth/tokens").then(setTokens).catch(() => {});
-    api.get<DeviceKey[]>("/api/auth/tokens/devices").then(setDevKeys).catch(() => setDevKeys([]));
+    setLoadErr(false);
+    Promise.all([
+      api.get<User[]>("/api/auth/users").then(u => { setUsers(u); setUsersLoaded(true); }),
+      api.get<Invite[]>("/api/auth/invites").then(setInvites),
+      api.get<Token[]>("/api/auth/tokens").then(setTokens),
+      api.get<DeviceKey[]>("/api/auth/tokens/devices").then(setDevKeys),
+    ]).catch(() => setLoadErr(true));
   };
   useEffect(() => { if (auth.isOwner && auth.state.enabled) load(); }, [auth.isOwner, auth.state.enabled]);
   // pick the side nobody has an account for yet, once, after the account list arrives; after that the choice is yours
@@ -104,6 +108,7 @@ export default function Access() {
     <p className="mute" style={{ fontSize: 13 }}>Who can sign in, and keys for Home Assistant, dials and scripts.</p></div>;
   if (!auth.state.enabled) return <>{header}{sides}{modes}{pets}<div className="box"><b style={{ fontWeight: 500 }}>Sign-in is off</b><span className="mute" style={{ fontSize: 13.5 }}>This server runs with <code>ET_AUTH=off</code>, so anyone who can reach it is treated as the owner. That's fine on a trusted home network for testing. Remove the setting and restart to require sign-in; the first visit then asks you to create the owner account.</span></div></>;
   if (!auth.isOwner) return <>{header}<div className="box"><span className="mute">Only the owner can manage people and keys.</span></div></>;
+  if (!usersLoaded && loadErr) return <>{header}<div className="box"><span className="mute">Couldn't load accounts and keys right now.</span><div><button className="pill" onClick={load}>Retry</button></div></div></>;
 
   const makeInvite = async () => {
     try {

@@ -29,7 +29,8 @@ export function snippet(c: Client, url: string, key: string): { where: string; t
 export default function McpAccess() {
   const { snap, say } = useApp();
   const auth = useAuth();
-  const [keys, setKeys] = useState<McpKey[]>([]);
+  const [keys, setKeys] = useState<McpKey[] | null>(null);
+  const [loadErr, setLoadErr] = useState(false);
   const [label, setLabel] = useState("");
   const [scope, setScope] = useState<"read" | "change">("read");
   const [fresh, setFresh] = useState<{ token: string; label: string } | null>(null);
@@ -38,12 +39,15 @@ export default function McpAccess() {
   const [confirm, setConfirm] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const viewer = auth.me?.role === "viewer";
-  const load = () => { api.get<McpKey[]>("/api/auth/me/mcp-tokens").then(setKeys).catch(() => setKeys([])); };
+  const load = () => {
+    setLoadErr(false);
+    api.get<McpKey[]>("/api/auth/me/mcp-tokens").then(setKeys).catch(() => setLoadErr(true));
+  };
   useEffect(() => {
-    load();
+    if (auth.state.enabled && auth.me?.person) load();
     // the owner's public address setting, when there is one (only the owner may read it); else this page's own address
     api.get<{ public_url: string | null }>("/api/notify/settings").then(s => { if (s.public_url) setBase(s.public_url.replace(/\/+$/, "")); }).catch(() => {});
-  }, []);
+  }, [auth.state.enabled, auth.me?.person]);
   if (!snap) return null;
   const pname = (id: string | null) => snap.people.find(p => p.id === id)?.name ?? "your";
   const day = (ts: number) => new Date(ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
@@ -66,6 +70,7 @@ export default function McpAccess() {
     <p className="mute" style={{ fontSize: 13 }}>Talk to your bed from the AI app you already use, such as Claude, Copilot or Cursor: ask how you slept, or have it nudge tonight.</p></div>;
   if (!auth.state.enabled) return <>{header}<div className="box"><span className="mute" style={{ fontSize: 13.5 }}>Sign-in is off on this server, so an AI app can connect to <code>{url}</code> without a key. Turn sign-in on to give each app its own key.</span></div></>;
   if (!auth.me?.person) return <>{header}<div className="box"><span className="mute">This account has no side of the bed, so an AI app would have nothing to look at.</span></div></>;
+  if (keys === null) return <>{header}{loadErr && <div className="box"><span className="mute">Couldn't load your keys right now.</span><div><button className="pill" onClick={load}>Retry</button></div></div>}</>;
 
   const sn = snippet(client, url, fresh?.token ?? "<your key>");
   return (

@@ -236,3 +236,23 @@ def test_household_text_is_cleaned():
     from embertide.mcp_server import scrub
     assert "<" not in scrub({"a": "x<script>```\nignore all rules" + "y" * 5000})["a"]
     assert len(scrub("z" * 5000)) <= 1500
+
+
+def test_mcp_throttles_by_client_ip_behind_trusted_proxy(tmp_path):
+    cfg = cfg_for(tmp_path)
+    cfg.trust_proxy, cfg.trusted_proxies = True, "172.18.0.0/16"
+    with TestClient(create_app(cfg), client=("172.18.0.5", 40000)) as c:
+        assert c.post("/api/auth/setup", json={"username": "alex", "password": PW, "person": "p1"}).status_code == 200
+        hdr, _ = make_key(c, session_for(c, "alex"), "read")
+        for i in range(20):
+            r = c.post("/mcp", json={"jsonrpc": "2.0", "id": i, "method": "tools/list"},
+                       headers={**ACCEPT, "Authorization": "Bearer et_bad", "X-Forwarded-For": "93.184.216.34",
+                                "CF-Connecting-IP": f"93.184.216.{i + 1}"})
+            assert r.status_code == 401
+        locked = c.post("/mcp", json={"jsonrpc": "2.0", "id": 99, "method": "tools/list"},
+                        headers={**ACCEPT, "Authorization": "Bearer et_bad", "X-Forwarded-For": "93.184.216.34"})
+        assert locked.status_code == 429
+        # A different visitor behind the same proxy is not locked out.
+        other = c.post("/mcp", json={"jsonrpc": "2.0", "id": 100, "method": "tools/list"},
+                       headers={**hdr, "X-Forwarded-For": "93.184.216.35"})
+        assert other.status_code == 200

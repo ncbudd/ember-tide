@@ -253,8 +253,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         return JSONResponse(status_code=422, content={"detail": errs})
     from .auth_api import AuthMiddleware, build_auth_router
     from .auth_api import parse_nets
-    if (cfg.auth_header or cfg.auth_header_email) and not cfg.trust_proxy:
-        raise ValueError("ET_AUTH_HEADER needs ET_TRUST_PROXY=on, so the header is only believed from your proxy.")
+    if cfg.auth_header or cfg.auth_header_email:
+        if not cfg.trust_proxy:
+            raise ValueError("ET_AUTH_HEADER needs ET_TRUST_PROXY=on, so the header is only believed from your proxy.")
+        if not cfg.trusted_proxies.strip():
+            raise ValueError("ET_AUTH_HEADER needs ET_TRUSTED_PROXIES set (your proxy's IP or subnet), so only the proxy can send it.")
     parse_nets(cfg.trusted_proxies)                       # a typo in ET_TRUSTED_PROXIES stops the start with a clear message
     app.add_middleware(AuthMiddleware, state=state)
     app.add_middleware(mcp_endpoint.middleware)           # /mcp: its own bearer keys (before the SPA catch-all)

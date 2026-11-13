@@ -1043,7 +1043,9 @@ class Notifier:
         acts = []
         if len(q["pets"]) == 1:
             v = petq.view(q, self.c.household, self.c.clock.tz, self._pet_clock(q))
-            yes = next(c for c in v["choices"] if c["answer"] == "yes")
+            yes = next((c for c in v["choices"] if c["answer"] == "yes"), None)
+            if yes is None:
+                return None        # the pet was deleted after this question was created
             acts = [Action(yes["label"][:40], "pet_yes", ref=q["id"]), Action("No, it was me", "pet_me", ref=q["id"]),
                     Action("Not sure", "pet_unsure", ref=q["id"])]
         return Message("pet_question", t, b, person.id, actions=acts, priority=2, tags=["dog"])

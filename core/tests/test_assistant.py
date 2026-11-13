@@ -315,6 +315,36 @@ def test_viewer_and_strangers_cannot_ask_or_apply(tmp_path):
         assert c.post(f"/api/assistant/proposals/{r['proposals'][0]['id']}/apply", json={"person_id": "p1"}).status_code == 403  # no header
 
 
+def test_unlinked_sleeper_or_viewer_does_not_own_any_side(tmp_path):
+    from embertide.assistant import Assistant
+    from embertide.auth import Principal
+    with make(tmp_path) as c:
+        owner(c)
+        ctl = c.app.state.notifier.c
+        p1 = ctl.person("p1")
+        rh = c.get("/api/people/p1/rhythms").json()[0]
+        # Unit checks on Assistant.own()
+        for role in ("sleeper", "viewer"):
+            h = Assistant(ctl, Principal("user", f"u-{role}", f"u-{role}", role, person=None), p1, None)
+            assert not h.own()
+        # End-to-end: an unlinked sleeper cannot change p1's rhythm or autopilot, and a viewer gets 403 on /ask.
+        code_s = c.post("/api/auth/invites", json={"person": None, "role": "sleeper"}, headers=H).json()["code"]
+        us = TestClient(c.app)
+        assert us.post("/api/auth/accept", json={"code": code_s, "username": "u_sleeper", "password": PW}).status_code == 200
+        us.app.state.assistant_model = FakeModel(("change_rhythm_phase", {"rhythm_id": rh["id"], "phase_id": "deep", "temp_c": 18}),
+                                                 ("set_autopilot_mode", {"mode": "off"}))
+        res = us.post("/api/assistant/ask", json={"person_id": "p1", "question": "change rhythm and autopilot"}, headers=H)
+        assert res.status_code == 200 and res.json()["proposals"] == [] and len(res.json()["ignored"]) == 2
+        code_v = c.post("/api/auth/invites", json={"person": None, "role": "viewer"}, headers=H).json()["code"]
+        uv = TestClient(c.app)
+        assert uv.post("/api/auth/accept", json={"code": code_v, "username": "u_viewer", "password": PW}).status_code == 200
+        assert uv.post("/api/assistant/ask", json={"person_id": "p1", "question": "hi"}, headers=H).status_code == 403
+        # An unlinked owner (person=None) or open mode still owns sides; a linked owner owns only their side.
+        assert Assistant(ctl, Principal("user", "u-own", "u-own", "owner", person=None), p1, None).own()
+        assert Assistant(ctl, Principal("open", "open", "open", "owner", person=None), p1, None).own()
+        assert not Assistant(ctl, Principal("user", "u-p2", "u-p2", "owner", person="p2"), p1, None).own()
+
+
 def test_works_with_sign_in_off(tmp_path):
     with make(tmp_path, auth=False) as c:
         night_on(c)

@@ -272,7 +272,12 @@ class Assistant:
 
     # ----- whose side -----
     def own(self) -> bool:
-        return self.who is None or self.who.person in (None, self.p.id)
+        if self.who is None or getattr(self.who, "kind", None) == "open":
+            return True
+        # An account with no linked side only owns every side if it's an owner; a linked owner still owns only their side.
+        if self.who.person is None:
+            return self.who.role == "owner"
+        return self.who.person == self.p.id
 
     def may_target(self, a: Action) -> str | None:
         if self.own():

@@ -127,8 +127,13 @@ def build_autopilot_router(state) -> APIRouter:
 
     @r.get("/autopilot/meta")
     async def meta():
+        from . import ai
+        eff = _eff(state)
+        pr = ai.PRESETS.get(getattr(eff, "preset", "custom"), ai.PRESETS["custom"])
+        on = ai.configured(eff)
+        local = True if not on else not pr["leaves_house"]
         return {"signals": [{"id": s, "label": LABELS[s]} for s in ALL_SIGNALS], "sensitivity": THRESHOLD,
-                "ai": _ai_on(_eff(state)), "model": _ai_model(_eff(state))}
+                "ai": on, "model": _ai_model(eff), "local": local, "preset_name": pr["name"]}
 
     @r.get("/people/{pid}/autopilot")
     async def status(pid: str):

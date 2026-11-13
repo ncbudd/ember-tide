@@ -139,7 +139,7 @@ class ActiveDetector:
 def windows(events: list[dict], zone: str | None, until: float) -> list[tuple[float, float]]:
     """Active stretches (from the active_started / active_ended events) touching this side (None = any side)."""
     out, start = [], None
-    for e in sorted((x for x in events if x.get("kind") in ("active_started", "active_ended")), key=lambda x: x["ts"]):
+    for e in sorted((x for x in events if x["ts"] <= until and x.get("kind") in ("active_started", "active_ended")), key=lambda x: x["ts"]):
         if zone is not None and zone not in (e.get("zones") or ["left", "right"]):
             continue
         if e["kind"] == "active_started" and start is None:

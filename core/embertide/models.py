@@ -21,7 +21,7 @@ class Anchor(BaseModel):
 
 
 class Phase(BaseModel):
-    id: str
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,32}$")
     name: str
     temp_c: float = Field(ge=10, le=45)
     start: Anchor
@@ -45,7 +45,7 @@ class Schedule(BaseModel):
 
 
 class Rhythm(BaseModel):
-    id: str
+    id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,32}$")
     name: str
     days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6], max_length=7)  # Monday = 0
     schedule: Schedule = Field(default_factory=Schedule)

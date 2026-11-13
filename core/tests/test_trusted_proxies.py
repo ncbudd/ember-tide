@@ -23,7 +23,15 @@ def test_listed_networks_only():
     assert client_ip(HDR, "10.0.0.5", True, nets) == OUT
     assert client_ip(HDR, "192.168.1.9", True, nets) == "192.168.1.9"        # private, but not listed
     assert client_ip(HDR, "10.0.0.6", True, nets) == "10.0.0.6"
-    assert client_ip({"cf-connecting-ip": OUT}, "192.168.1.9", True, nets) == "192.168.1.9"
+    assert client_ip({"cf-connecting-ip": OUT}, "192.168.1.9", True, nets, cloudflare=True) == "192.168.1.9"
+
+
+def test_cf_connecting_ip_requires_proxy_cloudflare():
+    h = {"cf-connecting-ip": "198.51.100.77", "x-forwarded-for": OUT}
+    # Behind a non-Cloudflare proxy (cloudflare=False), a visitor-forged CF-Connecting-IP is ignored.
+    assert client_ip(h, "172.18.0.5", True) == OUT
+    assert client_ip({"cf-connecting-ip": "198.51.100.77"}, "172.18.0.5", True) == "172.18.0.5"
+    assert client_ip(h, "172.18.0.5", True, cloudflare=True) == "198.51.100.77"
 
 
 def test_parsing():

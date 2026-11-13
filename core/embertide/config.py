@@ -68,11 +68,12 @@ class Config:
     ha_prefix: str = field(default_factory=lambda: _env("ET_HA_DISCOVERY_PREFIX", "homeassistant"))
     auth: bool = field(default_factory=lambda: (_env("ET_AUTH", "on") or "on").lower() not in ("off", "0", "false", "no"))
     trust_proxy: bool = field(default_factory=lambda: (_env("ET_TRUST_PROXY", "off") or "off").lower() in ("on", "1", "true", "yes"))
+    proxy_cloudflare: bool = field(default_factory=lambda: (_env("ET_PROXY_CLOUDFLARE", "off") or "off").lower() in ("on", "1", "true", "yes"))
     mqtt_ca_file: str | None = field(default_factory=lambda: _env("ET_MQTT_CA_FILE"))                 # CA / certificate for an mqtts:// bed broker
     mqtt_tls_insecure: bool = field(default_factory=lambda: (_env("ET_MQTT_TLS_INSECURE", "off") or "off").lower() in ("on", "1", "true", "yes"))
     ha_mqtt_ca_file: str | None = field(default_factory=lambda: _env("ET_HA_MQTT_CA_FILE"))
     ha_mqtt_tls_insecure: bool = field(default_factory=lambda: (_env("ET_HA_MQTT_TLS_INSECURE", "off") or "off").lower() in ("on", "1", "true", "yes"))
-    trusted_proxies: str = field(default_factory=lambda: _env("ET_TRUSTED_PROXIES", "") or "")      # CIDRs; empty = any private peer
+    trusted_proxies: str = field(default_factory=lambda: _env("ET_TRUSTED_PROXIES", "") or "")      # CIDRs; empty = any private peer (required with ET_AUTH_HEADER)
     auth_header: str = field(default_factory=lambda: (_env("ET_AUTH_HEADER", "") or "").strip())      # forward-auth: header with the username
     auth_header_email: str = field(default_factory=lambda: (_env("ET_AUTH_HEADER_EMAIL", "") or "").strip())  # ...or the email
     web_dir: Path | None = field(default_factory=lambda: Path(p) if (p := _env("ET_WEB_DIR")) else None)

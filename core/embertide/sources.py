@@ -14,6 +14,7 @@ import json
 import logging
 import math
 import random
+import re
 import time
 import uuid
 from typing import Literal
@@ -170,10 +171,18 @@ FLAPS = {"presence": (6, 600), "weight": (6, 600), "home": (6, 1800)}     # (tra
 BAD_LIMIT, BAD_WINDOW_S, CALM_S = 3, 1800, 1800
 
 
+_URL_RE = re.compile(r"https?://[^\s'\"<>)]+", re.IGNORECASE)
+
+
+def scrub_urls(text: str) -> str:
+    """Replace URLs (which in calendar/feed errors can carry secret tokens) before storing or logging."""
+    return _URL_RE.sub("<link hidden>", text)
+
+
 def plain_error(e: BaseException, what: str = "Home Assistant", driver: str | None = None) -> str:
     """An exception from a device driver, in words someone can act on (worded for that kind of connection)."""
     n = type(e).__name__
-    msg = str(e)
+    msg = scrub_urls(str(e))
     status = getattr(getattr(e, "response", None), "status_code", None)
     if driver == "ics" or what == "the calendar feed":
         if status in (404, 410):
@@ -181,6 +190,8 @@ def plain_error(e: BaseException, what: str = "Home Assistant", driver: str | No
                     "link in Tune → Link.")
         if status in (401, 403):
             return "The calendar service refused the link (it may be private or reset)."
+        if (status and 300 <= status < 400) or "redirects" in msg:
+            return "That link redirects to another address; paste the final link in Tune → Link."
         if status and status >= 500:
             return f"The calendar service had a problem ({status}). Retrying."
         if status:
@@ -836,7 +847,8 @@ class SourceManager:
         """A calendar feed (Fastmail private link, iCloud public calendar, Google secret address): fetched
         every 15 minutes, read on this server; nothing is written back."""
         url = ics_url(c.params.get("url", ""))
-        async with httpx.AsyncClient(timeout=20, follow_redirects=True, headers={"User-Agent": "EmberTide/1"},
+        # Refusing redirects prevents an HTTP 30x from carrying secret feed tokens off to another host.
+        async with httpx.AsyncClient(timeout=20, follow_redirects=False, headers={"User-Agent": "EmberTide/1"},
                                      transport=self.http_transport) as http:
             while True:
                 text = await self.fetch_ics(http, url)
@@ -855,6 +867,8 @@ class SourceManager:
     async def fetch_ics(http, url: str, limit: int = 5_000_000) -> str:
         """Download a feed without ever holding more than `limit` bytes; it must look like a calendar."""
         async with http.stream("GET", url) as r:
+            if 300 <= r.status_code < 400:
+                raise ValueError("the calendar feed redirects; use the final link instead")
             r.raise_for_status()
             if int(r.headers.get("content-length") or 0) > limit:
                 raise ValueError("the calendar feed is larger than 5 MB")

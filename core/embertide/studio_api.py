@@ -122,7 +122,7 @@ def thin(pts: list, kind: str, budget: int, keep_every_s: float = 300) -> list:
 # a device's live state: what it reads now, what it has sent lately and when it changed
 LIVE_FIELDS = ("value", "ts", "age_s", "error", "vote", "vote_weight", "changes_today", "last_change")
 # devices that read a body or a life rather than the room: on the other person's side they're theirs too
-PERSONAL_ROLES = (*WEARABLE_ROLES, "weight")
+PERSONAL_ROLES = (*WEARABLE_ROLES, "weight", "presence")
 
 
 def someone_elses(c: SourceConfig, me: str | None, my_zone: str | None) -> bool:
@@ -493,7 +493,7 @@ def build_studio_router(state) -> APIRouter:
             out.append({"id": f"src:{sc.id}", "label": sc.name, "source": f"{sc.device or sc.driver} · {sc.driver}" + (f" · {sc.params.get('entity_id')}" if sc.params.get("entity_id") else "") + (f" · {sc.params.get('topic')}" if sc.params.get("topic") else ""),
                         "device": sc.device or sc.name, "driver": sc.driver, "unit": sc.unit or info["unit"], "lane": info["lane"],
                         "kind": "step" if sc.role in ("presence", "light") else "line", "color": PALETTE.get(sc.role, "var(--mute)"), "points": pts, "role": sc.role})
-        events = [e for e in c.store.events(since=start, limit=3000) if e["ts"] <= end and e.get("person") in (p.id, None)]
+        events = c.store.events_between(start, end, person=p.id, limit=5000)
         rh = pick_rhythm(p.rhythms, d)
         n = resolve(rh, d, tz) if rh else None
         from .engine.stages import collect
@@ -706,10 +706,16 @@ def build_studio_router(state) -> APIRouter:
         return {"ok": True, "applied": what}
 
     @r.get("/ai/status")
-    async def ai_status():
+    async def ai_status(request: Request):
         cfg = ai.effective(state.cfg, ctl().store)
-        return {"configured": ai.configured(cfg), "model": ai.model_name(cfg) if ai.configured(cfg) else None,
-                "provider": ai.provider(cfg), "url": cfg.llm_url if ai.provider(cfg) == "openai" else None}
+        who = viewer(request)
+        on = ai.configured(cfg)
+        pr = ai.PRESETS.get(getattr(cfg, "preset", "custom"), ai.PRESETS["custom"])
+        local = True if not on else not pr["leaves_house"]
+        return {"configured": on, "model": ai.model_name(cfg) if on else None,
+                "provider": ai.provider(cfg),
+                "url": cfg.llm_url if who is None and ai.provider(cfg) == "openai" else None,
+                "preset": cfg.preset, "preset_name": pr["name"], "local": local}
 
 
     ask_hits: dict[str, list[float]] = {}
@@ -733,7 +739,7 @@ def build_studio_router(state) -> APIRouter:
             ins = ctxt["insights"]
             return {"answer": "No AI model is connected, so here is what the built-in analysis found:\n\n" +
                     "\n".join(f"• {i['title']}: {i['detail']}" for i in ins) +
-                    "\n\nConnect a local model (for example Ollama) with ET_LLM_URL to ask open questions.",
+                    "\n\nConnect a model in Studio → AI model to ask open questions.",
                     "proposal": next((i["proposal"] for i in ins if i.get("proposal")), None), "model": None}
         try:
             out = await ai.ask(eff, b.question, ctxt)

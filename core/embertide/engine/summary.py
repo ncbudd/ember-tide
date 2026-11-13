@@ -210,10 +210,12 @@ def _summarize_cached(store: Store, person: Person, d: date, tz: ZoneInfo, now: 
         # a finished night only changes if something is recorded inside it (an import, a late check-in) or its rhythm
         # changes: cache on a fingerprint of exactly that
         rh = pick_rhythm(person.rhythms, d)
+        in_bed_min = getattr(person.settings, "in_bed_after_min", None)
         key = (_store_token(store), person.id, person.zone, d.isoformat(), str(tz), rh.model_dump_json() if rh else None,
                json.dumps(store.get(f"feedback:{person.id}:{d.isoformat()}"), sort_keys=True),
                store.window_version(person.zone, person.id, start, end),
-               json.dumps(household_pets(store), sort_keys=True), getattr(person.settings, "up_after_min", None))
+               json.dumps(household_pets(store), sort_keys=True), getattr(person.settings, "up_after_min", None),
+               clock_style(person.settings), tuple(person.settings.work_days), in_bed_min)
         hit = _CACHE.get(key)
         if hit is not None:
             return copy.deepcopy(hit)
@@ -264,7 +266,8 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
     # in bed = stretches of at least a few minutes (the person's "lying down before the night starts", default 3):
     # someone sitting on the edge for 30 s, or the dog hopping up, isn't getting into bed (2026-11-09: 30 s at
     # 11:21 PM made "in bed 11:21" for a night that began at 12:55)
-    min_run = (getattr(person.settings, "in_bed_after_min", None) or 3) * 60
+    in_bed_min = getattr(person.settings, "in_bed_after_min", None)
+    min_run = (3 if in_bed_min is None else in_bed_min) * 60
     runs, cur = [], []
     for r in occ:
         if cur and r["ts"] - cur[-1]["ts"] > 360:          # a gap of 6+ min ends a stretch (rows can be minutes apart)
@@ -303,7 +306,23 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
     in_bed_s = sum(dur[id(r)] for r in occ)
     first_in = occ[0]["ts"] if occ else None
     last_out = occ[-1]["ts"] if occ else None
-    # out-of-bed gaps of 3+ minutes (or the person's own "counts as getting up after") between first in and last out
+    # out-of-bed gaps of 3+ minutes (or the person's own "counts as getting up after") between first in and last out;
+    # ignore brief occupied blips (< min_run) so a sensor flicker mid-trip doesn't split one trip or drop it
+    occ_runs, ocur = [], []
+    for r in rows:
+        if r["occupied"] == 1:
+            if ocur and r["ts"] - ocur[-1]["ts"] > 360:
+                occ_runs.append(ocur)
+                ocur = []
+            ocur.append(r)
+        elif r["occupied"] == 0 and ocur:
+            occ_runs.append(ocur)
+            ocur = []
+    if ocur:
+        occ_runs.append(ocur)
+    long_occ = {id(r) for grp in occ_runs if grp[-1]["ts"] - grp[0]["ts"] >= min_run for r in grp}
+    if not long_occ:
+        long_occ = {id(r) for grp in occ_runs for r in grp}
     up_s = (getattr(person.settings, "up_after_min", None) or 3) * 60
     gaps, run_start, last_empty = [], None, None
     for r in rows:
@@ -312,8 +331,8 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
         if r["occupied"] == 0:
             run_start = run_start or r["ts"]
             last_empty = r["ts"]
-        elif r["occupied"] is None:
-            continue                                  # not known (sensor starting up): neither in nor out
+        elif r["occupied"] is None or id(r) not in long_occ:
+            continue                                  # not known or brief occupied blip: neither starts nor closes a gap
         else:
             # no rows for a while (the bed or the server was off): the time out of bed is only what was seen
             to = r["ts"] if last_empty is None or r["ts"] - last_empty <= 120 else last_empty + ROW_S

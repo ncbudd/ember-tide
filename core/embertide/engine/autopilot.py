@@ -552,7 +552,7 @@ class Autopilot:
     def active_windows(self, p, since: float, until: float) -> list[tuple[float, float]]:
         """When the people in bed were awake and moving, not sleeping yet (engine/active.py)."""
         from .active import windows
-        evs = [e for e in self.c.store.events(since=since - 3 * 3600, limit=500) if e["kind"] in ("active_started", "active_ended")]
+        evs = [e for e in self.c.store.events_between(since - 3 * 3600, until) if e["kind"] in ("active_started", "active_ended")]
         return windows(evs, p.zone, until)
 
     def pet_windows(self, p, since: float, until: float) -> list[tuple[float, float]]:
@@ -560,7 +560,7 @@ class Autopilot:
         if not getattr(self.c.household, "pets", None):
             return []
         from .pets import pet_windows
-        evs = [e for e in self.c.store.events(since=since, limit=500) if e["kind"] in ("pet_suspected", "pet_cleared")]
+        evs = [e for e in self.c.store.events_between(since, until) if e["kind"] in ("pet_suspected", "pet_cleared")]
         return pet_windows(evs, p.zone, until)
 
     def wear_hr(self, p, since: float, until: float, level: bool = True) -> list[tuple[float, float]]:
@@ -697,7 +697,7 @@ class Autopilot:
     def replay(self, p, start: float, end: float, policy, step_s: float = 60, wake: float | None = None) -> list[dict]:
         """What it would have done over a past stretch, with these settings. Reads only; writes nothing."""
         rows_all = self.c.store.history(p.zone, start - 600, end, person=p.id)
-        evs_all = [x for x in self.c.store.events(since=start - 4 * 3600, limit=5000, person=p.id) if x.get("person") == p.id and x["ts"] <= end]
+        evs_all = [x for x in self.c.store.events_between(start - 4 * 3600, end, person=p.id) if x.get("person") == p.id]
         skin_all = self.skin(p, start - 6 * 3600, end)
         whr_all = self.wear_hr(p, start - 6 * 3600, end)
         pets_all = self.pet_windows(p, start - 6 * 3600, end)

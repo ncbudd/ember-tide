@@ -47,9 +47,8 @@ def build_client_errors_router(state) -> APIRouter:
     @r.post("/client-error")
     async def report(b: ClientError, request: Request):
         now = time.time()
-        from .auth_api import client_ip, parse_nets                # the visitor's address (Cloudflare's header), not the tunnel's
-        ip = client_ip({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else None,
-                       state.cfg.trust_proxy, parse_nets(state.cfg.trusted_proxies))
+        from .auth_api import peer_ip
+        ip = peer_ip({k.lower(): v for k, v in request.headers.items()}, request.client.host if request.client else None, state.cfg)
         recent = [t for t in hits.get(ip, []) if now - t < 3600]
         all_hits[:] = [t for t in all_hits if now - t < 3600]
         last_min = sum(1 for t in recent if now - t < 60)

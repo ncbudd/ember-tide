@@ -652,16 +652,18 @@ class TestCalendarFeed:
     @pytest.mark.parametrize("response,words", [
         (httpx.Response(200, text="<!doctype html><html>Sign in</html>"), "web page, not a calendar feed"),
         (httpx.Response(500), "returned"),
+        (httpx.Response(302, headers={"Location": "https://evil.test/leak?tok=secret"}), "redirects"),
         (httpx.Response(200, headers={"content-length": "50000000"}, text="BEGIN:VCALENDAR"), "too large (over 5 MB)"),
     ])
     async def test_bad_feeds(self, tmp_path, response, words):
         from embertide.sources import plain_error
         m, _, _ = mgr(tmp_path)
-        async with httpx.AsyncClient(transport=httpx.MockTransport(lambda req: response)) as http:
+        async with httpx.AsyncClient(follow_redirects=False, transport=httpx.MockTransport(lambda req: response)) as http:
             with pytest.raises(Exception) as ei:
                 await m.fetch_ics(http, "https://cal.example/x.ics")
         text = plain_error(ei.value, "the calendar feed")
         assert words in text or "had a problem" in text, text
+        assert "evil.test" not in text and "tok=secret" not in text
 
     async def test_endless_feed_is_cut_off(self, tmp_path):
         m, _, _ = mgr(tmp_path)
@@ -695,6 +697,40 @@ class TestCalendarFeed:
         from embertide.seed import default_household
         ctx = person_context(m, m.store, default_household().people[0], clock.now_ts())
         assert ctx.event_end == ts("2026-11-05T23:30")
+
+    async def test_run_ics_does_not_follow_redirects_and_strips_urls(self, tmp_path, caplog):
+        import logging
+        from embertide.cloud.generic import Generic
+        from embertide.sources import plain_error
+        c = SourceConfig(id="cal", name="Calendar", driver="ics", role="calendar", kind="calendar", person="p1",
+                         params={"url": "https://user.fm/secret-feed-token/cal.ics"})
+        m, _, _ = mgr(tmp_path, c, at="2026-11-05T18:00")
+        seen_urls = []
+
+        def handler(req):
+            seen_urls.append(str(req.url))
+            if "secret-feed-token" in str(req.url):
+                return httpx.Response(302, headers={"Location": "https://other.example/redirected"})
+            return httpx.Response(200, text=ICS_OK)
+
+        m.http_transport = httpx.MockTransport(handler)
+        m._sleep = FakeSleep()
+        assert await run_until(lambda: m._guard(c, m._run_ics), lambda: m.latest.get("cal", {}).get("error"))
+        assert seen_urls == ["https://user.fm/secret-feed-token/cal.ics"]
+        assert "redirects" in m.latest["cal"]["error"]
+        assert "secret-feed-token" not in m.latest["cal"]["error"]
+        err = plain_error(ValueError("bad https://cal.example/private?token=xyz"), "the calendar feed", "ics")
+        assert "<link hidden>" in err and "token=xyz" not in err
+
+        g = Generic(type("C", (), {"clock": m.clock, "store": m.store})())
+        g.store.put("cloud_polls", [{"id": "p1", "enabled": True, "url": "https://feed.test/key=abc", "interval_min": 5, "last_ts": 0}])
+
+        async def boom(src):
+            raise RuntimeError(f"failed fetching {src['url']} timeout")
+        g.poll = boom
+        with caplog.at_level(logging.WARNING, logger="embertide.cloud.generic"):
+            await g.tick()
+        assert any("<link hidden>" in rec.message and "key=abc" not in rec.message for rec in caplog.records)
 
 
 class _Stream(httpx.AsyncByteStream):

@@ -171,3 +171,18 @@ def test_guide_suggestion_dismissal_is_remembered_until_it_changes(tmp_path, mon
         assert not get().get("dismissed")
         assert c.post("/api/people/p1/insights/dismiss", json={"id": "other", "sig": "x"}).status_code == 422
         assert c.post("/api/people/nobody/insights/dismiss", json={"id": "guide-x"}).status_code == 404
+
+
+def test_phase_and_rhythm_ids_match_safe_pattern(tmp_path):
+    import pytest
+    from pydantic import ValidationError
+    from embertide.models import Rhythm
+    with make(tmp_path) as c:
+        rh = c.get("/api/people/p1/rhythms").json()[0]
+        assert c.put(f"/api/people/p1/rhythms/{rh['id']}", json=rh).status_code == 200
+        for bad_id in ("bad/id", "bad id", "a+b", "x" * 33, ""):
+            bad_ph = dict(rh, phases=[dict(rh["phases"][0], id=bad_id), *rh["phases"][1:]])
+            assert c.put(f"/api/people/p1/rhythms/{rh['id']}", json=bad_ph).status_code == 422, bad_id
+            bad_rh = dict(rh, id=bad_id)
+            with pytest.raises(ValidationError):
+                Rhythm.model_validate(bad_rh)
