@@ -1,0 +1,13 @@
+name: Issue intake
+
+on:
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  intake:
+    permissions:
+      issues: write
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/issue-intake.yml@v1
