@@ -3,6 +3,14 @@
 All notable changes. The project follows [Semantic Versioning](https://semver.org/) loosely while it is 0.x: anything may change between
 minor versions, and each entry says what to check when upgrading.
 
+## Unreleased
+
+- **"I'm up" ends the night.** A new button on the Tonight screen (big in the morning and during a lie-in, in the
+  Tonight menu otherwise) ends the current night now: the side turns off and the morning summary counts it as done.
+  The dial's or watch's off press in the morning does the same instead of switching off the coming night. A lie-in
+  also ends about 3 minutes after your phone and watch stop vouching for the bed, even if something (a pet) stays on
+  the pad. See docs/HANDOFF.md.
+
 ## 0.1.6
 
 **Upgrade note:** the container now runs as uid and gid 1000 instead of root. If an existing bind-mounted `data` folder

@@ -212,6 +212,13 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
   // in bed, but the bed's radar hasn't yet backed it up (core: night.settle.gate === false): the start is held
   const held = n.settle?.gate === false && !n.started && target.presence.present === true;
   const pendingT = onTemp ?? target.phases[0]?.temp_c ?? 21.1;
+  // "I'm up": a night is running and can be ended by hand. Big in the morning (the wake phase, or lying in past the end),
+  // quiet in the Tonight menu the rest of the time
+  const canEnd = canAdjust && v !== "both" && !!n.running && !n.skip;
+  const morning = canEnd && (!!n.lie_in || n.phase_id === "wake");
+  const endNight = () => {
+    if (window.confirm(`End the night now? ${target.id === me.id ? "Your" : `${target.name}'s`} side turns off.`)) { setSheet(false); void act(`${base}/tonight`, { action: "end" }); say("Night ended. Your side is off."); }
+  };
   const showTurnOn = idle && canAdjust && v !== "both";
   const turnOn = () => { setOnTemp(null); return act(`${base}/adjust`, onLen ? { temp_c: pendingT, minutes: onLen, until: "next_phase" } : { temp_c: pendingT, until: "next_phase" }); };
   const endsAt = onLen ? `until ${clock(snap.now + onLen * 60, snap.tz)}` : "until bedtime";
@@ -340,6 +347,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         </div>
       )}
 
+      {morning && <div className="upcard"><button className="btn pri" disabled={!connected} onClick={endNight}>I'm up. End the night</button></div>}
       <div className="dock">
         {/* right-handed: the temperature (used most) sits under the thumb on the right, flashes on the left */}
         <div className="dockctl">
@@ -372,6 +380,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
               <button key={k} className="chip" onClick={async () => { setSheet(false); try { await api.post(`/api/people/${me.id}/feel`, { feel: k }); say(k === "just_right" ? "Noted" : `Noted. ${k === "too_hot" ? "Cooler" : "Warmer"} is one tap away if you want it now.`); } catch { say("Couldn't save that"); } }}>{l}</button>)}</div>
           </div>}
           {canAdjust && n.override && <button className="item" onClick={() => run(`${base}/adjust/clear`)}>Undo the change<small>back to the rhythm</small></button>}
+          {canEnd && !morning && <button className="item" onClick={endNight}>I'm up. End the night<small>{whose} side turns off now</small></button>}
           {canAdjust && !n.started && (n.state === "waiting" || n.state === "away") && <button className="item" onClick={() => run(`${base}/tonight`, { action: "start_now" })}>Start the night now<small>for reading in bed</small></button>}
           {!canAdjust && <p className="mute" style={{ fontSize: 13, padding: "8px 0" }}>{target.name} hasn't shared control of their side. They can change that in Settings → Sharing.</p>}
           {canAdjust && n.context?.early_start && target.schedule && target.schedule.wake > n.context.early_start - 2700 && (() => {

@@ -165,7 +165,7 @@ def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | Non
         elif k == "room_cold":
             if not any(m["kind"] == k and m.get("text") == e.get("text") for m in out):
                 out.append({"kind": k, "ts": e["ts"], "text": e.get("text"), "phase": e.get("phase"), "source": "system"})
-        elif k in ("tonight_skip", "tonight_resume", "tonight_start_now", "tonight_pause", "rhythm_changed", "adjust_cleared"):
+        elif k in ("tonight_skip", "tonight_end", "tonight_resume", "tonight_start_now", "tonight_pause", "rhythm_changed", "adjust_cleared"):
             out.append({"kind": k, "ts": e["ts"], "source": e.get("source")})
     if pm:
         out = sorted(out + pm, key=lambda m: m["ts"])

@@ -214,6 +214,18 @@ class Controller:
             self.fused[zone]["watch"]["held"] = "not_me" if ep.get("not_me") else ("me" if ep.get("me_seen") else None)
         return present
 
+    def _personal_signals(self, zone: str) -> dict | None:
+        """The person's own phone and watch for the night engine (lie-in only): do they vouch for this side, and do the
+        watch and the pad clearly disagree? None when presence is unknown or the person is moving about."""
+        f = self.fused.get(zone) or {}
+        if f.get("present") is None or self.active_since is not None:
+            return None
+        from . import watch as W
+        voting = any(v["signal"] in ("watch:me", "phone:bedside") and (v["value"] or 0) >= 0.5 for v in f.get("votes") or [])
+        w = f.get("watch") or {}
+        diff = w.get("diff")
+        return {"voting": voting, "disagree": w.get("state") == "not_me" or (diff is not None and diff > W.ME_BPM)}
+
     # ---------- occupancy episodes (watch identity, pet questions) ----------
     EPISODE_GAP_S = 120          # the strip empty this long ends an episode
     EPISODE_MAX_S = 4 * 3600     # a very long one is handed to the questions in pieces
@@ -671,6 +683,7 @@ class Controller:
         except Exception:  # noqa: BLE001
             e.sleep_sign = None                              # no sign: bedtime is still the backstop
             log.exception("sleep signs failed for %s", p.id)
+        e.personal = self._personal_signals(p.zone)
         target = e.tick(now, present, home, active=self.active_since)
         try:
             self._room_shortfall(p, e, now, frame)
@@ -1072,6 +1085,7 @@ class Controller:
                 "night": {
                     "state": e.s.state, "phase_id": e.s.phase_id, "phase_name": cur_phase, "started": e.s.started,
                     "in_bed": e.s.in_bed, "base_c": e.s.base_c, "target_c": e.s.target_c, "skip": e.s.skip,
+                    "lie_in": e.s.lie_in, "running": e.running(),
                     "room_note": self.room_note(p.id), "lead_min": round(e.lead_s / 60) if e.lead_s else None,
                     "pause_until": e.s.pause_until, "home": e.s.home,
                     # in bed early: waiting for a sign of sleep before the night moves on (engine/sleepsign.py)

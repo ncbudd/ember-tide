@@ -10,6 +10,10 @@ from ..models import FlashSettings, Person
 from .rhythm import ResolvedNight, fitted_late, next_phase, night_date, pick_rhythm, resolve, target_at
 
 
+class NightNotRunning(ValueError):
+    """"I'm up" while no night is running."""
+
+
 @dataclass
 class Flash:
     kind: str            # "hot" | "cold"
@@ -65,6 +69,12 @@ class NightState:
     lie_in: bool = False
     lie_in_over: bool = False            # it ended (got up / cap): getting back in doesn't start another
     snoozed_until: float | None = None   # a later alarm after the followed one rang (a snooze or an extended alarm)
+    ended: bool = False                  # "I'm up": the night was ended by hand (the dial, the app, a watch)
+    # the person's own phone / watch (the "phone:bedside" and "watch:me" votes): ever voted this night, since when
+    # neither has, and whether the pad was empty for a while after that. Used only to end a lie-in (see _lie_in)
+    personal_seen: bool = False
+    personal_gone_since: float | None = None
+    personal_gap: bool = False
     events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -92,6 +102,9 @@ class NightEngine:
         self.lead_s = 0.0                          # how early the coming change started (for the snapshot)
         # a sign that they are going to sleep, set by the controller each tick: (when, why) or None (engine/sleepsign.py)
         self.sleep_sign: tuple[float, str] | None = None
+        # the person's own devices this tick, set by the controller: {"voting": the phone by the bed or the watch says
+        # they are in bed, "disagree": the watch and the pad clearly don't match}; None = no information
+        self.personal: dict | None = None
 
     # ---------- actions ----------
     def flash(self, kind: str, now: float, minutes: int | None = None, source: str = "app") -> Flash:
@@ -144,9 +157,30 @@ class NightEngine:
         self.s.override = None
         self._ev(now, "adjust_cleared", source=source)
 
+    def running(self) -> bool:
+        """A night is under way that "I'm up" can end: started, and neither off, paused, away, done nor not begun."""
+        s = self.s
+        return bool(s.started and not s.ended and not s.skip and s.state in ("rhythm", "out_of_bed_hold", "out_of_bed"))
+
+    def end_night(self, now: float, source: str = "app", reason: str = "ended by hand") -> None:
+        """End the CURRENT night now (up for the day): any lie-in stops, the side goes off, the night is recorded as done
+        (engine tick). Tonight's night, `skip_next`, is not touched."""
+        s = self.s
+        if s.lie_in:
+            self._ev(now, "lie_in_ended", reason=reason)
+        s.lie_in, s.lie_in_over, s.ended = False, True, True
+        self._end_flash(now, source)
+
     def tonight(self, now: float, action: str, minutes: int | None = None, source: str = "app") -> None:
-        if action == "skip":
-            if self.night is not None and now >= self.night.end:
+        if action == "end":
+            if not self.running():
+                raise NightNotRunning("There is no night running to end right now.")
+            self.end_night(now, source)
+        elif action == "skip":
+            if self.s.lie_in or (self.running() and self.night is not None and self.s.phase_id == "wake"):
+                self.end_night(now, source, "off pressed")   # in the morning "off" means "I'm up", not "skip tonight"
+                action = "end"
+            elif self.night is not None and now >= self.night.end:
                 self.s.skip_next = True              # this morning's night is over; "tonight" means the next one
             else:
                 self.s.skip = True
@@ -226,6 +260,17 @@ class NightEngine:
     LIE_IN_UP_S = 3 * 60        # out of bed this long = got up, the night is over (short: the side must not heat an empty bed)
     LIE_IN_UP_SNOOZE_S = 10 * 60  # while a snoozed alarm is still to come, a longer break (a bathroom trip) doesn't end it
 
+    # The person's phone (by the bed) and watch (matching the pad's heart rate) both stop vouching for this side, after
+    # having done so earlier in the night, while something stays on the pad (a dog on the warm side: the pad still reads
+    # "occupied" with a heart rate and the radar keeps seeing it). From a real night's trace: the phone vote dropped out
+    # and the watch vote dropped out when the person walked away (they vanish, they do not vote 0); the pad was empty
+    # ~9 min, then the dog got on (pad hr 49-70, jumping about; the watch's last reading frozen at 61, state "unsure",
+    # no usable diff). While asleep and present the personal votes also drop for 5-10 min at a time (watch batches),
+    # so "gone" alone is not enough: the pad must also have been empty for LIE_IN_GAP_S, or the watch and pad
+    # clearly disagree. Without any phone/watch signal earlier, nothing here applies.
+    LIE_IN_PERSONAL_GONE_S = 3 * 60   # both personal votes absent (or 0) this long
+    LIE_IN_GAP_S = 60                 # the pad empty at least this long after they dropped out
+
     def _lie_in(self, now: float, n: ResolvedNight, present: bool | None, active: float | None, away: bool) -> bool:
         """Past the night's end but still in bed: keep the wake target going until they get up. Needs positive presence
         when the night ends; unknown presence, away, an empty side: the night ends on time as always."""
@@ -243,13 +288,32 @@ class NightEngine:
                 s.lie_in_over = True
                 return False
             s.lie_in = True
+            s.personal_gap = False                       # only a departure DURING the lie-in counts (a dead watch earlier
+            if s.personal_gone_since is not None:        # in the night must not end it the moment it starts)
+                s.personal_gone_since = now
             self._ev(now, "lie_in_started", end=n.end, until=cap)
         up_s = self.LIE_IN_UP_SNOOZE_S if sn and now < sn + self.LIE_IN_AFTER_ALARM_S else self.LIE_IN_UP_S
         if now >= cap or (s.absent_since is not None and now - s.absent_since >= up_s):
             s.lie_in, s.lie_in_over = False, True
             self._ev(now, "lie_in_ended", reason="cap" if now >= cap else "got up")
             return False
+        if (s.personal_seen and s.personal_gone_since is not None and now - s.personal_gone_since >= self.LIE_IN_PERSONAL_GONE_S
+                and (s.personal_gap or (self.personal or {}).get("disagree"))):
+            s.lie_in, s.lie_in_over = False, True
+            self._ev(now, "lie_in_ended", reason="your phone and watch left the bed")
+            return False
         return True
+
+    def _track_personal(self, now: float, present: bool | None) -> None:
+        s, pv = self.s, self.personal
+        if pv is None or not s.started:
+            return
+        if pv.get("voting"):
+            s.personal_seen, s.personal_gone_since, s.personal_gap = True, None, False
+        elif s.personal_seen:
+            s.personal_gone_since = s.personal_gone_since or now
+            if present is False and s.absent_since is not None and now - s.absent_since >= self.LIE_IN_GAP_S:
+                s.personal_gap = True
 
     # ---------- tick ----------
     def tick(self, now: float, present: bool | None, home: bool | None = None, active: float | None = None) -> float | None:
@@ -335,13 +399,15 @@ class NightEngine:
             self._began(now, "schedule")
         n = self._sleep_tick(now, rhythm, d, n, present, active)
 
+        self._track_personal(now, present)
+        s_ended = self.s.ended
         base: float | None
         phase = None
         if self.s.skip:
             state, base = "skipped", None
         elif self.s.pause_until and now < self.s.pause_until:
             state, base = "paused", None
-        elif now >= n.end and not self._lie_in(now, n, present, active, away):
+        elif s_ended or (now >= n.end and not self._lie_in(now, n, present, active, away)):
             state, base = "done", None
         elif away:
             state, base = "away", None
@@ -366,7 +432,7 @@ class NightEngine:
         if state == "done" and self.s.state != "done" and self.s.started:
             # when the night really ended (the alarm can move it before the schedule's end): the summary counts
             # getting up only until here
-            self._ev(now, "night_done", end=n.end)
+            self._ev(now, "night_done", end=min(n.end, now), **({"by_hand": True} if self.s.ended else {}))
         self.s.state, self.s.phase_id, self.s.base_c = state, phase, base
         target = base
 
@@ -414,7 +480,7 @@ class NightEngine:
 
     def _given_up_early(self, now: float, n: ResolvedNight, sched, present: bool | None, active: float | None) -> bool:
         s = self.s
-        if not (s.started and s.started_by == "presence" and sched.start_on_presence and s.in_bed is not None
+        if not (s.started and not s.ended and s.started_by == "presence" and sched.start_on_presence and s.in_bed is not None
                 and s.absent_since is not None):
             return False
         if not (present or active is not None) or getattr(self, "away", False):

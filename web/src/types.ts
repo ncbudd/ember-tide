@@ -26,7 +26,7 @@ interface FlashState { kind: "hot" | "cold"; start: number; end: number; ease_en
 export interface GuestSide { since: number; on: boolean; temp_c: number; morning_off_min: number; ends: number | null; dial?: boolean }
 export interface NightView {
   state: string; phase_id: string | null; phase_name: string | null; started: boolean; in_bed: number | null;
-  base_c: number | null; target_c: number | null; skip: boolean; pause_until: number | null; home: boolean | null; away?: { since: number; until: number | null; by: string | null; held: number } | null; away_check?: { night: string; kind: "away" | "back"; why: string } | null;
+  base_c: number | null; target_c: number | null; skip: boolean; lie_in?: boolean; running?: boolean; pause_until: number | null; home: boolean | null; away?: { since: number; until: number | null; by: string | null; held: number } | null; away_check?: { night: string; kind: "away" | "back"; why: string } | null;
   /** Settling in: gate false = the start is held until the bed backs the presence; absent when no bed radar is in use */
   settle?: { gate: boolean; why: string; share?: number } | null; context?: NightContext | null;
   guest?: GuestSide | null;
