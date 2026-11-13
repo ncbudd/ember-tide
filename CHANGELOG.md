@@ -5,6 +5,8 @@ minor versions, and each entry says what to check when upgrading.
 
 ## 0.1.0 (first public release)
 
+- **The container no longer runs as root.** It runs as uid and gid 1000. If an existing bind-mounted `data` folder is owned by root, run
+  `chown -R 1000:1000` on it once before updating (or add `user: "0:0"` to the Compose service to keep the old behaviour).
 - **Wear OS app.** Opening Ember & Tide on the watch shows pages you swipe between (Compose for Wear OS). Page 1 fits the round screen with
   nothing to scroll: your side's state, the wind-down and in-bed times (or the next change), temperature with − and + and the crown, and
   Off tonight / Resume / Turn on now. Page 2: Hot flash (snowflake) and Cold flash (sun) with +5 min and Stop. Page 3: your partner's side,

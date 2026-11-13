@@ -65,6 +65,7 @@ object EmberCrypto {
         val ikm = hkdf(authSecret, shared, "WebPush: info\u0000".toByteArray() + uaPublic + asPublic, 32)
         val cek = hkdf(salt, ikm, "Content-Encoding: aes128gcm\u0000".toByteArray(), 16)
         val nonce = hkdf(salt, ikm, "Content-Encoding: nonce\u0000".toByteArray(), 12)
+        // nosemgrep: kotlin.lang.security.gcm-detection.gcm-detection -- decrypt only; the nonce is the RFC 8188 value derived per message from the sender's random salt, never chosen here
         val cipher = Cipher.getInstance("AES/GCM/NoPadding").apply { init(Cipher.DECRYPT_MODE, SecretKeySpec(cek, "AES"), GCMParameterSpec(128, nonce)) }
         val plain = cipher.doFinal(body)
         var end = plain.size - 1

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -247,10 +248,13 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         h.setdefault("X-Frame-Options", "DENY")
         if h.get("content-type", "").startswith("text/html"):
             host = request.headers.get("host", "")
+            if not re.fullmatch(r"[A-Za-z0-9.\-\[\]:]{1,255}", host):    # only a plain host[:port] goes into the policy
+                host = "localhost"
             # the app's own scripts only; Google Fonts for type; live updates over this server's own WebSocket
             h.setdefault("Content-Security-Policy", "; ".join((
                 "default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
                 "font-src 'self' https://fonts.gstatic.com data:", "img-src 'self' data: blob:",
+                # nosemgrep: python.django.security.injection.tainted-url-host.tainted-url-host, javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- host is the sanitised request Host (ws:// is needed for plain-HTTP LAN installs), used only inside a CSP source list
                 f"connect-src 'self' wss://{host} ws://{host}", "worker-src 'self'", "manifest-src 'self'",
                 "object-src 'none'", "base-uri 'self'", "form-action 'self'", "frame-ancestors 'none'")))
         else:

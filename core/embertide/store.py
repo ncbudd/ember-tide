@@ -38,6 +38,7 @@ class Store:
         self._db.executescript(SCHEMA)
         for col in ("bed_occ INTEGER", "person TEXT"):
             try:
+                # nosemgrep: python.lang.security.audit.formatted-sql-query.formatted-sql-query, python.sqlalchemy.security.sqlalchemy-execute-raw-query.sqlalchemy-execute-raw-query -- col comes from the literal tuple above, never from input (DDL cannot be parameterised)
                 self._db.execute(f"ALTER TABLE telemetry ADD COLUMN {col}")
             except sqlite3.OperationalError:
                 pass

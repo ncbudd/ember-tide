@@ -32,7 +32,9 @@ The web port is different: if 8790 is taken, change the left number (`"8791:8790
 ### The data folder cannot be written (Synology, Unraid, NAS)
 
 Symptoms: the app restarts over and over, and `docker compose logs embertide` mentions "unable to open database file" or "permission denied".
-The container runs as root, so the usual cause is the folder itself: the `data` folder was not created, the path in the Compose file is wrong
+The container runs as an unprivileged user (uid and gid 1000), so the most common cause is ownership: a data folder created by root (by an older image, or by hand) cannot be written.
+Fix it once with `chown -R 1000:1000 /path/to/data` (on Unraid, from the terminal: `chown -R 1000:1000 /mnt/user/appdata/embertide/data`), or keep the old behaviour by adding
+`user: "0:0"` to the service in the Compose file. Other causes are the folder itself: the `data` folder was not created, the path in the Compose file is wrong
 (a relative `./data` in a stack tool that keeps the file elsewhere; use the full path), or the share is read-only or has a restrictive ACL.
 On Unraid, use `/mnt/user/appdata/embertide/data` and check the share is not read-only. On Synology, create the folder inside a shared folder such as
 `docker`, and check Control Panel, Shared Folder, Permissions. Create the `data` folder yourself before starting, and keep it off network mounts that do not support file locking.

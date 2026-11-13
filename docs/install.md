@@ -553,7 +553,8 @@ docker run -d --name ember-tide --restart unless-stopped \
 ```
 
 For a real bed against a broker you already run, add `-e ET_BED=orion-mqtt -e ET_MQTT_URL=mqtt://192.168.1.10:1883`. A named volume (above) or a folder
-(`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`. The image listens on `0.0.0.0:8790`, keeps its data in `/data`, and has a health check on `/healthz`.
+(`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`. The container runs as uid and gid 1000, not root. A fresh named volume just works; a folder that an older
+(root) image already wrote to needs a one-time `chown -R 1000:1000 /srv/ember-tide` (see [troubleshooting](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas)). The image listens on `0.0.0.0:8790`, keeps its data in `/data`, and has a health check on `/healthz`.
 
 ### Build the image yourself
 

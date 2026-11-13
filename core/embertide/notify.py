@@ -1564,6 +1564,7 @@ class HaActionListener:
         import json as _json
 
         import websockets
+        # nosemgrep: javascript.lang.security.detect-insecure-websocket.detect-insecure-websocket -- the Home Assistant URL is owner-configured; ws:// mirrors an http:// LAN URL, wss:// is used for https://
         ws_url = ("wss://" if self.url.startswith("https") else "ws://") + self.url.split("://", 1)[1] + "/api/websocket"
         backoff = 2
         while True:

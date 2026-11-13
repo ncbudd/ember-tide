@@ -19,6 +19,7 @@ services:
       - "8790:8790"                            # web app and Studio; put HTTPS in front before exposing it (docs/install.md)
     volumes:
       - ./data:/data                           # the whole database lives here: back this folder up
+    # user: "0:0"                              # the container runs as uid 1000; if an old root-owned ./data cannot be written, run `chown -R 1000:1000 ./data` once (or uncomment this)
     environment:
       TZ: America/New_York                     # YOUR time zone: schedules are local time
       ET_TZ: America/New_York

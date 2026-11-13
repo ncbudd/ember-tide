@@ -109,6 +109,7 @@ def scan_history_contents(root: Path, deny: list[re.Pattern], all_refs: bool = F
     commit = path = ""
     cmd = ["git", "log", *_revs(all_refs), "-p", "-U0", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames",
            "--format=%x00%h"]
+    # nosemgrep: python.lang.compatibility.python36.python36-compatibility-Popen1, python.lang.compatibility.python36.python36-compatibility-Popen2 -- this project needs Python 3.12; the 3.6 rule is irrelevant
     with subprocess.Popen(cmd, cwd=root, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                           text=True, encoding="utf-8", errors="replace") as proc:
         assert proc.stdout is not None

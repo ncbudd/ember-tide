@@ -16,6 +16,7 @@ class Browser:
                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         for _ in range(50):
             try:
+                # nosemgrep: python.lang.security.audit.insecure-transport.urllib.insecure-urlopen.insecure-urlopen -- local Chrome DevTools endpoint on localhost, no TLS exists there
                 tabs = json.load(urllib.request.urlopen(f"http://localhost:{PORT}/json"))
                 page = next(t for t in tabs if t["type"] == "page")
                 break

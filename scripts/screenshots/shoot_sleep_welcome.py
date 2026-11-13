@@ -4,6 +4,7 @@ from cdp import Browser
 def patch(pid, body):
     r = urllib.request.Request(f"http://localhost:8871/api/people/{pid}/settings", data=json.dumps(body).encode(),
                                method="PATCH", headers={"Content-Type": "application/json"})
+    # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected -- fixed http://localhost URL built in this script, no external input
     urllib.request.urlopen(r).read()
 
 b = Browser()

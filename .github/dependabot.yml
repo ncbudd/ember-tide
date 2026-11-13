@@ -31,6 +31,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Major bumps (React 19, router 7, TypeScript 7, Vite 8, Gradle 9, odd-numbered Node) are migrations, not updates: do them by hand.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         patterns: ["*"]
@@ -44,6 +48,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Major bumps (React 19, router 7, TypeScript 7, Vite 8, Gradle 9, odd-numbered Node) are migrations, not updates: do them by hand.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       gradle:
         patterns: ["*"]
@@ -56,6 +64,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Major bumps (React 19, router 7, TypeScript 7, Vite 8, Gradle 9, odd-numbered Node) are migrations, not updates: do them by hand.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       docker:
         patterns: ["*"]
