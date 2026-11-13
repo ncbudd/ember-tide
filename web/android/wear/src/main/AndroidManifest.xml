@@ -54,7 +54,7 @@
         </service>
 
         <!-- the watch app: bed control for your side (and "Heart rate at night" as a step inside it) -->
-        <!-- nosemgrep: java.android.security.exported_activity.exported_activity -- the launcher activity must be exported -->
+        <!-- nosemgrep: java.android.security.exported_activity.exported_activity (reason: the launcher activity must be exported) -->
         <activity android:name=".MainActivity" android:exported="true" android:label="Ember &amp; Tide"
             android:taskAffinity="" android:theme="@android:style/Theme.DeviceDefault">
             <intent-filter>

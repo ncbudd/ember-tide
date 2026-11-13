@@ -3,6 +3,29 @@
 All notable changes. The project follows [Semantic Versioning](https://semver.org/) loosely while it is 0.x: anything may change between
 minor versions, and each entry says what to check when upgrading.
 
+## 0.1.6
+
+**Upgrade note:** the container now runs as uid and gid 1000 instead of root. If an existing bind-mounted `data` folder
+is owned by root, run `chown -R 1000:1000` on it once before updating, or add `user: "0:0"` to the Compose service to
+keep the old behaviour (see docs/install.md).
+
+- **Partner away, no false dog.** When one side's sleeper is away and that pad picks up the other sleeper's own
+  heartbeat (it tracks theirs and that side's radar sees nobody), it's treated as an echo of them, not as a pet, and
+  never makes the present sleeper's side look empty.
+- **Lie-in.** Still in bed when the night is due to end? The wake temperature keeps running until you get up (at most
+  45 minutes). A snoozed or later alarm keeps the morning going a little longer, and the phone now sends alarm
+  changes right away.
+- **Morning summary counts only real trips.** "Up N×" counts getting up while the night was running, not lying down
+  before it started, getting up after it ended, or moments when the sensors misread an echo.
+- **AI review reads the night properly.** Your phase temperatures are read as the plan you chose, the bedroom
+  temperature, the season and whether the pad reached its setting are taken into account, and Autopilot's own
+  findings and suggestions are summed up. With no sign of discomfort it doesn't suggest a change.
+- **Morning review on Tonight.** With "Every morning" on, the review arrives as a notification ("My night, reviewed",
+  its own switch) and as a "Last night's review" card you can swipe away.
+- **Security.** Every pull request runs tests, type checks, Android and container builds, Semgrep, Trivy, gitleaks,
+  CodeQL and dependency review; releases are scanned, signed (cosign) and published with an SBOM and build
+  provenance. React Router updated to 7.18 (two moderate advisories).
+
 ## 0.1.0 (first public release)
 
 - **The container no longer runs as root.** It runs as uid and gid 1000. If an existing bind-mounted `data` folder is owned by root, run

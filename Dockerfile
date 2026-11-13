@@ -12,6 +12,8 @@ LABEL org.opencontainers.image.title="Ember & Tide" \
       org.opencontainers.image.source="https://github.com/Ncbudd/ember-tide" \
       org.opencontainers.image.licenses="PolyForm-Noncommercial-1.0.0"
 WORKDIR /app
+# Debian security fixes published after the base image was built (the release scan fails on fixed HIGH/CRITICAL ones)
+RUN apt-get update && apt-get upgrade -y --no-install-recommends && rm -rf /var/lib/apt/lists/*
 COPY core/ /app/core
 RUN pip install --no-cache-dir /app/core
 COPY --from=web /web/dist /app/web

@@ -25,7 +25,7 @@ registerServiceWorker();          // Web Push for the browser / iPhone Home Scre
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <ErrorBoundary full name="app">
-    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <BrowserRouter>
       <AuthGate>
         <Provider>
           <App />

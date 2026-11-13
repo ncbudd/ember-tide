@@ -28,7 +28,7 @@ cd ../web && npm run dev                                                        
 ```
 
 Studio, Simulator moves the clock, puts people in bed and raises faults. `ET_AUTH=off` is for local work only.
-The Android app builds with Gradle (see [docs/android.md](docs/android.md)); it is not part of CI.
+The Android app builds with Gradle (see [docs/android.md](docs/android.md)). CI builds the minimal (no Google) flavor and runs its unit tests on every pull request.
 
 ## Before you open a pull request
 
@@ -36,7 +36,11 @@ The Android app builds with Gradle (see [docs/android.md](docs/android.md)); it 
 cd core && uv run pytest -q           # Python tests
 cd ../web && npx tsc --noEmit -p . && npm run build
 python scripts/publish_check.py       # no secrets, no private words
+cd ../web/android && ./gradlew :app:testMinimalDebugUnitTest :app:assembleMinimalDebug   # if you touched Android
 ```
+
+Every pull request also runs the security checks (Semgrep, Trivy, gitleaks, CodeQL and dependency review). Fill in
+the pull request template: root cause, fix, how you verified it, and a release note.
 
 - Behaviour changes come with tests. Tests that need private real-world data (for example `test_real_hc.py`, through `ET_REAL_HC`) skip
   themselves when it is absent. Run only the files you touched while iterating, then the whole suite once.

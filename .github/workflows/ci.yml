@@ -45,7 +45,16 @@ jobs:
         with:
           persist-credentials: false
       - name: Build the image
-        run: docker build -t ember-tide .
+        run: docker build -t ember-tide:ci .
+      # same gate as the release scan, so a fixable HIGH/CRITICAL in the image shows up on the pull request, not at release
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ember-tide:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
   # The Android app: the no-Google ("minimal") flavor, so CI never needs a Firebase file or a signing key.
   # Release builds, signing and the Google push flavor are in release.yml.

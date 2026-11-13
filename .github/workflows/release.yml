@@ -115,7 +115,7 @@ jobs:
         with:
           node-version: 22
           package-manager-cache: false  # release builds never reuse a cache
-      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      - uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
           java-version: 21
@@ -222,3 +222,14 @@ jobs:
           tag="v$VERSION"
           gh release create "$tag" release-files/*.apk release-files/SHA256SUMS.txt \
             --repo "$REPO" --target "$GITHUB_SHA" --title "Ember & Tide $VERSION" --notes-file notes.md
+
+  # ---------- (e) tell the reporters ----------
+  notify:
+    needs: [version, release]
+    permissions:
+      issues: write
+      pull-requests: read
+      contents: read
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/release-notify.yml@v1
+    with:
+      tag: v${{ needs.version.outputs.version }}
