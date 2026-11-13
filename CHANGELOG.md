@@ -3,6 +3,20 @@
 All notable changes. The project follows [Semantic Versioning](https://semver.org/) loosely while it is 0.x: anything may change between
 minor versions, and each entry says what to check when upgrading.
 
+## 0.1.8
+
+**Upgrade note:** the example Compose file now keeps your data in `./data` and adds a tiny `data-init` helper that
+prepares the folder before the app starts (new, empty or root-owned folders are handed to the app's user). If you copied
+an earlier example, add the `data-init` service and the `depends_on` lines from the new one, or keep your own setup.
+
+- **Easier first start.** A fresh `docker compose up -d` with the example file just works: no folder to create, no
+  permissions to fix. If the data folder can't be written, the app stops with a plain message saying how to fix it.
+- **Beta testing guide.** `TESTING.md`: what to try, safety notes, which connection to start with (simulator, then the
+  maker's API key), known limits and how to report problems. The install guide covers running without Docker.
+- **Version in Studio.** Studio, Help shows the version to include in bug reports. Release notes list the APK signing
+  certificate's fingerprint.
+- **Suggestions in your clock style.** The tuning guide's times follow your 12/24-hour setting.
+
 ## 0.1.7
 
 **Upgrade notes:** the image now includes the Anthropic SDK and the MCP server package. `ET_BED` with an unknown value

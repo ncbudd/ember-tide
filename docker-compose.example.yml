@@ -24,7 +24,7 @@ services:
     restart: "no"
 
   embertide:
-    image: ghcr.io/ncbudd/ember-tide:latest    # ready-made image (amd64 and arm64). Pin a version, e.g. :0.1.7, if you prefer
+    image: ghcr.io/ncbudd/ember-tide:latest    # ready-made image (amd64 and arm64). Pin a version, e.g. :0.1.8, if you prefer
     # build: .                                 # or build it from this checkout instead (then also remove the image line above)
     container_name: ember-tide
     restart: unless-stopped
