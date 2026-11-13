@@ -72,14 +72,14 @@ dependencies {
     implementation "androidx.health.connect:connect-client:1.1.0"
     implementation "androidx.window:window:1.3.0"          // fold posture + hinge position for the web app (see MainActivity)
     implementation "androidx.window:window-java:1.3.0"
-    implementation "androidx.work:work-runtime-ktx:2.11.2"
+    implementation "androidx.work:work-runtime-ktx:2.12.0"
     implementation "org.unifiedpush.android:connector:3.3.5"
     // Watch handoff (Wear data layer). Both builds keep it; every call is wrapped so a phone without Play services just skips it.
     implementation "com.google.android.gms:play-services-wearable:20.0.1"
     // Google push: only the full build carries Firebase.
     fullImplementation platform("com.google.firebase:firebase-bom:35.1.0")
     fullImplementation "com.google.firebase:firebase-messaging"
-    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0"
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0"
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
