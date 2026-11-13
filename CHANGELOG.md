@@ -3,6 +3,26 @@
 All notable changes. The project follows [Semantic Versioning](https://semver.org/) loosely while it is 0.x: anything may change between
 minor versions, and each entry says what to check when upgrading.
 
+## 0.1.9
+
+**Upgrade notes:** behind Cloudflare (tunnel or proxy) with `ET_TRUST_PROXY=on`, add `ET_PROXY_CLOUDFLARE=on` to keep
+using Cloudflare's visitor address. With `ET_AUTH_HEADER`, `ET_TRUSTED_PROXIES` must now name your proxy. A calendar
+link that redirects now asks for the final link. Rhythm and phase ids are limited to letters, digits, `-` and `_`.
+
+- **Phone notifications with no setup.** The Android app (Google push version) now gets notifications through the
+  Ember & Tide push relay when your server has no Firebase key of its own. Messages are encrypted end to end; the relay
+  only forwards them. Turn it off with `ET_PUSH_RELAY=off`; Web Push, ntfy, Home Assistant and webhooks remain.
+- **Safety.** A side left heating or cooling with nobody on it turns off after 2 hours (a timer you chose still runs).
+  "Turn my side on" stops when your rhythm starts; flashes end when you get up or go away; every-night changes,
+  suggestions and the assistant always respect your limits; an "off" press is never lost while another command is on
+  its way; a lie-in past noon is no longer cut off; the bedside dial works in °C.
+- **Security and privacy.** Stricter proxy and sign-in handling; viewers and sleepers no longer see the partner's live
+  sensors or the AI server's address; calendar links don't follow redirects and are hidden in logs; an account with
+  no side doesn't count as owning every side; the MCP lockout behind a proxy is fixed.
+- **Fixes.** "Up N×" no longer double-counts a brief sensor blip; deleting a pet no longer breaks notifications;
+  "in bed after 0 minutes" is respected; older nights find their events again; the Both view shows "I'm up" and turn
+  on; the AI model page handles Replace and load errors; AI texts point to Studio, AI model.
+
 ## 0.1.8
 
 **Upgrade note:** the example Compose file now keeps your data in `./data` and adds a tiny `data-init` helper that
