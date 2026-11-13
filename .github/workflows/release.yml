@@ -222,3 +222,14 @@ jobs:
           tag="v$VERSION"
           gh release create "$tag" release-files/*.apk release-files/SHA256SUMS.txt \
             --repo "$REPO" --target "$GITHUB_SHA" --title "Ember & Tide $VERSION" --notes-file notes.md
+
+  # ---------- (e) tell the reporters ----------
+  notify:
+    needs: [version, release]
+    permissions:
+      issues: write
+      pull-requests: read
+      contents: read
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/release-notify.yml@v1
+    with:
+      tag: v${{ needs.version.outputs.version }}
