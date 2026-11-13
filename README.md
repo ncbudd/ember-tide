@@ -144,16 +144,16 @@ Five steps. The [install guide](docs/install.md) has the same steps with what yo
 TrueNAS, Proxmox, Raspberry Pi and Linux, Windows and Mac, Portainer, CasaOS and Home Assistant users.
 
 1. **Pick your platform** in [Which way should I install?](docs/install.md#which-way-should-i-install). You need an always-on computer with Docker.
-2. **Get the Compose file** (the project folder holds it and the broker's settings; the app itself comes as a ready-made image):
+2. **Get the Compose file.** On a NAS (Synology, Unraid) or Windows or Mac, follow the guided steps in [Which way should I install?](docs/install.md#which-way-should-i-install) instead of the terminal commands below. (The project folder holds it and the broker's settings; the app itself comes as a ready-made image.)
    ```bash
    git clone https://github.com/Ncbudd/ember-tide.git
    cd ember-tide
-   cp docker-compose.example.yml docker-compose.yml     # set TZ and ET_TZ to your time zone
+   cp docker-compose.example.yml docker-compose.yml     # set TZ to your time zone
    ```
 3. **Start it:** `docker compose up -d` (it pulls `ghcr.io/ncbudd/ember-tide`), then open `http://<server-address>:8790` ([details](docs/install.md#a-the-compose-file-and-the-broker); to build the image yourself, see [Advanced](docs/install.md#advanced-plain-docker-and-running-from-source)).
 4. **Set up the app:** create the owner account and follow the short setup ([first-run setup](docs/install.md#b-first-run-setup-in-the-app)). It starts with the
    built-in simulator, so you can look around in **Studio, Simulator** first.
-5. **Connect the bed** when you are ready: switch two lines in the Compose file and add one DNS record
+5. **Connect the bed** when you are ready. Easiest: switch two lines in the Compose file to use a personal API key from Orion's web app. Advanced and fully local: add one DNS record
    ([point the bed at your server](docs/install.md#c-point-the-bed-at-your-server), [docs/bed-cutover.md](docs/bed-cutover.md), including how to roll back).
 
 All settings are in [docs/configuration.md](docs/configuration.md).
