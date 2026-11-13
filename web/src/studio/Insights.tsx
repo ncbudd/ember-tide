@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../api";
 import Fold from "../components/Fold";
 import Tip from "../components/Tip";
@@ -20,7 +21,7 @@ export default function Insights() {
   const [pid, setPid] = useState<string | null>(null);
   const [items, setItems] = useState<Insight[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [ai, setAi] = useState<{ configured: boolean; model: string | null } | null>(null);
+  const [ai, setAi] = useState<{ configured: boolean; model: string | null; preset?: string; preset_name?: string; local?: boolean } | null>(null);
   const [q, setQ] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
@@ -29,7 +30,7 @@ export default function Insights() {
   const personRef = useRef<string | undefined>(undefined);
   personRef.current = person?.id;                               // an answer that arrives after switching person is dropped
   useEffect(() => { setItems(null); setMsgs([]); load(); }, [person?.id]);   // the chat and its change cards belong to one person
-  useEffect(() => { api.get<{ configured: boolean; model: string | null }>("/api/ai/status").then(setAi).catch(() => {}); }, []);
+  useEffect(() => { api.get<{ configured: boolean; model: string | null; preset?: string; preset_name?: string; local?: boolean }>("/api/ai/status").then(setAi).catch(() => {}); }, []);
   if (!snap || !person) return null;
   const u = person.settings.units;
   const fmtP = (p: Proposal) => {
@@ -100,7 +101,7 @@ export default function Insights() {
         </div>
         <div className="box" style={{ alignContent: "start", minHeight: 420 }}>
           <div className="row"><span className="k">Ask about your sleep</span>
-            <Tip text={ai?.configured ? "Answers come from the AI model connected on the server. It runs on your own hardware." : "No AI model is connected, so answers come from the built-in analysis. See below to connect one."}>
+            <Tip text={ai?.configured ? (ai.local === false ? `Answers come from ${ai.preset_name ?? "the hosted AI provider"} connected in Studio → AI model. Night summaries sent for Ask go to that provider.` : `Answers come from ${ai.preset_name ?? "the AI model"} connected in Studio → AI model. Nothing leaves your network.`) : "No AI model is connected, so answers come from the built-in analysis. Connect one in Studio → AI model."}>
               <span className="chip" style={{ cursor: "default", color: ai?.configured ? "var(--good)" : "var(--mute)" }}>{ai?.configured ? `AI: ${ai.model}` : "Built-in analysis (no AI model connected)"}</span></Tip></div>
           <div style={{ display: "grid", gap: 10, maxHeight: 460, overflowY: "auto" }}>
             {msgs.length === 0 && <div className="chips">{SUGGESTED.map(s => <button key={s} className="chip" onClick={() => ask(s)}>{s}</button>)}</div>}
@@ -136,7 +137,8 @@ export default function Insights() {
             <span>Let the assistant make small changes for me
               <Tip text="Only on your own side, only when you ask: tonight up to 1.5 °C (about 3 °F) warmer or cooler in total, and starting or stopping a flash. Never your rhythm, Autopilot, notifications or turning the night off. Every change can be undone." /></span>
           </label>
-          {!ai?.configured && <p className="faint" style={{ fontSize: 12 }}>To connect a local model, set <code>ET_LLM_URL=http://&lt;ollama-host&gt;:11434/v1</code> and <code>ET_LLM_MODEL</code>. It runs on your own hardware; no sleep data leaves the house.</p>}
+          {!ai?.configured && <p className="faint" style={{ fontSize: 12 }}>To ask open questions with an AI model, connect one in <Link to="/studio/ai">Studio → AI model</Link>. Nothing leaves the house unless you choose a hosted provider.</p>}
+          {ai?.configured && ai.local === false && <p className="faint" style={{ fontSize: 12 }}>Summaries sent for Ask go to {ai.preset_name ?? "the connected AI provider"} (<Link to="/studio/ai">Studio → AI model</Link>).</p>}
         </div>
       </div>
     </>

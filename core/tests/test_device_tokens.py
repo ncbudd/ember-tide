@@ -320,9 +320,11 @@ def test_tickets_are_redacted_from_logs():
 TUN = "192.168.1.30"                     # cloudflared on the home network, connecting over plain http
 
 
-def test_cf_connecting_ip_wins_over_everything():
+def test_cf_connecting_ip_wins_only_when_cloudflare_enabled():
     h = {"cf-connecting-ip": OUT, "x-forwarded-for": "10.0.0.9", "x-real-ip": "10.0.0.8", "forwarded": "for=10.0.0.7"}
-    assert client_ip(h, TUN, True) == OUT
+    assert client_ip(h, TUN, True, cloudflare=True) == OUT
+    # Default (cloudflare=False): CF-Connecting-IP is ignored; rightmost untrusted X-Forwarded-For wins
+    assert client_ip({"cf-connecting-ip": "8.8.8.8", "x-forwarded-for": OUT}, TUN, True) == OUT
 
 
 def test_spoofed_private_forwarding_headers_through_cloudflare_dont_make_you_home():
@@ -330,7 +332,7 @@ def test_spoofed_private_forwarding_headers_through_cloudflare_dont_make_you_hom
     for extra in ({"x-forwarded-for": f"192.168.1.5, {OUT}"}, {"forwarded": "for=192.168.1.5"}, {"x-real-ip": "192.168.1.5"},
                   {"x-forwarded-for": "127.0.0.1"}):
         h = {"cf-connecting-ip": OUT, **extra}
-        assert client_ip(h, TUN, True) == OUT, extra
+        assert client_ip(h, TUN, True, cloudflare=True) == OUT, extra
         assert not from_home(h, TUN, True), extra
 
 
@@ -354,16 +356,18 @@ def test_xff_takes_the_rightmost_untrusted_hop():
 def test_headers_from_a_public_peer_are_ignored():
     # straight from the internet (a port forward): forwarding headers are the visitor's own words
     for h in ({"cf-connecting-ip": "8.8.8.8"}, {"x-forwarded-for": "8.8.8.8"}, {"forwarded": "for=8.8.8.8"}, {"x-real-ip": "8.8.8.8"}):
-        assert client_ip(h, OUT, True) == OUT, h
+        assert client_ip(h, OUT, True, cloudflare=True) == OUT, h
         assert not from_home(h, OUT, True)
 
 
 def test_trust_proxy_off_ignores_headers():
-    assert client_ip({"cf-connecting-ip": "8.8.8.8", "x-forwarded-for": "8.8.4.4"}, TUN, False) == TUN
+    assert client_ip({"cf-connecting-ip": "8.8.8.8", "x-forwarded-for": "8.8.4.4"}, TUN, False, cloudflare=True) == TUN
 
 
 def test_spoofed_header_cant_set_up_the_owner_through_the_tunnel(tmp_path):
-    with TestClient(create_app(cfg_for(tmp_path, trust_proxy=True)), client=(TUN, 40000)) as c:
+    cfg = cfg_for(tmp_path, trust_proxy=True)
+    cfg.proxy_cloudflare = True
+    with TestClient(create_app(cfg), client=(TUN, 40000)) as c:
         for h in ({"CF-Connecting-IP": OUT, "X-Forwarded-For": "192.168.1.5"}, {"CF-Connecting-IP": "192.168.1.5"},
                   {"X-Forwarded-For": "192.168.1.5"}, {"Forwarded": "for=192.168.1.5"}, {"X-Real-IP": "192.168.1.5"}):
             assert c.post("/api/auth/setup", json={"username": "mallory", "password": PW}, headers=h).status_code == 403, h
@@ -373,7 +377,9 @@ def test_spoofed_header_cant_set_up_the_owner_through_the_tunnel(tmp_path):
 
 def test_spoofed_private_header_doesnt_skip_the_global_bucket(tmp_path, monkeypatch):
     monkeypatch.setattr(auth_api, "_SLOWED", auth_api.SLOW_MAX)          # slowed tries piled up: outsiders are refused
-    with TestClient(create_app(cfg_for(tmp_path, trust_proxy=True)), client=(TUN, 40000)) as c:
+    cfg = cfg_for(tmp_path, trust_proxy=True)
+    cfg.proxy_cloudflare = True
+    with TestClient(create_app(cfg), client=(TUN, 40000)) as c:
         assert c.post("/api/auth/setup", json={"username": "alex", "password": PW}).status_code == 200
         now = time.time()
         for _ in range(60):
@@ -385,7 +391,9 @@ def test_spoofed_private_header_doesnt_skip_the_global_bucket(tmp_path, monkeypa
 
 
 def test_per_address_limit_follows_the_real_visitor_not_a_spoofed_xff(tmp_path):
-    with TestClient(create_app(cfg_for(tmp_path, trust_proxy=True)), client=(TUN, 40000)) as c:
+    cfg = cfg_for(tmp_path, trust_proxy=True)
+    cfg.proxy_cloudflare = True
+    with TestClient(create_app(cfg), client=(TUN, 40000)) as c:
         assert c.post("/api/auth/setup", json={"username": "alex", "password": PW}).status_code == 200
         codes = []
         for i in range(22):                 # a new made-up X-Forwarded-For each try, same real address from Cloudflare

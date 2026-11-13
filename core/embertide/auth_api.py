@@ -158,18 +158,18 @@ def _is_home(addr: str) -> bool:
     return a.is_private or a.is_loopback or a.is_link_local
 
 
-def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool, nets: tuple = ()) -> str:
+def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool, nets: tuple = (), cloudflare: bool = False) -> str:
     """The visitor's address, for per-address limits and the sign-in list.
 
     Forwarding headers count only with ET_TRUST_PROXY=on and only when the connection itself comes from a private or
     loopback address (plausibly the tunnel / proxy): straight from the internet they are the visitor's own words.
-    Then Cloudflare's CF-Connecting-IP wins (Cloudflare sets it and overwrites any the visitor sends); otherwise the
-    right-most address that isn't one of ours in X-Forwarded-For, then Forwarded, and X-Real-IP last (Cloudflare and
-    many proxies pass that one through untouched).
+    Cloudflare's CF-Connecting-IP counts only when ET_PROXY_CLOUDFLARE=on (behind a non-Cloudflare proxy a client can
+    forge it); otherwise the right-most address that isn't one of ours in X-Forwarded-For wins, then Forwarded, and
+    X-Real-IP last (many proxies pass that one through untouched).
 
     ET_TRUSTED_PROXIES (`nets`) narrows "plausibly the proxy" from every private address to the listed networks."""
     if trust_proxy and is_trusted_peer(peer or "?", nets):
-        if (cf := _ip(req_headers.get("cf-connecting-ip"))):
+        if cloudflare and (cf := _ip(req_headers.get("cf-connecting-ip"))):
             return cf
         if req_headers.get("x-forwarded-for") and (f := _rightmost_untrusted([_ip(x) for x in req_headers["x-forwarded-for"].split(",")], nets)):
             return f
@@ -180,6 +180,11 @@ def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool, 
     return peer or "?"
 
 
+def peer_ip(req_headers: dict[str, str], peer: str | None, cfg) -> str:
+    """Resolve the visitor's address using the server's proxy trust settings."""
+    return client_ip(req_headers, peer, cfg.trust_proxy, parse_nets(cfg.trusted_proxies), getattr(cfg, "proxy_cloudflare", False))
+
+
 NOT_KNOWN_HERE = ("Your sign-in worked, but there is no Ember & Tide account for you. Ask the owner to add you "
                   "(Studio, People) with the same username.")
 
@@ -187,11 +192,14 @@ NOT_KNOWN_HERE = ("Your sign-in worked, but there is no Ember & Tide account for
 def header_identity(a: Auth, headers: dict[str, str], peer: str | None, cfg):
     """Forward-auth (ET_AUTH_HEADER): the proxy in front has already signed the visitor in and names them in a header.
 
-    Believed only when ET_TRUST_PROXY is on and the connection comes from a trusted proxy (see client_ip): anywhere
-    else the header is the visitor's own words and is ignored. Returns None (nothing to go on), a Principal (an
-    existing account), or a str (the name of someone who has no account here; never created automatically)."""
+    Believed only when ET_TRUST_PROXY is on, ET_TRUSTED_PROXIES names the proxy, and the connection comes from that
+    proxy: anywhere else the header is the visitor's own words and is ignored. Returns None (nothing to go on), a
+    Principal (an existing account), or a str (the name of someone who has no account here; never created automatically)."""
     names = [h.lower() for h in (cfg.auth_header, cfg.auth_header_email) if h]
-    if not names or not cfg.trust_proxy or not a.enabled or not is_trusted_peer(peer or "?", parse_nets(cfg.trusted_proxies)):
+    # Never fall back to "any private peer" for forward-auth: an untrusted LAN/Docker container could spoof the header.
+    if not names or not cfg.trust_proxy or not (cfg.trusted_proxies or "").strip() or not a.enabled:
+        return None
+    if not is_trusted_peer(peer or "?", parse_nets(cfg.trusted_proxies)):
         return None
     for n in names:
         v = (headers.get(n) or "").strip()
@@ -265,7 +273,7 @@ def build_auth_router(state) -> APIRouter:
         return {k.lower(): v for k, v in request.headers.items()}
 
     def ip(request: Request) -> str:
-        return client_ip(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy, parse_nets(state.cfg.trusted_proxies))
+        return peer_ip(hdrs(request), request.client.host if request.client else None, state.cfg)
 
     def home(request: Request) -> bool:
         return from_home(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy)

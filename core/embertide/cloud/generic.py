@@ -211,8 +211,9 @@ class Generic:
             if now - (s.get("last_ts") or 0) >= s.get("interval_min", 60) * 60:
                 try:
                     await self.poll(s)
-                except Exception:  # noqa: BLE001
-                    log.exception("json poll %s failed", s.get("id"))
+                except Exception as e:  # noqa: BLE001
+                    from ..sources import scrub_urls
+                    log.warning("json poll %s failed (%s: %s)", s.get("id"), type(e).__name__, scrub_urls(str(e)))
 
     def _mark(self, key: str, sid: str, now: float, res: dict) -> None:
         items = self.store.get(key, []) or []

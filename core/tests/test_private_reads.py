@@ -23,10 +23,10 @@ def setup_owner(c, person="p1"):
     assert r.status_code == 200, r.text
 
 
-def add_partner(c, person="p2", role="sleeper"):
+def add_partner(c, person="p2", role="sleeper", username="sam"):
     code = c.post("/api/auth/invites", json={"person": person, "role": role}, headers=H).json()["code"]
     g = TestClient(c.app)
-    assert g.post("/api/auth/accept", json={"code": code, "username": "sam", "password": PW}).status_code == 200
+    assert g.post("/api/auth/accept", json={"code": code, "username": username, "password": PW}).status_code == 200
     return g
 
 
@@ -106,3 +106,30 @@ def test_partner_snapshot_hides_home_and_away_details(tmp_path):
         assert mine["p2"]["night"]["home"] is False and mine["p2"]["night"]["away"]["held"] == 3
         own = {p["id"]: p for p in c.get("/api/snapshot").json()["people"]}
         assert own["p1"]["night"]["home"] is False and own["p1"]["night"]["away"]["by"] == "dial"
+
+
+def test_partner_cannot_see_partners_presence_sensors_or_ai_server_url(tmp_path):
+    cfg = cfg_for(tmp_path)
+    cfg.llm_url = "http://ollama.local:11434/v1"
+    cfg.llm_model = "qwen2.5:7b"
+    with TestClient(create_app(cfg)) as c:
+        setup_owner(c)
+        ctl = c.app.state.notifier.c
+        src = ctl.sources
+        now = ctl.clock.now_ts()
+        p1_pres = SourceConfig(name="Owner radar", driver="sim", role="presence", kind="radar", zone="left")
+        p2_pres = SourceConfig(name="Partner radar", driver="sim", role="presence", kind="radar", zone="right")
+        for sc, v in ((p1_pres, 1.0), (p2_pres, 0.0)):
+            src.configs.append(sc)
+            src.latest[sc.id] = {"value": v, "ts": now}
+            src._raw_seen[sc.id] = {"1": now}
+        g = add_partner(c)
+        v = add_partner(c, person=None, role="viewer", username="vic")
+        got = {s["id"]: s for s in g.get("/api/sources").json()["sources"]}
+        assert got[p1_pres.id]["value"] is None and got[p1_pres.id]["private"]
+        assert got[p1_pres.id]["raw_seen"] == []
+        assert got[p2_pres.id]["value"] == 0.0
+        # AI server URL is returned only to owners.
+        assert c.get("/api/ai/status").json()["url"] == "http://ollama.local:11434/v1"
+        assert g.get("/api/ai/status").json()["url"] is None
+        assert v.get("/api/ai/status").json()["url"] is None

@@ -19,10 +19,11 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_WEB_DIR` | `<repo>/web/dist` (the Docker image sets `/app/web`) | Folder with the built web app. |
 | `ET_AUTH` | `on` | Sign-in. `off`, `0`, `false` or `no` turns it off: for testing on a trusted machine only, never on a reachable address. |
 | `ET_PUBLIC_URL` | none | How phones reach the server, for example `https://sleep.example.com`. Makes buttons in notifications work. Can also be set in Studio, Notifications. |
-| `ET_TRUST_PROXY` | `off` | `on` (or `1`, `true`, `yes`) behind a reverse proxy or tunnel, so rate limits see real visitor addresses. Forwarding headers are believed only from a private or loopback peer; Cloudflare's `CF-Connecting-IP` wins. |
-| `ET_TRUSTED_PROXIES` | none | Comma-separated addresses or CIDR ranges of your reverse proxy / tunnel, for example `172.18.0.0/16`. With `ET_TRUST_PROXY=on`, forwarding headers (and the forward-auth header) are believed only from these. Empty keeps the default: any private or loopback peer. |
-| `ET_AUTH_HEADER` | none | Forward-auth: the header your sign-in proxy sets to the username (`Remote-User`, `X-Authentik-Username`, ...). Needs `ET_TRUST_PROXY=on`. Matches an existing account only; see docs/install.md. |
-| `ET_AUTH_HEADER_EMAIL` | none | Same, for a header carrying an email address (`Remote-Email`, `Cf-Access-Authenticated-User-Email`); matched against usernames. |
+| `ET_TRUST_PROXY` | `off` | `on` (or `1`, `true`, `yes`) behind a reverse proxy or tunnel, so rate limits see real visitor addresses. Forwarding headers (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) are believed only from a trusted proxy peer. |
+| `ET_PROXY_CLOUDFLARE` | `off` | `on` only when traffic comes through Cloudflare (Tunnel or CDN). Believes `CF-Connecting-IP` from a trusted proxy peer; leave `off` behind non-Cloudflare proxies so visitors cannot spoof it. |
+| `ET_TRUSTED_PROXIES` | none | Comma-separated addresses or CIDR ranges of your reverse proxy / tunnel, for example `172.18.0.0/16`. With `ET_TRUST_PROXY=on`, forwarding headers are believed only from these (empty falls back to any private or loopback peer). **Required** whenever `ET_AUTH_HEADER` or `ET_AUTH_HEADER_EMAIL` is set. |
+| `ET_AUTH_HEADER` | none | Forward-auth: the header your sign-in proxy sets to the username (`Remote-User`, `X-Authentik-Username`, ...). Needs `ET_TRUST_PROXY=on` **and** `ET_TRUSTED_PROXIES` set. Matches an existing account only; see docs/install.md. |
+| `ET_AUTH_HEADER_EMAIL` | none | Same, for a header carrying an email address (`Remote-Email`, `Cf-Access-Authenticated-User-Email`); matched against usernames. Needs `ET_TRUST_PROXY=on` and `ET_TRUSTED_PROXIES`. |
 | `ET_HA_MQTT_URL` | none | Home Assistant's MQTT broker, for example `mqtt://user:password@192.168.1.10:1883`. Can also be set in Studio, Integrations. |
 | `ET_MQTT_CA_FILE` | none | Path (inside the container) to the CA certificate that signed your bed broker's certificate, when `ET_MQTT_URL` is `mqtts://` (TLS, default port 8883). Empty = the system's trusted CAs. Note: the Orion hub itself only speaks plain MQTT on 1883, so the usual bed broker stays `mqtt://`; use TLS only if you put your own TLS broker or bridge in between. |
 | `ET_MQTT_TLS_INSECURE` | `off` | `on` skips certificate checks for an `mqtts://` bed broker (self-signed, trusted network only). |
@@ -38,7 +39,7 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_TRACE` | `on` | A compact JSON line every 15 seconds in `<data dir>/traces/`, kept 14 days, for tuning presence on real nights (no names). `off`, `0` or `false` disables it. |
 | `TZ` | none | Standard time-zone variable; used by the container and as the fallback for `ET_TZ`. |
 
-That is 29 variables (28 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_LLM_KEY`, URLs with passwords) are best
+That is 30 variables (29 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_LLM_KEY`, URLs with passwords) are best
 kept in a `.env` file next to your Compose file with restricted permissions, which is git-ignored here (`.env.example` lists every variable to copy from):
 
 ```yaml

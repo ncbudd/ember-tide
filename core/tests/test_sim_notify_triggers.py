@@ -328,6 +328,14 @@ async def test_pet_question_is_not_asked_of_someone_marked_away(tmp_path):
     assert not r.sent("pet_question")
 
 
+async def test_pet_question_skips_cleanly_when_pet_was_deleted(tmp_path):
+    r, snap = await rig(tmp_path, "2026-11-05T12:00")
+    open_question(r)
+    r.c.household.pets = []
+    await r.observe(snap, at=r.now)
+    assert not r.sent("pet_question")
+
+
 # ───────────────────────── bed trouble ─────────────────────────
 async def test_bed_offline_five_minutes_in_the_day_goes_to_phones_that_want_it_once_per_outage(tmp_path):
     r, snap = await rig(tmp_path)

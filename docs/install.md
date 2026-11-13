@@ -228,7 +228,7 @@ The live view uses a WebSocket (`/api/live`), so a proxy must pass upgrade heade
   ```
 
 - **Cloudflare Tunnel** (or Tailscale Funnel): install `cloudflared` on the server, create a tunnel, add a public hostname such as
-  `sleep.example.com` with the service `http://192.168.1.10:8790`, set the two variables above, and restart the container. You can add
+  `sleep.example.com` with the service `http://192.168.1.10:8790`, set the two variables above (plus `ET_PROXY_CLOUDFLARE: "on"` for Cloudflare), and restart the container. You can add
   Cloudflare Access as a second lock; the app has its own sign-in either way.
 
 **iPhone.** The iPhone uses the web app as a Home Screen app (a native app is planned, see `docs/IOS-PLAN.md`):
@@ -253,11 +253,12 @@ people in, Ember & Tide can trust the username they pass along instead of asking
 
 ```yaml
       ET_TRUST_PROXY: "on"
-      ET_TRUSTED_PROXIES: "172.18.0.0/16"     # strongly recommended with this: only your proxy may name users
+      ET_TRUSTED_PROXIES: "172.18.0.0/16"     # required: only your proxy may name users
       ET_AUTH_HEADER: "Remote-User"
 ```
 
-The header is believed only when the connection comes from a trusted proxy, and it only ever signs in an **existing** account
+Both `ET_TRUST_PROXY: "on"` and `ET_TRUSTED_PROXIES` are required here (the server will refuse to start with forward-auth
+if `ET_TRUSTED_PROXIES` is empty). The header is believed only when the connection comes from a listed proxy, and it only ever signs in an **existing** account
 with that username (not case-sensitive); someone with no account gets a plain "ask the owner to add you" message, and nothing
 is created automatically. Create the accounts first (owner setup, then People in Studio). The password sign-in still works
 as a fallback. Make sure your proxy removes any copy of the header the visitor sends and sets its own; the ones below do that.
@@ -266,7 +267,7 @@ as a fallback. Make sure your proxy removes any copy of the header the visitor s
 |---|---|
 | Authelia (forward auth) | `ET_AUTH_HEADER: Remote-User` (also sends `Remote-Email`, `Remote-Name`, `Remote-Groups`); copy them with `authResponseHeaders` / `auth_request_set`. |
 | Authentik (proxy outpost) | `ET_AUTH_HEADER: X-Authentik-Username` (and `X-Authentik-Email`). |
-| Cloudflare Access | Email only: `ET_AUTH_HEADER_EMAIL: Cf-Access-Authenticated-User-Email`. The account's username must be that email address. |
+| Cloudflare Access | Email only: `ET_AUTH_HEADER_EMAIL: Cf-Access-Authenticated-User-Email` (plus `ET_PROXY_CLOUDFLARE: "on"` and `ET_TRUSTED_PROXIES`). The account's username must be that email address. |
 | Tailscale Serve | `ET_AUTH_HEADER_EMAIL: Tailscale-User-Login` (a login such as `alex@example.com`); only present on tailnet traffic that `tailscale serve` proxies to `127.0.0.1`, so set `ET_TRUSTED_PROXIES: "127.0.0.1"` and make the server listen only on loopback (`ET_HOST: 127.0.0.1`). |
 
 Usernames in Ember & Tide are plain words; if yours differ from what the portal calls people, make the account name match
@@ -664,7 +665,7 @@ docker run -d --name ember-tide --restart unless-stopped \
   -p 8790:8790 \
   -v ember-tide-data:/data \
   -e TZ=Europe/London \
-  ember-tide
+  ghcr.io/ncbudd/ember-tide:latest
 ```
 
 For a real bed against a broker you already run, add `-e ET_BED=orion-mqtt -e ET_MQTT_URL=mqtt://192.168.1.10:1883`. A named volume (above) or a folder

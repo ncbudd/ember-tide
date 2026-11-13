@@ -16,22 +16,26 @@ export default function AiModel() {
   const [key, setKey] = useState("");
   const [replaceKey, setReplaceKey] = useState(false);
   const [models, setModels] = useState<string[]>([]);
+  const [loadErr, setLoadErr] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const fill = (x: AiSettings, p: string) => {
     setS(x); setPreset(p); setKey(""); setReplaceKey(false); setModels([]);
     setUrl(p === x.preset ? x.url : ""); setModel(p === x.preset ? x.model : "");
   };
-  const load = () => api.get<AiSettings>("/api/ai/settings").then(x => fill(x, x.preset)).catch(() => {});
+  const load = () => {
+    setLoadErr(false);
+    api.get<AiSettings>("/api/ai/settings").then(x => fill(x, x.preset)).catch(() => setLoadErr(true));
+  };
   useEffect(() => { if (auth.isOwner) load(); }, [auth.isOwner]);
   const header = <div><div className="k">Configure</div><h1 style={{ fontSize: 32 }}>AI model</h1>
     <p className="mute" style={{ fontSize: 13 }}>Connect your own AI model for Ask and the morning review. Without one, the built-in analysis is used.</p></div>;
   if (!snap) return null;
   if (!auth.isOwner) return <>{header}<div className="box"><span className="mute">Only the owner can change the AI model.</span></div></>;
-  if (!s) return header;
+  if (!s) return <>{header}{loadErr && <div className="box"><span className="mute">Couldn't load AI model settings right now.</span><div><button className="pill" onClick={load}>Retry</button></div></div>}</>;
 
   const pr: AiPreset | undefined = s.presets.find(p => p.id === preset);
-  const savedHere = preset === s.preset && s.key_set;
+  const savedHere = preset === s.preset && s.key_set && !replaceKey;
   const askKey = !!pr && (pr.needs_key || !!pr.key_optional);
   const showKeyField = askKey && (!savedHere || replaceKey);
   const pick = (p: string) => {
@@ -39,7 +43,7 @@ export default function AiModel() {
     setPreset(p); setMsg(null); setModels([]); setKey(""); setReplaceKey(false);
     if (p === s.preset) { setUrl(s.url); setModel(s.model); } else { setUrl(x?.url ?? ""); setModel(x?.model ?? ""); }
   };
-  const body = () => ({ preset, url: url.trim(), model: model.trim(), key: key || undefined });
+  const body = () => ({ preset, url: url.trim(), model: model.trim(), key: key || undefined, clear_key: replaceKey && !key.trim() ? true : undefined });
   const test = async () => {
     setBusy(true); setMsg(null);
     try {
@@ -52,7 +56,7 @@ export default function AiModel() {
     setBusy(true); setMsg(null);
     try {
       const m = await api.post<AiModelList>("/api/ai/settings/models", body());
-      if (m.ok) { setModels(m.models); if (!m.models.length) setMsg({ ok: false, text: "The server didn't list any models." }); }
+      if (m.ok) { const uniq = Array.from(new Set(m.models)); setModels(uniq); if (!uniq.length) setMsg({ ok: false, text: "The server didn't list any models." }); }
       else setMsg({ ok: false, text: m.error ?? "Couldn't load the models." });
     } catch (e) { setMsg({ ok: false, text: (e as Error).message }); }
     setBusy(false);
@@ -98,7 +102,7 @@ export default function AiModel() {
           <input type="text" value={url} placeholder={pr.url_hint || pr.url} spellCheck={false} onChange={e => setUrl(e.target.value)} /></label>}
         <label className="fld">Model
           <input type="text" value={model} list="ai-models" placeholder={pr.model || "model name"} spellCheck={false} onChange={e => setModel(e.target.value)} />
-          <datalist id="ai-models">{[...models, ...pr.models].map(m => <option key={m} value={m} />)}</datalist></label>
+          <datalist id="ai-models">{Array.from(new Set([...models, ...pr.models])).map(m => <option key={m} value={m} />)}</datalist></label>
         <div className="pills"><button className="btn" disabled={busy} onClick={loadModels}>Load models</button>
           {models.length > 0 && <span className="mute" style={{ fontSize: 13, alignSelf: "center" }}>{models.length} found: tap the model box to pick one.</span>}</div>
         {askKey && (showKeyField

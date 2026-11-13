@@ -264,7 +264,7 @@ def _closest(pets, kg: float):
 def pet_windows(events: list[dict], zone: str, until: float) -> list[tuple[float, float]]:
     """Intervals a pet was suspected on this side (alone or with the sleeper), from the pet events."""
     out, start = [], None
-    for e in sorted((x for x in events if x.get("kind") in ("pet_suspected", "pet_cleared") and x.get("zone") == zone),
+    for e in sorted((x for x in events if x["ts"] <= until and x.get("kind") in ("pet_suspected", "pet_cleared") and x.get("zone") == zone),
                     key=lambda x: x["ts"]):
         if e["kind"] == "pet_suspected" and start is None:
             start = e["ts"]

@@ -360,3 +360,91 @@ async def test_forced_off_not_dropped_while_command_inflight(tmp_path, monkeypat
 
     assert any(z == "left" and on is False for z, on, _ in calls), calls
     assert not bed.z["left"].on
+
+
+def test_summary_in_bed_after_zero_and_out_of_bed_blip(tmp_path):
+    from datetime import date
+    from embertide.engine.summary import summarize
+    store = Store(tmp_path / "blips.db")
+    p = person()
+    d = date(2026, 11, 5)
+    t0 = ts("2026-11-05T22:00")
+    rows = []
+    # Brief 60s lie-down at 22:00, empty 8 min, then 8 h night with a 6-min out-of-bed trip containing a 1-row occupied blip
+    for m in range(0, 8 * 60):
+        t = t0 + m * 60
+        if m <= 1:
+            occ = 1
+        elif 2 <= m <= 9:
+            occ = 0
+        elif 180 <= m <= 185:
+            occ = 1 if m == 182 else 0          # single brief 'occupied' blip inside a 6-min out-of-bed trip
+        else:
+            occ = 1
+        rows.append((t, p.zone, 1, 19.0, 19.2, occ, 60 if occ else None, 14 if occ else None, 0, 19.0, "deep", 1, p.id))
+    store.telemetry(rows)
+    now = t0 + 10 * 3600
+    s_default = summarize(store, p, d, TZ, now)
+    assert s_default["in_bed_at"] == t0 + 10 * 60          # default 3 min ignores the 60s lie-down
+    assert s_default["times_up"] == 1
+    assert 5 <= s_default["up_minutes"] <= 7
+
+    # in_bed_after_min=0 must not be treated as falsy / 3 min, and must invalidate cached summary
+    p.settings.in_bed_after_min = 0
+    s_zero = summarize(store, p, d, TZ, now)
+    assert s_zero["in_bed_at"] == t0
+
+
+def test_summary_cache_key_respects_clock_and_work_days(tmp_path):
+    from datetime import date
+    from embertide.engine.summary import summarize
+    store = Store(tmp_path / "cache.db")
+    p = person()
+    d = date(2026, 11, 5)          # Thursday -> next day is Friday (4)
+    t0 = ts("2026-11-05T22:00")
+    now = t0 + 11 * 3600
+    store.event(t0 + 60, "rhythm_restarted", person=p.id, in_bed=t0 + 60, up_since=t0)
+    s1 = summarize(store, p, d, TZ, now)
+    assert s1["before"] == "work"
+    txt1 = s1["moments"][0]["text"]
+    assert ("10:00" in txt1) or ("22:00" in txt1)
+    p.settings.clock = "24" if "PM" in txt1 else "12"
+    s2 = summarize(store, p, d, TZ, now)
+    assert s2["moments"][0]["text"] != txt1
+    p.settings.work_days = [0, 1]                          # Friday no longer a work day
+    s3 = summarize(store, p, d, TZ, now)
+    assert s3["before"] == "off"
+
+
+def test_historical_event_lookups_and_until_bounds(tmp_path):
+    from embertide.engine.active import windows as active_windows
+    from embertide.engine.autopilot import Autopilot
+    from embertide.engine.pets import pet_windows
+    from embertide.models import Pet
+    store = Store(tmp_path / "hist.db")
+    hh = default_household()
+    hh.pets = [Pet(id="biscuit", name="Biscuit", weight_kg=5.0)]
+    p = hh.people[0]
+    t0 = ts("2026-11-01T23:00")
+    end = ts("2026-11-02T07:00")
+    store.event(t0 + 60, "active_started", zone=p.zone, zones=[p.zone])
+    store.event(t0 + 660, "active_ended", zone=p.zone, zones=[p.zone])
+    store.event(t0 + 1200, "pet_suspected", zone=p.zone, pet="biscuit")
+    store.event(t0 + 1500, "pet_cleared", zone=p.zone, pet="biscuit")
+    # Also add an open window that closes AFTER `until`, plus 600 newer events that would push past limit=500
+    store.event(end + 300, "pet_suspected", zone=p.zone, pet="biscuit")
+    store.event(end + 600, "active_started", zone=p.zone, zones=[p.zone])
+    for i in range(600):
+        store.event(end + 3600 + i, "note", person=p.id)
+    ap = Autopilot(type("C", (), {"store": store, "household": hh})())
+    assert ap.active_windows(p, t0, end) == [(t0 + 60, t0 + 660)]
+    assert ap.pet_windows(p, t0, end) == [(t0 + 1200, t0 + 1500)]
+    # Direct unit check: events past `until` are ignored
+    evs = [
+        {"ts": 100, "kind": "pet_suspected", "zone": "left"},
+        {"ts": 250, "kind": "pet_cleared", "zone": "left"},
+        {"ts": 100, "kind": "active_started", "zones": ["left"]},
+        {"ts": 250, "kind": "active_ended", "zones": ["left"]},
+    ]
+    assert pet_windows(evs, "left", 200) == [(100, 200)]
+    assert active_windows(evs, "left", 200) == [(100, 200)]

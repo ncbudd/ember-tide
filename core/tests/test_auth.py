@@ -251,16 +251,17 @@ def test_a_stranger_cant_lock_the_owner_out(tmp_path):
     the owner signing in from home still gets in."""
     cfg = Config()
     cfg.data_dir, cfg.tz, cfg.bed, cfg.web_dir, cfg.llm_url, cfg.auth = tmp_path, "America/New_York", "sim", tmp_path / "noweb", None, True
-    cfg.trust_proxy = True                                   # behind the tunnel: the visitor's address comes in a header
-    with TestClient(create_app(cfg)) as c:
+    cfg.trust_proxy = True                                   # behind a proxy: X-Forwarded-For identifies visitors
+    with TestClient(create_app(cfg), client=("172.18.0.5", 40000)) as c:
         setup_owner(c)
-        bad = TestClient(c.app)
+        bad = TestClient(c.app, client=("172.18.0.5", 40000))
         for i in range(7):
+            # Even if the caller rotates CF-Connecting-IP, without ET_PROXY_CLOUDFLARE=on X-Forwarded-For decides the rate limit bucket.
             r = bad.post("/api/auth/login", json={"username": "alex", "password": "wrong password 123"},
-                         headers={"cf-connecting-ip": "203.0.113.9"})
+                         headers={"x-forwarded-for": "93.184.216.34", "cf-connecting-ip": f"93.184.216.{i + 1}"})
         assert r.status_code == 429
-        good = TestClient(c.app)
-        ok = good.post("/api/auth/login", json={"username": "alex", "password": PW}, headers={"cf-connecting-ip": "198.51.100.7"})
+        good = TestClient(c.app, client=("172.18.0.5", 40000))
+        ok = good.post("/api/auth/login", json={"username": "alex", "password": PW}, headers={"x-forwarded-for": "93.184.216.35"})
         assert ok.status_code == 200, ok.text
 
 
