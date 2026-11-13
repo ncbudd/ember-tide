@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+import math
 from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -292,3 +294,43 @@ class Household(BaseModel):
     pets: list[Pet] = Field(default_factory=list, max_length=12)
     hemisphere: Literal["auto", "north", "south", "none"] = "auto"   # season words in AI reviews; auto = from the time zone
     pets_ignore: bool = True              # ignore bed readings that look like a pet (only matters when pets are set)
+
+
+def clamp_phase_temp(temp_c: float, household: Household | None = None) -> float:
+    """Clamp a rhythm phase temperature to [user_min_c, user_max_c] and never outside 10..45 °C."""
+    lo = max(10.0, float(household.user_min_c)) if household is not None else 10.0
+    hi = min(45.0, float(household.user_max_c)) if household is not None else 45.0
+    if not math.isfinite(lo) or not math.isfinite(hi) or lo > hi:
+        lo, hi = 10.0, 45.0
+    val = float(temp_c)
+    if not math.isfinite(val):
+        val = 21.0
+    return round(max(lo, min(hi, val)), 2)
+
+
+def load_household(saved: dict, logger=None) -> Household:
+    """Validate a saved household dict, clamping any out-of-range phase temp_c with a warning instead of crashing."""
+    data = copy.deepcopy(saved)
+    # Only the hard 10..45 °C range the model requires: the household's comfort limits are applied every time a
+    # temperature is used, so a saved rhythm is never rewritten here just for being outside them.
+    lo, hi = 10.0, 45.0
+    for p in data.get("people") or []:
+        if not isinstance(p, dict):
+            continue
+        for rh in p.get("rhythms") or []:
+            if not isinstance(rh, dict):
+                continue
+            for ph in rh.get("phases") or []:
+                if not isinstance(ph, dict) or "temp_c" not in ph:
+                    continue
+                try:
+                    raw = float(ph["temp_c"])
+                except (TypeError, ValueError):
+                    continue
+                clamped = round(max(lo, min(hi, raw if math.isfinite(raw) else 21.0)), 2)
+                if not math.isfinite(raw) or abs(clamped - raw) > 1e-9 or not (10.0 <= raw <= 45.0):
+                    if logger is not None:
+                        logger.warning("clamped saved phase %s.%s.%s temp_c %r -> %.2f",
+                                       p.get("id"), rh.get("id"), ph.get("id"), ph["temp_c"], clamped)
+                    ph["temp_c"] = clamped
+    return Household.model_validate(data)

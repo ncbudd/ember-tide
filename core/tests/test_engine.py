@@ -314,3 +314,49 @@ def test_settle_detected_on_sparse_rows(tmp_path):
     store.telemetry(rows)
     s = summarize(store, p, date(2026, 11, 5), TZ, t0 + 9 * 3600)
     assert s["fell_asleep_est"] is not None and 15 <= s["time_to_settle_min"] <= 30
+
+
+async def test_forced_off_not_dropped_while_command_inflight(tmp_path, monkeypatch):
+    import asyncio
+    import embertide.engine.controller as ctlmod
+
+    monkeypatch.setattr(ctlmod, "MIN_CMD_GAP_S", 60.0)
+    clock = FixedClock(ts("2026-11-05T21:40"), "America/New_York")
+    bed = SimBed(clock)
+    bed.scripted = False
+    bed._tick()
+    c = Controller(default_household(), bed, Store(tmp_path / "c.db"), clock)
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+    calls: list[tuple[str, bool, float | None]] = []
+    orig_set_zone = bed.set_zone
+
+    async def slow_set_zone(zone: str, *, on: bool, temp_c: float | None = None) -> bool:
+        calls.append((zone, on, temp_c))
+        res = await orig_set_zone(zone, on=on, temp_c=temp_c)
+        if len(calls) == 1:
+            started.set()
+            await release.wait()
+        return res
+
+    monkeypatch.setattr(bed, "set_zone", slow_set_zone)
+
+    await c.tick()
+    await started.wait()
+    assert "left" in c._inflight and not c._inflight["left"].done()
+
+    # Forced 'off' arrives while the initial turn-on command is still in flight and backoff is active.
+    c.engine_for("p1").tonight(clock.now_ts(), "skip")
+    await c.tick(force={"p1"})
+    assert "left" in c._pending_force
+
+    release.set()
+    for _ in range(5):
+        await asyncio.sleep(0)
+        t = c._inflight.get("left")
+        if t is not None:
+            await t
+
+    assert any(z == "left" and on is False for z, on, _ in calls), calls
+    assert not bed.z["left"].on

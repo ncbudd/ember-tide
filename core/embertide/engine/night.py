@@ -75,6 +75,8 @@ class NightState:
     personal_seen: bool = False
     personal_gone_since: float | None = None
     personal_gap: bool = False
+    empty_on_since: float | None = None  # when target became non-None while nobody was present
+    empty_off: bool = False              # empty-side cutoff tripped (suppresses target until user/presence resets)
     events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -112,6 +114,7 @@ class NightEngine:
         base = self.s.base_c if self.s.base_c is not None else cfg.target_c
         target = cfg.target_c if not cfg.relative else base + (-cfg.delta_c if kind == "hot" else cfg.delta_c)
         dur = (minutes or cfg.duration_min) * 60
+        self.s.empty_off, self.s.empty_on_since = False, None
         self.s.flash = Flash(kind, now, now + dur, round(target, 2), cfg.ease_min * 60, now + cfg.max_total_min * 60, source)
         self._ev(now, f"{kind}_flash", source=source, minutes=dur / 60, target_c=self.s.flash.target_c, phase=self.s.phase_id)
         return self.s.flash
@@ -133,6 +136,7 @@ class NightEngine:
     def adjust(self, now: float, *, delta_c: float | None = None, temp_c: float | None = None, until: str = "next_phase",
                source: str = "app", minutes: int | None = None) -> None:
         step, set_to = delta_c, temp_c
+        self.s.empty_off, self.s.empty_on_since = False, None
         if self.s.skip or (self.s.pause_until and now < self.s.pause_until):
             # pressing + or − while paused / off for the night means "I want my side back": resume, then apply the step
             self.s.skip, self.s.pause_until = False, None
@@ -318,15 +322,34 @@ class NightEngine:
                 s.personal_gap = True
 
     # ---------- tick ----------
+    # Empty-bed safety cutoff: turn off a side heated/cooled for 2 hours with nobody on it (outside guest mode /
+    # pre-conditioning, and never during the first 30 minutes of a hot/cold flash).
+    EMPTY_SIDE_CUTOFF_S = 2 * 3600
+    EMPTY_FLASH_GRACE_S = 30 * 60
+
     def tick(self, now: float, present: bool | None, home: bool | None = None, active: float | None = None) -> float | None:
         """`active` = since when the people in bed have been awake and moving (engine/active.py), else None."""
-        from datetime import datetime
+        from datetime import date, datetime
         dt = datetime.fromtimestamp(now, self.tz)
         d = night_date(dt)
         key = d.isoformat()
         if key != self.s.key:
-            keep_flash, skip_next = self.s.flash, self.s.skip_next
-            self.s = NightState(key=key, flash=keep_flash, skip=skip_next or (self.s.key is None and self.s.skip))
+            # Keep the running night past noon until it finishes (ended, state == "done", or past the lie-in cap),
+            # rather than wiping a late-ending night or active lie-in at 12:00.
+            keep_prev = False
+            if self.s.key is not None and self.s.started and not self.s.ended and self.s.state != "done":
+                prev_d = date.fromisoformat(self.s.key)
+                prev_n = self.night
+                if prev_n is None or prev_n.date != prev_d:
+                    prev_rh = pick_rhythm(self.person.rhythms, prev_d)
+                    prev_n = self._resolve(prev_rh, prev_d) if prev_rh else None
+                cap_s = self.LIE_IN_SNOOZE_MAX_S if self.s.snoozed_until else self.LIE_IN_MAX_S
+                if prev_n is not None and now < prev_n.end + cap_s:
+                    keep_prev = True
+                    d, key = prev_d, self.s.key
+            if not keep_prev:
+                keep_flash, skip_next = self.s.flash, self.s.skip_next
+                self.s = NightState(key=key, flash=keep_flash, skip=skip_next or (self.s.key is None and self.s.skip))
         self.s.home = home                               # None = unknown (no devices, no manual switch)
         rhythm = pick_rhythm(self.person.rhythms, d)
         if rhythm is None:
@@ -352,9 +375,11 @@ class NightEngine:
             elif self.s.in_bed is not None and self.s.in_bed >= active - 900 and now > self.s.in_bed:
                 self.s.in_bed = now
             self.s.absent_since = self.s.out_since = None
+            self.s.empty_on_since, self.s.empty_off = None, False
         elif present:
             self.s.presence_since = self.s.presence_since or now
             self.s.absent_since = self.s.out_since = None
+            self.s.empty_on_since, self.s.empty_off = None, False
         elif present is False:
             self.s.presence_since = None
             if self.s.started:
@@ -436,6 +461,8 @@ class NightEngine:
             # getting up only until here
             self._ev(now, "night_done", end=min(n.end, now), **({"by_hand": True} if self.s.ended else {}))
         self.s.state, self.s.phase_id, self.s.base_c = state, phase, base
+        if state in ("out_of_bed", "done", "away"):
+            self._end_flash(now, "away" if state == "away" else "system")
         target = base
 
         o = self.s.override
@@ -445,14 +472,21 @@ class NightEngine:
         if o and o.manual and base is not None:
             self.s.override = o = None                   # the rhythm has started: it takes over from the by-hand session
             self._ev(now, "adjust_ended", reason="rhythm started")
+        if o and o.manual:
+            # a by-hand session never runs past the rhythm's start, even when the rhythm doesn't take over (away,
+            # missed, no presence): without this it kept an empty side running until the noon day change
+            end = self.override_end(n)
+            if end is not None and now >= end:
+                self.s.override = o = None
+                self._ev(now, "adjust_ended", reason="rhythm start passed")
         if o:
             if o.until == "next_phase" and phase is not None and o.phase_id is not None and phase != o.phase_id:
                 self.s.override = o = None
             elif base is not None:
                 target = o.temp_c if o.temp_c is not None else base + (o.delta_c or 0)
-            elif o.manual and o.temp_c is not None and state not in ("skipped", "paused"):
-                # only a by-hand "turn my side on" fills the time the rhythm has the side off (off/paused always wins);
-                # a temperature set DURING the night (app, dial, HA) never keeps an empty side running after it
+            elif o.manual and o.temp_c is not None and state not in ("skipped", "paused", "out_of_bed", "done", "away", "missed"):
+                # only a by-hand "turn my side on" fills the time the rhythm has the side off (off/paused/inactive
+                # states always win); a temperature set DURING the night or while out of bed never keeps an empty side running
                 target = o.temp_c
 
         f = self.s.flash
@@ -466,6 +500,28 @@ class NightEngine:
                 target = None
             else:
                 self.s.flash = None
+
+        # Empty-bed safety cutoff lives in NightEngine.tick() because fused presence, absence tracking, flashes,
+        # and event emission live here, while guest mode runs in Controller._guest_tick() and is excluded automatically.
+        # Skip pre-conditioning ("waiting"), which intentionally waits through the bedtime window for a late arrival.
+        if self.s.empty_off:
+            target = None
+        elif (present is False and target is not None and state != "waiting"
+              and not (self.s.override and self.s.override.manual and self.s.override.end_ts)):
+            # (a by-hand session with a timer the person chose runs its timer: "left on?" reminds them about it)
+            if self.s.empty_on_since is None:
+                self.s.empty_on_since = self.s.absent_since if (self.s.started and self.s.absent_since is not None) else now
+            flash_grace = bool(self.s.flash and now - self.s.flash.start < self.EMPTY_FLASH_GRACE_S)
+            if not flash_grace and now - self.s.empty_on_since >= self.EMPTY_SIDE_CUTOFF_S:
+                target = None
+                self.s.empty_off = True
+                if self.s.override and self.s.override.manual:
+                    self.s.override = None
+                if self.s.flash:
+                    self.s.flash = None
+                self._ev(now, "empty_side_off", state=state, empty_s=round(now - self.s.empty_on_since))
+        else:
+            self.s.empty_on_since = None
 
         self.s.target_c = None if target is None else round(target, 2)
         return self.s.target_c

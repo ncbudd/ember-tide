@@ -34,6 +34,7 @@ from typing import Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from .models import clamp_phase_temp
 from .units import clock_style, fmt_delta, fmt_temp, language_line
 
 SMALL_C = 1.5                    # automatic changes: at most this much warmer/cooler in total for one night
@@ -330,10 +331,11 @@ class Assistant:
             nph = next(x for x in new["phases"] if x["id"] == a.phase_id)
             bits = []
             if a.temp_c is not None:
-                if abs(a.temp_c - ph["temp_c"]) > 3.0 + 1e-6:
+                tc = clamp_phase_temp(a.temp_c, getattr(self.c, "household", None))
+                if abs(tc - ph["temp_c"]) > 3.0 + 1e-6:
                     raise ActionError(422, "A rhythm change is limited to 3 °C at a time.")
-                nph["temp_c"] = round(a.temp_c, 2)
-                bits.append(f"{self.deg(ph['temp_c'])} → {self.deg(a.temp_c)}")
+                nph["temp_c"] = tc
+                bits.append(f"{self.deg(ph['temp_c'])} → {self.deg(tc)}")
             if a.ramp_min is not None:
                 nph["ramp_min"] = a.ramp_min
                 bits.append(f"transition {ph['ramp_min']} → {a.ramp_min} min")

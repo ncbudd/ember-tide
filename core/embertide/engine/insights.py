@@ -5,10 +5,11 @@ from __future__ import annotations
 
 from collections import Counter
 from datetime import datetime
+import math
 from statistics import mean
 from zoneinfo import ZoneInfo
 
-from ..models import Person
+from ..models import Household, Person, clamp_phase_temp
 from .rhythm import night_date, pick_rhythm
 
 
@@ -116,7 +117,7 @@ def insights(person: Person, nights: list[dict], tz: ZoneInfo, now: float) -> li
 _FIELDS = {"temp_c": (10.0, 45.0), "ramp_min": (0, 120)}       # what a proposal may change, and its limits
 
 
-def apply_proposal(person: Person, prop: dict) -> str:
+def apply_proposal(person: Person, prop: dict, household: Household | None = None) -> str:
     field = prop.get("field")
     if field not in _FIELDS:
         raise KeyError(f"can't change {field!r}")
@@ -125,9 +126,11 @@ def apply_proposal(person: Person, prop: dict) -> str:
         to = float(prop["to"])
     except (KeyError, TypeError, ValueError):
         raise KeyError("missing or invalid value")
-    if not lo <= to <= hi:
-        raise KeyError(f"{field} must be between {lo} and {hi}")
-    prop = {**prop, "to": int(to) if field == "ramp_min" else round(to, 2)}
+    if not math.isfinite(to) or not lo <= to <= hi:
+        raise KeyError(f"{field} must be between {lo} and {hi}")      # nonsense is refused, not quietly bent
+    # within the hard range: a temperature still never goes past the household's own limits
+    val: int | float = clamp_phase_temp(to, household) if field == "temp_c" else int(to)
+    prop = {**prop, "to": val}
     for rh in person.rhythms:
         if rh.id == prop["rhythm_id"]:
             for ph in rh.phases:

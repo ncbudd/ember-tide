@@ -198,3 +198,12 @@ async def test_morning_checkin_from_the_dial(tmp_path):
     assert n.store.get("feedback:p1:2026-11-05")["temp"] == "warm"
     await n.step(1)
     assert b.states(n.c.snapshot())["embertide/p1/checkin"] == "none"      # answered: not asked again
+
+
+async def test_ha_phase_temp_clamps_to_household_limits(tmp_path):
+    n = Night(tmp_path, "2026-11-05T22:40")
+    n.p1.settings.units = "C"
+    b = HaBridge(n.c, "mqtt://x")
+    await b.handle("embertide/p1/set/phase_temp/deep", "42")
+    deep = next(ph for rh in n.p1.rhythms if rh.id == "weeknights" for ph in rh.phases if ph.id == "deep")
+    assert deep.temp_c == n.hh.user_max_c

@@ -43,6 +43,9 @@ class Controller:
         self._ctx_home: dict[str, bool | None] = {}
         self._last_cmd: dict[str, float] = {}
         self._inflight: dict[str, asyncio.Task] = {}
+        self._inflight_key: dict[str, tuple[bool, float | None]] = {}
+        self._pending_force: set[str] = set()
+        self._pending_desired: dict[str, tuple[Person, float | None]] = {}
         self._last_tel = 0.0
         self._task: asyncio.Task | None = None
         self.listeners: list[Callable[[dict], None]] = []
@@ -78,6 +81,8 @@ class Controller:
                 continue
             if e.s.absent_since is not None and down > 0:
                 e.s.absent_since += down
+            if e.s.empty_on_since is not None and down > 0:
+                e.s.empty_on_since += down
             e.s.unknown_since = None                         # presence is unknown afresh from now, not from before
         if down > 0:
             log.info("picked up tonight after %.0f min down", down / 60)
@@ -979,18 +984,38 @@ class Controller:
             lo, hi = (hh.bed_min_c, hh.bed_max_c) if (e.s.flash or p.zone in hh.guest) else (hh.user_min_c, hh.user_max_c)
             target = round(clamp(target, lo, hi) * 10) / 10
         want_on = target is not None
+        key = (want_on, target)
+        pending_force = self.__dict__.setdefault("_pending_force", set())
+        pending_desired = self.__dict__.setdefault("_pending_desired", {})
+        inflight_keys = self.__dict__.setdefault("_inflight_key", {})
+        inflight_task = self._inflight.get(p.zone)
+        inflight_running = inflight_task is not None and not inflight_task.done()
         need = (want_on != bool(z.on)) or (want_on and (z.setpoint_c is None or abs(z.setpoint_c - target) >= 0.05))
+        if not need and inflight_running and inflight_keys.get(p.zone) != key:
+            # Telemetry may still reflect the state prior to the in-flight command (e.g. turning off while turn-on is in flight).
+            need = True
         if not need:
+            if not inflight_running:
+                pending_force.discard(p.zone)
+                pending_desired.pop(p.zone, None)
             return
         t = time.monotonic()
-        key = (want_on, target)
         fails = self.__dict__.setdefault("_unconfirmed", {})       # zone → (command, times it went unconfirmed)
         last_key, n_fail = fails.get(p.zone, (None, 0))
         gap = MIN_CMD_GAP_S * (2 ** min(n_fail, 6)) if last_key == key else MIN_CMD_GAP_S   # same command: back off to ~8 min
-        if not forced and t - self._last_cmd.get(p.zone, 0) < min(gap, 300):
+        if inflight_running:
+            if forced:
+                # Preserve forced commands (such as turning the bed off) if an earlier command is still in flight.
+                pending_force.add(p.zone)
+                pending_desired[p.zone] = (p, target)
+            elif p.zone in pending_force:
+                pending_desired[p.zone] = (p, target)
             return
-        if p.zone in self._inflight and not self._inflight[p.zone].done():
+        was_pending = p.zone in pending_force
+        if not (forced or was_pending) and t - self._last_cmd.get(p.zone, 0) < min(gap, 300):
             return
+        pending_force.discard(p.zone)
+        pending_desired.pop(p.zone, None)
         self._last_cmd[p.zone] = t
 
         async def send() -> None:
@@ -1009,6 +1034,19 @@ class Controller:
                 log.warning("%s: %s", p.zone, ex)
             except Exception:  # noqa: BLE001
                 log.exception("set_zone failed")
+            finally:
+                cur = asyncio.current_task()
+                if self._inflight.get(p.zone) is cur:
+                    self._inflight.pop(p.zone, None)
+                    inflight_keys.pop(p.zone, None)
+                    if p.zone in pending_force:
+                        des = pending_desired.get(p.zone)
+                        latest = self.driver.latest() or frame
+                        if des is not None and latest is not None:
+                            dp, dtarget = des
+                            # Dispatch the pending forced command immediately, bypassing backoff for this send.
+                            await self._apply(dp, dtarget, latest, forced=True)
+        inflight_keys[p.zone] = key
         self._inflight[p.zone] = asyncio.create_task(send())
 
     # ---------- the control unit ("hub") ----------

@@ -547,13 +547,15 @@ script:
           bool on = power == "heat_cool" || flash;
           uint32_t fcol = night ? 0xB9584C : (hot ? 0x5FB8B0 : 0xEE8A55);
           char b[64];
+          // Targets <= 45 are Celsius (HA sends the person's unit); double to preserve 0.5 C steps on LVGL's integer arc.
+          bool celsius = tv <= 45.0f;
           if (flash) {
             lv_arc_set_range(id(ring), 0, 900);
             lv_arc_set_value(id(ring), left > 900 ? 900 : left);
             lv_obj_set_style_arc_color(id(ring), lv_color_hex(fcol), LV_PART_INDICATOR);
           } else {
-            lv_arc_set_range(id(ring), ${t_min}, ${t_max});
-            lv_arc_set_value(id(ring), (int) tv);
+            lv_arc_set_range(id(ring), celsius ? 26 : ${t_min}, celsius ? 86 : ${t_max});
+            lv_arc_set_value(id(ring), celsius ? (int) roundf(tv * 2.0f) : (int) tv);
             lv_obj_set_style_arc_color(id(ring), lv_color_hex(on ? col : grey), LV_PART_INDICATOR);
           }
           lv_obj_set_style_bg_color(id(ring), lv_color_hex(on ? 0xF2EADF : grey), LV_PART_KNOB);
@@ -563,6 +565,7 @@ script:
           else et::text(id(lbl_top), "");
           et::color(id(lbl_top), mute);
           if (flash) { snprintf(b, sizeof(b), "%ld", (left + 59) / 60); et::text(id(lbl_unit), "MIN"); }
+          else if (celsius) { snprintf(b, sizeof(b), "%.1f", roundf(tv * 2.0f) / 2.0f); et::text(id(lbl_unit), "°C"); }
           else { snprintf(b, sizeof(b), "%d", (int) tv); et::text(id(lbl_unit), "°F"); }
           et::text(id(lbl_temp), b);
           et::color(id(lbl_temp), on ? txt : grey);
@@ -618,18 +621,24 @@ script:
             if (power == "off") { id(note) = "Off · tap power first"; id(note_until) = millis() + 2500; return; }
             // Only the other person's side can be locked: this dial's own side (home_side) always adjusts.
             if (p != ${home_side}) { std::string sh = p == 0 ? id(p0_sharing).state : id(p1_sharing).state; if (et::usable(sh) && sh.find("adjust") == std::string::npos) { std::string nm = p == 0 ? id(p0_name).state : id(p1_name).state; if (!et::usable(nm)) nm = p == 0 ? "${p0_name}" : "${p1_name}"; id(note) = nm + "'s choice · not shared"; id(note_until) = millis() + 2500; return; } }
-            float v = id(target)[p] + dir;
-            if (v > ${t_max}) v = ${t_max};
-            if (v < ${t_min}) v = ${t_min};
+            // Targets <= 45 are Celsius (13..43 in 0.5 steps); otherwise Fahrenheit (${t_min}..${t_max} in 1 F steps).
+            float cur = id(target)[p];
+            bool celsius = cur <= 45.0f;
+            float lo = celsius ? 13.0f : ${t_min}, hi = celsius ? 43.0f : ${t_max}, step = celsius ? 0.5f : 1.0f;
+            float v = cur + dir * step;
+            if (v > hi) v = hi;
+            if (v < lo) v = lo;
             id(target)[p] = v;
             id(pending_profile) = p;
             id(pending) = true;
             id(last_local_edit) = millis();
             id(local_edit_valid) = true;
           } else if (pg == 3) {
-            id(rh_val) += dir;
-            if (id(rh_val) < 55) id(rh_val) = 55;
-            if (id(rh_val) > 95) id(rh_val) = 95;
+            bool celsius = id(rh_val) <= 45.0f;
+            float lo = celsius ? 13.0f : 55.0f, hi = celsius ? 43.0f : 95.0f, step = celsius ? 0.5f : 1.0f;
+            id(rh_val) += dir * step;
+            if (id(rh_val) < lo) id(rh_val) = lo;
+            if (id(rh_val) > hi) id(rh_val) = hi;
             id(rh_dirty) = true;
           }
       - if:
@@ -658,7 +667,12 @@ script:
                 action: climate.set_temperature
                 data:
                   entity_id: !lambda 'return id(pending_profile) == 0 ? std::string("climate.${p0}") : std::string("climate.${p1}");'
-                  temperature: !lambda 'return std::to_string((int) id(target)[id(pending_profile)]);'
+                  temperature: !lambda |-
+                    float v = id(target)[id(pending_profile)];
+                    if (v > 45.0f) return std::to_string((int) v);
+                    char b[16];
+                    snprintf(b, sizeof(b), "%.1f", v);
+                    return std::string(b);
             - lambda: 'id(pending) = false;'
             - script.execute: refresh_home
 
@@ -796,7 +810,8 @@ script:
           if (!id(rh_dirty)) id(rh_val) = isnan(v) ? 70 : v;
           et::text(id(lbl_rh_phase), names[i]);
           char b[16];
-          snprintf(b, sizeof(b), "%d", (int) id(rh_val));
+          if (id(rh_val) <= 45.0f) snprintf(b, sizeof(b), "%.1f", roundf(id(rh_val) * 2.0f) / 2.0f);
+          else snprintf(b, sizeof(b), "%d", (int) id(rh_val));
           et::text(id(lbl_rh_temp), b);
           et::text(id(lbl_rh_hint), id(rh_dirty) ? "Press knob to save" : "Every night");
           et::color(id(lbl_rh_hint), id(rh_dirty) ? 0xEE8A55 : 0xA39AA4);
@@ -815,7 +830,12 @@ script:
             entity_id: !lambda |-
               const char* ids[5] = {"wind_down", "fall_asleep", "deep", "late", "wake"};
               return std::string("number.") + (id(active_profile) == 0 ? "${p0}" : "${p1}") + "_" + ids[id(rh_sel)] + "_temp";
-            value: !lambda 'return std::to_string((int) id(rh_val));'
+            value: !lambda |-
+              float v = id(rh_val);
+              if (v > 45.0f) return std::to_string((int) v);
+              char b[16];
+              snprintf(b, sizeof(b), "%.1f", v);
+              return std::string(b);
       - lambda: 'id(rh_dirty) = false; et::text(id(lbl_rh_hint), "Saved"); et::color(id(lbl_rh_hint), 0x8FBF9A);'
 
   # ---- pages: Home · Flash · Tonight · Rhythm. One swipe = one page, and taps right after a swipe are ignored ----

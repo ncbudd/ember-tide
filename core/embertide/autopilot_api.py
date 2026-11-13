@@ -18,7 +18,7 @@ from .engine.rhythm import night_date, pick_rhythm, resolve
 from .engine.summary import night_window, summarize
 from .engine.wearables import night_devices
 from . import voice
-from .models import AutopilotPolicy
+from .models import AutopilotPolicy, clamp_phase_temp
 from .units import clock_style, fmt_gap, fmt_temp, language_line, season_words
 
 
@@ -862,7 +862,9 @@ def _manual_changes(c, p, evs: list[dict]) -> list[dict]:
         diff = to - ph.temp_c
         if abs(diff) < 0.25:
             continue
-        to = round(ph.temp_c + max(-2.8, min(2.8, diff)), 2)
+        to = clamp_phase_temp(ph.temp_c + max(-2.8, min(2.8, diff)), c.household)
+        if abs(to - ph.temp_c) < 0.05:
+            continue
         out.append({"id": f"manual-{last_night.isoformat()}-{ph_id}", "kind": "manual", "phase": ph_id, "phase_name": ph.name,
                     "direction": "cooler" if diff < 0 else "warmer", "nights": [last_night.isoformat()],
                     **voice.suggestion_words("manual", "cooler" if diff < 0 else "warmer", {"phase": ph.name, "deg": fmt_gap(diff, p.settings.units),
@@ -916,10 +918,13 @@ def _suggest(c, p) -> list[dict]:
             continue
         mag = 0.56 if p.settings.units == "F" else 0.5
         step = -mag if d == "cooler" else mag
+        to = clamp_phase_temp(phase.temp_c + step, c.household)
+        if abs(to - phase.temp_c) < 0.05:
+            continue
         out.append({"id": f"ap-{ph}-{d}-{max(nights[(ph, d)])}", "kind": "pattern", "phase": ph, "phase_name": phase.name, "direction": d, "nights": sorted(nights[(ph, d)]),
                     **voice.suggestion_words("pattern", d, {"phase": phase.name, "n": n_nights, "look": look - 1, "step": "1 °F" if p.settings.units == "F" else "0.5 °C"}, p,
                                              datetime.fromtimestamp(now, c.clock.tz).date(), len(out)),
-                    "proposal": {"rhythm_id": rh.id, "phase_id": ph, "field": "temp_c", "from": phase.temp_c, "to": round(phase.temp_c + step, 2)}})
+                    "proposal": {"rhythm_id": rh.id, "phase_id": ph, "field": "temp_c", "from": phase.temp_c, "to": to}})
     return out
 
 
