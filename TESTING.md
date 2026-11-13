@@ -67,11 +67,11 @@ Tick off what you can, and tell us about anything that confused you, not only th
 
 ## Updating and backing up
 
-Nothing updates itself. [Updating and backups](docs/install.md#e-updating-and-backups) shows how to pull a new version and what to copy (the data volume or folder). Take a backup before every update.
+Nothing updates itself. [Updating and backups](docs/install.md#e-updating-and-backups) shows how to pull a new version and what to copy (the `data` folder). Take a backup before every update.
 
 ## Removing it completely
 
-1. Docker: `docker compose down -v` (the `-v` also deletes the data volume), then delete the project folder (and its `data` folder, if you used one). Bare metal: `sudo systemctl disable --now embertide`, then delete `/opt/embertide` and `/var/lib/embertide` (or the folders you used).
+1. Docker: `docker compose down`, then delete the project folder, including its `data` folder. Bare metal: `sudo systemctl disable --now embertide`, then delete `/opt/embertide` and `/var/lib/embertide` (or the folders you used).
 2. If you used local control, remove the DNS record and power-cycle the bed so it goes back to the maker's cloud.
 3. Remove the Android app, the Wear OS app and the iPhone Home Screen icon. If you connected Home Assistant, remove the entities from Studio first.
 4. Revoke the personal API key in the maker's web app if you made one for this.

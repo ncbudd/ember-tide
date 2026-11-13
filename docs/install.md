@@ -53,7 +53,7 @@ Ours defines two services; only the first starts by default:
 
 | Service | Image | What it does |
 |---|---|---|
-| `embertide` | the ready-made image `ghcr.io/ncbudd/ember-tide` (web app and server in one image; amd64 and arm64) | the app, Studio and the API on port **8790**. Its data is the Docker volume `embertide-data` (or a folder of your choice). |
+| `embertide` | the ready-made image `ghcr.io/ncbudd/ember-tide` (web app and server in one image; amd64 and arm64) | the app, Studio and the API on port **8790**. Its data is the folder `./data` next to the Compose file. A tiny `data-init` helper runs first and prepares the folder. |
 | `mosquitto` (profile `local-bed`) | `eclipse-mosquitto:2.0.20` | the **MQTT broker** the bed talks to, on port **1883**. It starts only when you ask for it with `docker compose --profile local-bed up -d`, so simulator and cloud users never run a broker. |
 
 Docker **pulls the ready-made image** the first time, which takes a minute. You still need the project folder for the Compose file and
@@ -98,10 +98,9 @@ After a minute or two, `docker compose ps` should show the app as **healthy**. (
 start with `docker compose --profile local-bed up -d`, or put `COMPOSE_PROFILES=local-bed` in a `.env` file next to the Compose file so
 plain `docker compose up -d` includes it.)
 
-**Folder permissions.** The container runs as user and group **1000**, not root. The example file keeps the data in a Docker volume,
-which just works. If you'd rather use a folder (`./data:/data`, or a full path on a NAS), create it and hand it to uid 1000 before the
-first start: `mkdir -p data && sudo chown 1000:1000 data`. Without that, Docker creates the folder owned by root and the app stops with a
-message telling you this fix. If the folder already exists and belongs to someone else (a folder an older image wrote as root, or the shared-folder owner on a NAS), fix it once with
+**Folder permissions.** Nothing to do for a new install: the app runs as user and group **1000** (not root), and the example file's
+`data-init` helper hands `./data` to that user before the app starts when the folder is new and empty or still owned by root (as Docker
+and older versions of the app leave it). A folder owned by any other user is left alone. If the app ever can't write its folder it stops with a message naming the fix. If your folder already holds data and belongs to someone else (a folder an older image wrote as root, or the shared-folder owner on a NAS), fix it once with
 `chown -R 1000:1000 ./data`, or tell the container to run as that folder's owner by adding `user: "<uid>:<gid>"` under the `embertide:`
 service (find the numbers with `ls -ln ./data`). On **Unraid**, shares are owned by `99:100` (nobody:users): use `user: "99:100"`. On **Synology**,
 use the numbers of the user that owns the shared folder (often `1026:100`; `id <username>` over SSH shows them) or `chown` it to `1000:1000`.
@@ -279,7 +278,7 @@ On a pasted-in stack (Unraid, Portainer, ...), use that tool's **Update stack** 
 tables on start. Rolling back means checking out the old version and running the same command; it works unless the newer version added data
 the older one cannot read, so **take a backup before every update.**
 
-**What to back up:** the data (`/data` inside the container: the `embertide-data` volume, or your `./data` folder). It holds:
+**What to back up:** the data folder (`./data`, or `/data` inside the container). It holds:
 
 | File | What |
 |---|---|
@@ -287,19 +286,18 @@ the older one cannot read, so **take a backup before every update.**
 | `vapid-private.pem` | the Web Push key. If lost, phones have to turn notifications on again |
 | `fcm-service-account.json` | only if you set up Google push (your own file) |
 
-The easy, safe backup stops the app for a moment. With the Docker volume from the example file:
+The easy, safe backup stops the app for a moment:
 
 ```bash
 docker compose stop embertide
-docker compose cp embertide:/data ./data-backup-$(date +%F)
+cp -a data data-backup-$(date +%F)
 docker compose start embertide
 ```
 
-With a folder instead (`./data:/data`): `docker compose stop embertide && cp -a data data-backup-$(date +%F) && docker compose start embertide`.
-Studio, Data export gives you your nights as files too.
+A live copy also works: `sqlite3 data/embertide.db ".backup 'backup.db'"`. Studio, Data export gives you your nights as files too.
 
-**Restore:** stop the container, copy the backup back (`docker compose cp ./data-backup-YYYY-MM-DD/. embertide:/data` for the volume, or
-replace the contents of `./data`), including any `-wal` and `-shm` files that were copied with it, and start it again. Phones stay signed in. Keep one copy on another machine; the database holds sleep data, so treat the copy like the original.
+**Restore:** stop the container, replace the contents of `./data` with the backup (including any `-wal` and `-shm` files that were copied
+with it), start it again. Phones stay signed in. Keep one copy on another machine; the database holds sleep data, so treat the copy like the original.
 
 ---
 

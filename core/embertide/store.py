@@ -36,7 +36,7 @@ def cant_write_message(folder) -> str:
     gid = os.getgid() if hasattr(os, "getgid") else "?"
     return (f"Ember & Tide can't write to its data folder {folder} (running as uid {uid}). "
             f"Fix it once on the host with: sudo chown -R {uid}:{gid} <your data folder>  "
-            "(or use a named volume, as the example Compose file does). See docs/install.md, Folder permissions.")
+            "(the example Compose file's data-init helper does this for a new folder). See docs/install.md, Folder permissions.")
 
 
 class Store:

@@ -9,7 +9,7 @@ from embertide.store import Store, cant_write_message
 
 def test_message_names_the_folder_and_the_fix(tmp_path):
     m = cant_write_message(tmp_path)
-    assert str(tmp_path) in m and "chown" in m and "named volume" in m
+    assert str(tmp_path) in m and "chown" in m and "data-init" in m
 
 
 @pytest.mark.skipif(sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0),
