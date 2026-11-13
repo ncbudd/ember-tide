@@ -4,6 +4,7 @@ import Fold from "../components/Fold";
 import Tip from "../components/Tip";
 import { HelpLink } from "./Help";
 import { useApp } from "../ctx";
+import { useOwnPerson } from "../auth";
 import { cToF, hm12 } from "../format";
 
 interface Proposal { rhythm_id: string; phase_id?: string; field?: string; schedule?: "bedtime" | "wake"; from?: number | string; to: number | string }
@@ -15,6 +16,7 @@ const SUGGESTED = ["Why was last night restless?", "Should my Deep phase be cool
 
 export default function Insights() {
   const { snap, say } = useApp();
+  const mine = useOwnPerson();
   const [pid, setPid] = useState<string | null>(null);
   const [items, setItems] = useState<Insight[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -22,7 +24,7 @@ export default function Insights() {
   const [q, setQ] = useState("");
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [busy, setBusy] = useState(false);
-  const person = snap?.people.find(p => p.id === (pid ?? snap.people[0]?.id));
+  const person = snap?.people.find(p => p.id === (pid ?? mine ?? snap.people[0]?.id));
   const load = () => person && api.get<Insight[]>(`/api/people/${person.id}/insights`).then(r => { setItems(r); setFailed(false); }).catch(() => setFailed(true));
   const personRef = useRef<string | undefined>(undefined);
   personRef.current = person?.id;                               // an answer that arrives after switching person is dropped

@@ -93,6 +93,13 @@ def apply_fix(summary: dict, fix: dict | None) -> dict:
             raw["in_bed_min"] = summary.get("in_bed_min")
             ups = summary.get("up_minutes") or 0
             summary["in_bed_min"] = max(0, round((b - a) / 60) - ups)
+    if fix.get("in_bed_at") is not None or fix.get("out_at") is not None:
+        # "You settled around 9:52" can't stand when they say they only got in at 10:20 (or were up by 9:30)
+        a, b = summary.get("in_bed_at"), summary.get("out_at")
+        moms = summary.get("moments") or []
+        keep = [m for m in moms if m.get("kind") != "sleep" or ((not a or m["ts"] >= a) and (not b or m["ts"] <= b))]
+        if len(keep) != len(moms):
+            summary["moments"] = keep
     wrong, added = fix.get("ups_wrong") or [], fix.get("ups_added") or []
     if wrong or added:
         raw["times_up"], raw["up_minutes"] = summary.get("times_up"), summary.get("up_minutes")

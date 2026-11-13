@@ -1,13 +1,23 @@
-## What and why
+## Root cause
 
-<!-- One or two sentences: what changes, and what problem it solves. -->
+<!-- For a bug fix: what was actually wrong, in a sentence or two. For a feature: the need it serves. -->
 
-## How I checked it
+## Fix
 
-- [ ] `uv run pytest -q` in `core/` (or the files I touched)
+<!-- What this change does about it. -->
+
+## Verification
+
+<!-- How you checked it. Tick what applies; add screenshots if a screen changed. -->
+
+- [ ] `python -m pytest -q` in `core/` (or the files I touched)
 - [ ] `npx tsc --noEmit -p .` and `npm run build` in `web/` (if I touched the web app)
 - [ ] `python scripts/publish_check.py`
-- [ ] Tried it in the simulator (screenshot below if the screen changed)
+- [ ] Tried it in the simulator
+
+## Release note
+
+<!-- One plain-language line for the changelog, or "none" if users will not notice. -->
 
 ## Checklist
 

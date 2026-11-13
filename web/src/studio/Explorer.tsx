@@ -6,6 +6,7 @@ import PetQuestions from "./PetQuestions";
 import { api } from "../api";
 import ShowMore from "../components/ShowMore";
 import { useApp } from "../ctx";
+import { useOwnPerson } from "../auth";
 import { clock, cToF, sourceText, weight, weightUnit } from "../format";
 
 export interface Series { id: string; label: string; source: string; device: string; driver: string; unit: string; lane: string; kind: "line" | "step"; color: string; points: [number, number][]; role?: string; ghost?: boolean }
@@ -67,6 +68,8 @@ function valueAt(pts: [number, number][], t: number, step: boolean, maxGap = Mat
 
 export default function Explorer() {
   const { snap } = useApp();
+  const mine = useOwnPerson();                                    // a sleeper opens their own nights first
+  const [denied, setDenied] = useState<string | null>(null);
   const [pid, setPid] = useState<string | null>(null);
   const [date, setDate] = useState<string | null>(null);
   const [cmpDate, setCmpDate] = useState<string>("");
@@ -86,7 +89,7 @@ export default function Explorer() {
   const wrap = useRef<HTMLDivElement>(null);
   const pathCache = useRef(new Map<string, string>());
   const raf = useRef<number | null>(null);
-  const person = snap?.people.find(p => p.id === (pid ?? snap.people[0]?.id));
+  const person = snap?.people.find(p => p.id === (pid ?? mine ?? snap.people[0]?.id));
   const units = person?.settings.units ?? "F";
   const wu = weightUnit(person?.settings);
   // refresh the open night about every 30 real seconds (not every simulated minute: at ×60 that hammered the server every second)
@@ -99,7 +102,7 @@ export default function Explorer() {
   useEffect(() => { if (person) api.get<(typeof nights[number] & { in_bed_min?: number })[]>(`/api/people/${person.id}/nights?count=14`).then(n => { setNights(n);
         const pick = n[0] && (!n[0].in_progress || (n[0].in_bed_min ?? 0) >= 60) ? n[0] : n.find(x => x.has_data && !x.in_progress) ?? n[0];
         setDate(d => d ?? pick?.date ?? null); }).catch(() => {}); }, [person?.id]);
-  useEffect(() => { if (person && date) api.get<Explore>(`/api/explore?person_id=${person.id}&date=${date}`).then(setData).catch(() => setData(null)); }, [person?.id, date, tick]);
+  useEffect(() => { if (person && date) api.get<Explore>(`/api/explore?person_id=${person.id}&date=${date}`).then(d => { setDenied(null); setData(d); }).catch(e => { setData(null); setDenied(e instanceof Error ? e.message : "Couldn't load this night."); }); }, [person?.id, date, tick]);
   const [ring, setRing] = useState<Ring | null>(null);         // the ring's own numbers for the night (engine/ring.py)
   const [naps, setNaps] = useState<{ list: Nap[]; night: number | null }>({ list: [], night: null });   // naps that day (engine/sleeps.py)
   useEffect(() => { setRing(null); setNaps({ list: [], night: null }); if (person && date) api.get<{ ring?: Ring | null; naps?: Nap[]; night_asleep_min?: number | null }>(`/api/people/${person.id}/night?date=${date}`)
@@ -115,7 +118,14 @@ export default function Explorer() {
     return [...main, ...ghosts];
   }, [data, cmp, shift]);
   if (!snap || !person) return null;
-  if (!data) return <div className="box">Loading the night…</div>;
+  if (!data) return denied ? (
+    <div className="box">
+      <p style={{ margin: "0 0 10px" }}>{denied}</p>
+      <div className="row" style={{ justifyContent: "flex-start", gap: 8 }}>
+        {snap.people.map(p => <button key={p.id} className="pill" aria-pressed={p.id === person.id} onClick={() => { setPid(p.id); setDate(null); setZoom(null); setDenied(null); }}>{p.name}</button>)}
+      </div>
+    </div>
+  ) : <div className="box">Loading the night…</div>;
 
   const x0 = zoom ? zoom[0] : data.start, x1 = zoom ? zoom[1] : Math.min(data.end, Math.max(data.now, data.start + 3600));
   const L = 150, R = 16;

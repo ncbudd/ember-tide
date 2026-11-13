@@ -221,7 +221,7 @@ async def test_mqtt_broker_down_for_eight_hours_with_the_pad_dead(tmp_path):
     mq = r.add("radar", "left", mode="event", driver="mqtt-topic")
     plan = Plan().at("22:40", lambda r_: mq.set(1.0))
     plan.pad_on["left"] = False
-    await r.run("2026-11-06T07:45", script=plan)
+    await r.run("2026-11-06T08:45", script=plan)       # the frozen "in bed" reads as a lie-in: capped at 45 min past the end
     assert r.started_count(r.p1) == 1
     assert r.timeline(r.p1)[-1][1] == "done" and not r.bed.z["left"].on
 

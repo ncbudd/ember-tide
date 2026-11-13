@@ -384,6 +384,39 @@ class Controller:
         kg = [float(src.calibration.person_kg[p.id]) for p in people if src.calibration.person_kg.get(p.id)]
         src.hint_side(zone, empty, in_bed, kg)
 
+    def _away_zones(self, now: float) -> set[str]:
+        """Sides whose sleeper is marked away (not lent to a guest), and only while the other side's person isn't away."""
+        from . import away as away_mod
+        out = set()
+        for p in self.household.people:
+            if p.zone in self.household.guest:
+                continue
+            try:
+                if away_mod.is_away(self.store, p.id, now):
+                    out.add(p.zone)
+            except Exception:  # noqa: BLE001
+                pass
+        return out if len(out) < len(self.household.people) else set()
+
+    def _hold_watch(self, now: float) -> None:
+        """Out-of-bed holds where the person's own radar still saw them (a misread, e.g. the echo filter) are noted as an
+        `up_misread` event when the hold ends, so the morning "up N×" leaves them out (summary.py)."""
+        w = self.__dict__.setdefault("_holds", {})
+        for p in self.household.people:
+            e = self.engines[p.id]
+            h = w.get(p.id)
+            if e.s.absent_since is not None and e.s.started:
+                rad = (self.__dict__.get("_radar_raw") or {}).get(p.zone) or []
+                if h is None or h["from"] != e.s.absent_since:
+                    h = w[p.id] = {"from": e.s.absent_since, "ticks": 0, "seen": 0}
+                if rad:
+                    h["ticks"] += 1
+                    h["seen"] += any(v >= 0.5 for v in rad)
+            elif h is not None:
+                w.pop(p.id)
+                if h["ticks"] >= 4 and h["seen"] >= 0.5 * h["ticks"]:
+                    self.store.event(now, "up_misread", p.id, "radar", since=h["from"], seen=h["seen"], ticks=h["ticks"])
+
     def _pet_hints(self, zone: str, votes: list, ep: dict | None) -> dict:
         """What the pet guard may use beyond the strip and scales: the sleeper's watch verdict, their learned range
         (only once the learning week produced one) and the learned pet signatures."""
@@ -396,6 +429,9 @@ class Controller:
             from . import away as away_mod
             try:
                 out["away"] = away_mod.is_away(self.store, p.id, self.clock.now_ts())
+                if out["away"] and zone in self.presence.away_sides:
+                    # the other side has someone, and does the away side's pad follow theirs? (pets.py: crosstalk, not a pet)
+                    out["crosstalk"] = self.presence.xt if self.presence.partner_near(zone) else None
             except Exception:  # noqa: BLE001
                 out["away"] = False
         # outside a running night (by day, in the evening before it starts): their watch and phone may say whether it's
@@ -522,6 +558,14 @@ class Controller:
         self.presence.prefer = {p.zone for p in self.household.people
                                 if self.engines[p.id].s.started and self.engines[p.id].s.absent_since is None
                                 and self.engines[p.id].s.state == "rhythm"}
+        self.presence.pet_sides = {z for z, f in self.fused.items() if (f.get("pet") or {}).get("suspected")}
+        # (a radar that skips a reading keeps its last verdict for 10 minutes: it still exists, it is not "no radar")
+        rl = self.__dict__.setdefault("_radar_last", {})
+        for z, vs in (self.__dict__.get("_radar_raw") or {}).items():
+            if vs:
+                rl[z] = (now, any(v >= 0.5 for v in vs))
+        self.presence.radar = {z: v for z, (t, v) in rl.items() if now - t <= 600}
+        self.presence.away_sides = self._away_zones(now)
         if frame:
             self.presence.update(now, {z: f.sensor for z, f in frame.zones.items()})
         guest_zones = set(self.household.guest)
@@ -541,6 +585,10 @@ class Controller:
                 self._person_errors[p.id] = self._person_errors.get(p.id, 0) + 1
             else:
                 self._person_errors.pop(p.id, None)
+        try:
+            self._hold_watch(now)
+        except Exception:  # noqa: BLE001
+            log.exception("hold watch failed")
         if frame and online and now - self._last_tel >= TELEMETRY_EVERY_S:
             # only while the bed is reporting: a frozen last frame (bed off, broker down) is not history
             self._last_tel = now

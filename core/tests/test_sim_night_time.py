@@ -200,7 +200,7 @@ async def test_a_snoozed_alarm_does_not_stretch_the_wake(tmp_path):
     p = r.p1
     assert len(r.events("wake_from_alarm", "p1")) == 1                           # followed once, the snooze ignored
     assert r.at(p, "2026-11-06T05:55")[2] == "wake"
-    assert r.timeline(p)[-1][1] == "done" and r.timeline(p)[-1][0] <= "06:40"
+    assert r.timeline(p)[-1][1] == "done" and r.timeline(p)[-1][0] <= "06:50"   # up at 06:40: done once out of bed 3 min
 
 
 async def test_a_new_alarm_after_the_first_rang_reopens_the_finished_night(tmp_path):

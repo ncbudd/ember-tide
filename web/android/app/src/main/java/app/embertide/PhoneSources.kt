@@ -96,6 +96,7 @@ object PhoneSources {
 
     /** Signed out: stop the periodic job and the on-charge / night triggers (schedule() brings them back). */
     fun unschedule(c: Context) {
+        prefs(c).edit().remove("plug_sent").remove("night_kick_at").apply()
         val wm = WorkManager.getInstance(c)
         for (n in listOf(WORK, "$WORK-now", "$WORK-night", "$WORK-retry", "$WORK-oncharge")) wm.cancelUniqueWork(n)
         c.getSystemService(AlarmManager::class.java)?.cancel(android.app.PendingIntent.getBroadcast(c, 41, Intent(c, NightAlarmReceiver::class.java),
@@ -123,17 +124,47 @@ object PhoneSources {
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT)
         val on = enabled(c)
         if ("dial" !in on && "charging" !in on && "watch_hr" !in on) { am.cancel(pi); return }
-        val next = if (nightWindow()) System.currentTimeMillis() + 15 * 60_000L else Calendar.getInstance().apply {
+        val mins = PlugPolicy.nextCheckMinutes(Calendar.getInstance().get(Calendar.HOUR_OF_DAY), watchesPlug(c))
+        val next = if (mins != null) System.currentTimeMillis() + mins * 60_000L else Calendar.getInstance().apply {
             if (get(Calendar.HOUR_OF_DAY) >= 19) add(Calendar.DAY_OF_YEAR, 1)
             set(Calendar.HOUR_OF_DAY, 19); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0)
         }.timeInMillis
         am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pi)
     }
 
+    private fun watchesPlug(c: Context) = enabled(c).let { "charging" in it || "dial" in it }
+
+    /** The night alarm's work (and a check when the app is opened): read the plug state straight from the battery
+     *  broadcast, which is true on wireless chargers and while the battery is holding its charge, and send at once
+     *  when it differs from what the server was last told. Evening 19:00-02:00 only; also the normal 15-min
+     *  check-in at night. Reading the sticky broadcast costs nothing; the network is used only when sending.
+     *  (JobScheduler's "requires charging" constraint sat unsatisfied for 10+ min on a wireless charger.) */
+    fun plugCheck(c: Context, periodic: Boolean) {
+        if (enabled(c).isEmpty() || !Ember.ready(c)) return
+        val p = prefs(c)
+        val now = System.currentTimeMillis()
+        val last = p.getLong("night_kick_at", 0)
+        val sinceMin = if (periodic && last > 0) (now - last) / 60_000 else if (periodic) Long.MAX_VALUE else 0
+        val sent = if (p.contains("plug_sent")) p.getBoolean("plug_sent", false) else null
+        val act = PlugPolicy.decide(sent, isCharging(c), watchesPlug(c), Calendar.getInstance().get(Calendar.HOUR_OF_DAY), sinceMin)
+        if (act == PlugPolicy.Action.NONE) return
+        p.edit().putLong("night_kick_at", now).apply()
+        kickNow(c)
+    }
+
     /** Send now as an expedited job (falls back to a normal one when the expedited quota is used up). */
     fun kickNow(c: Context) {
         if (enabled(c).isEmpty()) return
         WorkManager.getInstance(c).enqueueUniqueWork("$WORK-night", ExistingWorkPolicy.KEEP,
+            OneTimeWorkRequestBuilder<PhoneContextWorker>().setConstraints(NET)
+                .setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build())
+    }
+
+    /** The alarm changed (a snooze, an edit): send as an expedited job so it isn't held back until the next Doze
+     *  maintenance window; a send already queued is replaced by this one. */
+    fun kickAlarm(c: Context) {
+        if (enabled(c).isEmpty()) return
+        WorkManager.getInstance(c).enqueueUniqueWork("$WORK-alarm", ExistingWorkPolicy.REPLACE,
             OneTimeWorkRequestBuilder<PhoneContextWorker>().setConstraints(NET)
                 .setExpedited(androidx.work.OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST).build())
     }
@@ -441,7 +472,7 @@ object PhoneSources {
             .putString("last_body", body.toString()).putString("last_error", if (ok) null else res.exceptionOrNull()?.message?.take(120)).apply()
         // didn't get through (offline, or too soon after the last send): try again in a minute rather than in 15
         if (!ok) { retryLater(c); return body }
-        prefs(c).edit().putInt("retry_n", 0).apply()
+        prefs(c).edit().putInt("retry_n", 0).also { if (body.has("charging")) it.putBoolean("plug_sent", body.optBoolean("charging")) }.apply()
         // live watch heart rate: the server says whether the person's night is on; the watch collects only then
         if ("watch_hr" in enabled(c)) runCatching { JSONObject(res.getOrThrow()) }.getOrNull()
             ?.takeIf { it.has("watch_hr_wanted") }?.let { WatchHrRelay.control(c, it.optBoolean("watch_hr_wanted")) }
@@ -495,7 +526,7 @@ class PhoneContextWorker(ctx: Context, params: WorkerParameters) : CoroutineWork
 /** The night alarm: check in now (expedited) and set the next alarm. */
 class NightAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        runCatching { if (PhoneSources.nightWindow()) PhoneSources.kickNow(c) }
+        runCatching { PhoneSources.plugCheck(c, periodic = true) }
         runCatching { PhoneSources.armNightAlarm(c) }
     }
 }
@@ -511,7 +542,7 @@ class PhoneRestartReceiver : BroadcastReceiver() {
 /** The next alarm changed (an allowed background broadcast): send it right away. */
 class PhoneAlarmReceiver : BroadcastReceiver() {
     override fun onReceive(c: Context, i: Intent) {
-        if (i.action == AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED && "alarm" in PhoneSources.enabled(c)) PhoneSources.kick(c)
+        if (i.action == AlarmManager.ACTION_NEXT_ALARM_CLOCK_CHANGED && "alarm" in PhoneSources.enabled(c)) PhoneSources.kickAlarm(c)
     }
 }
 

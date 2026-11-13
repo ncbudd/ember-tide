@@ -68,6 +68,72 @@ class PresenceFilter:
     prefer: set = field(default_factory=set)
     # an "active, not sleeping yet" stretch is on (engine/active.py): no new near-copy echo is decided from it
     active: bool = False
+    # hints from the controller (set each tick, from the last fusion): sides held by a suspected pet, sides whose
+    # sleeper is away, and whether a side's own radar zone sees someone (True / False; absent = no radar or unknown).
+    # A pad is never an echo of a pet's side (2026-11-12: the dog on the away side, the owner in 15 s later, his pad was
+    # taken for the dog's echo). Nor is it the echo of an AWAY person's side: nobody is there, so when the two pads
+    # agree the away side is the follower (the present person's heartbeat bleeding across), never the other way round
+    # (2026-11-12 night: his right pad was marked the echo of the empty left from 03:20 and his night went out of bed).
+    pet_sides: set = field(default_factory=set)
+    away_sides: set = field(default_factory=set)
+    radar: dict = field(default_factory=dict)
+    # crosstalk on an away side: its heart rate tracks the other pad's (within XT_BPM for most of XT_WINDOW_S)
+    XT_BPM = 5
+    XT_WINDOW_S = 600.0
+    XT_MIN_PAIRS = 12
+    XT_SHARE = 0.7
+    _xt: deque = field(default_factory=deque)
+
+    def _vetoed(self, name: str) -> bool:
+        other = "right" if name == "left" else "left"
+        if other in self.away_sides and name not in self.away_sides:
+            return True
+        return other in self.pet_sides and name not in self.pet_sides
+
+    # what the away side's pad is doing next to the present person's: "tracks" (heart rates within XT_BPM for most of
+    # the last 10 min; enters at XT_SHARE, leaves below XT_LEAVE), "apart", or "unknown" (not enough readings yet)
+    xt: str = "unknown"
+    XT_LEAVE = 0.4
+
+    def _tracks(self) -> None:
+        xs = list(self._xt)
+        if len(xs) < self.XT_MIN_PAIRS:
+            self.xt = "unknown"
+            return
+        share = sum(1 for _, a, b in xs if abs(a - b) <= self.XT_BPM) / len(xs)
+        if share >= self.XT_SHARE:
+            self.xt = "tracks"
+        elif share < self.XT_LEAVE:
+            self.xt = "apart"
+        elif self.xt == "unknown":
+            self.xt = "apart" if share < 0.5 else "tracks"      # in between: keeps what it was; a first verdict leans on the half
+
+    def _crosstalk(self, ts: float) -> None:
+        l, r = self.sides.get("left"), self.sides.get("right")
+        if not l or not r:
+            return
+        if l.raw_occupied and r.raw_occupied and l.hr and r.hr and (not self._xt or ts - self._xt[-1][0] >= 10):
+            self._xt.append((ts, l.hr, r.hr))
+        while self._xt and ts - self._xt[0][0] > self.XT_WINDOW_S:
+            self._xt.popleft()
+        if len(self.away_sides) != 1:
+            self.xt = "unknown"
+            return
+        away = next(iter(self.away_sides))
+        other = "right" if away == "left" else "left"
+        self._tracks()
+        if self.sides[away].raw_occupied and self.sides[other].raw_occupied and self.radar.get(away) is False and self.radar.get(other) is not False and self.xt == "tracks":
+            self.sides[away].echo = True        # the present person's own heartbeat on the empty side, not a pet
+
+    def partner_near(self, away: str) -> bool:
+        """Someone is on the other side (its pad, or its radar, says so) and this side's own radar sees nobody. Without
+        a radar on the away side nothing tells a pet from crosstalk (a dog's heart rate is no different from an adult's),
+        so the pet guard's old behaviour stands."""
+        if self.radar.get(away) is not False:
+            return False
+        other = "right" if away == "left" else "left"
+        o = self.sides.get(other)
+        return bool(o and o.raw_occupied) or self.radar.get(other) is True
 
     def update(self, ts: float, frames: dict[str, SensorFrame]) -> dict[str, SideState]:
         for name, f in frames.items():
@@ -92,7 +158,7 @@ class PresenceFilter:
             else:
                 if s.occupied is True:
                     pass
-                elif self._copies_other(name, frames):
+                elif not self._vetoed(name) and self._copies_other(name, frames):
                     s.pending_since = None          # identical to a side that is already occupied: an echo, not a person
                     if s.occupied is None:
                         s.occupied, s.since = False, ts
@@ -102,6 +168,10 @@ class PresenceFilter:
                     s.occupied, s.since = True, s.pending_since
         self._echo(ts)
         self._follow(ts)
+        for name, sd in self.sides.items():
+            if sd.echo and self._vetoed(name):
+                sd.echo = False
+        self._crosstalk(ts)
         return self.sides
 
     def _follow(self, ts: float) -> None:

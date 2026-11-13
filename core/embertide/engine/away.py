@@ -373,13 +373,21 @@ def away_share(periods: list[tuple[float, float]], start: float | None, end: flo
     return min(1.0, covered / (end - start))
 
 
-def hide_away_night(store, pid: str, night: dict | None, now: float) -> dict | None:
+def hide_away_night(store, pid: str, night: dict | None, now: float, tz=None) -> dict | None:
     """A night that mostly fell inside an away period is not this person's (something else lay on their side): for the
     nights/night summaries the Sleep screen shows, swap its numbers for a plain "away" marker. Same rule as Autopilot's
     learning (away_share)."""
     if not night or not night.get("has_data"):
         return night
-    if away_share(away_periods(store, pid, now), night.get("in_bed_at"), night.get("out_at")) < 0.5:
+    a, b = night.get("in_bed_at"), night.get("out_at")
+    if not a and tz is not None and night.get("date"):
+        # nobody was seen in bed (a pet lay on the side, so the bed kept no night): the whole evening-to-noon stretch counts
+        from datetime import date as _date
+        try:
+            a, b = _night_span(_date.fromisoformat(night["date"]), tz)
+        except (ValueError, TypeError):
+            pass
+    if away_share(away_periods(store, pid, now), a, b) < 0.5:
         return night
     keep = ("date", "label", "in_progress", "before", "feedback")
     return {**{k: night[k] for k in keep if k in night}, "has_data": False, "away": True, "moments": []}

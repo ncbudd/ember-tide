@@ -355,3 +355,35 @@ class TestApi:
             assert c.post("/api/people/p1/autopilot/ai-review", json={"date": "2026-11-05"}, headers=H).json()["proposal"]["to"] == 16.5
             replies.append(block(10.0))                                   # too big a jump → dropped
             assert c.post("/api/people/p1/autopilot/ai-review", json={"date": "2026-11-05"}, headers=H).json()["proposal"] is None
+
+    def test_ai_review_context_reads_settings_as_the_plan(self, tmp_path, monkeypatch):
+        # 2026-11-12: the review called a planned warm-up (75 → 81 → 86 °F) "overshooting" and told a warm sleeper with no
+        # complaints to go cooler, ignoring a 68 °F bedroom in November
+        sent = []
+
+        async def fake_post(self, url, json=None, headers=None, **kw):
+            sent.append(json)
+            return httpx.Response(200, json={"choices": [{"message": {"content": "Comfortable night."}}]}, request=httpx.Request("POST", url))
+        monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+        with make(tmp_path, llm="http://fake/v1") as c:
+            c.post("/api/sim", json={"jump_to": "2026-11-06T09:00"}, headers=H)
+            c.post("/api/people/p1/autopilot/ai-review", json={"date": "2026-11-05"}, headers=H)
+        msgs = sent[-1]["messages"]
+        system, user = msgs[0]["content"], msgs[-1]["content"]
+        assert "planned_settings" in system and "NOT evidence" in system
+        ctx = json.loads(user.split("```json\n", 1)[1].split("\n```", 1)[0])
+        assert ctx["planned_settings"] and ctx["evidence_tonight"] is False
+        assert ctx["season"].startswith("fall") and "room" in ctx and "pad_vs_setting" in ctx
+        assert "don't recommend a rhythm change" in user
+        ap = ctx["autopilot"]
+        assert {"mode", "still_learning", "signals_overnight", "pending_suggestions"} <= set(ap) and "What Autopilot found" in system
+        assert "sleep_stages" in ctx and "settled_min" in ctx["night"]
+
+
+def test_room_and_pad_words():
+    from embertide.autopilot_api import _pad_words, _room_words
+    r = _room_words({"temp_c": {"min": 20.0, "max": 20.4, "avg": 20.2}, "humidity": {"min": 61, "max": 65, "avg": 63}})
+    assert r["average"] == "68°F (20.2°C)" and r["reads_as"] == "a cool bedroom"
+    assert _room_words(None) == "no room sensor"
+    assert "below its setting" in _pad_words([-0.8] * 10) and "cool room" in _pad_words([-0.8] * 10)
+    assert _pad_words([0.1] * 10) == "the pad stayed at its setting" and _pad_words([]) == "not known"

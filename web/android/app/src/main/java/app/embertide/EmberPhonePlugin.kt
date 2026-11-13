@@ -37,6 +37,8 @@ class EmberPhonePlugin : Plugin() {
 
     // re-arm the periodic job and the on-charger trigger whenever the app starts (e.g. after an update)
     override fun load() { runCatching { PhoneSources.schedule(context) } }
+    /** App opened in the evening: if the plug state changed since the server was told, tell it now. */
+    override fun handleOnResume() { runCatching { PhoneSources.plugCheck(context, periodic = false) } }
 
     private fun reply(call: PluginCall, o: JSONObject) = call.resolve(JSObject(o.toString()))
     private fun status(call: PluginCall, extra: (JSONObject) -> Unit = {}) =

@@ -6,6 +6,9 @@ lands in the same wearable store (`wear:<person>:<metric>:<device>` samples, plu
 import, so clock alignment and the cross-device duplicate rule (same metric, second and value = stored once) apply
 whichever way a reading arrives.
 
+Voice assistants (Siri, Google Assistant, Alexa, Home Assistant's Assist) are the other direction, controlling the bed:
+see [Talk to your bed](voice.md).
+
 ## Cloud accounts (`core/embertide/cloud/`)
 
 One module per provider on a shared base (`cloud/base.py`): OAuth2 authorization code with a single-use state,

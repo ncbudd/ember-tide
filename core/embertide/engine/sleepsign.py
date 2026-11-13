@@ -23,7 +23,8 @@ STILL_S = 30 * 60            # still for this long
 STILL_SHARE = 0.9            # no movement in this share of the readings
 HR_NOW_S = 15 * 60           # the heart rate now: the last 15 minutes (it has to stay down that long)
 HR_BEFORE_S = 15 * 60        # against the 15 minutes before the still stretch (from getting in, at the earliest)
-HR_DROP = 4.0                # at least this much lower
+HR_DROP = 6.0                # at least this much lower (4 fired for most readers who simply relaxed after getting in)
+SETTLE_IN_S = 10 * 60        # the first minutes in bed are settling in, not the "before" heart rate
 MIN_ROWS = 12                # readings in the still stretch, with no hole over 10 min (the bed writes one every 15 s)
 MIN_HR = 5                   # heart-rate readings in each of the two stretches compared
 EVERY_S = 60                 # the bed check is worked out at most once a minute
@@ -75,7 +76,7 @@ def settled(rows: list[dict], in_bed: float, now: float) -> bool:
     if sum(1 for r in seen if r["status"] == 0) / len(seen) < STILL_SHARE:
         return False
     hr_now = [r["hr"] for r in seen if r["ts"] >= now - HR_NOW_S and r.get("hr")]
-    a = max(in_bed, now - STILL_S - HR_BEFORE_S)
+    a = max(in_bed + SETTLE_IN_S, now - STILL_S - HR_BEFORE_S)
     hr_before = [r["hr"] for r in rows if a <= r["ts"] < now - STILL_S and r.get("hr") and r.get("occupied") == 1]
     if len(hr_now) < MIN_HR or len(hr_before) < MIN_HR:
         return False

@@ -31,6 +31,10 @@ function PageBoundary({ children }: { children: React.ReactNode }) {
   return <ErrorBoundary name="studio page" resetKey={loc.pathname}>{children}</ErrorBoundary>;
 }
 
+function OwnerOnly() {
+  return <div className="box"><span className="mute">Only the owner can open this page.</span></div>;
+}
+
 export default function Studio() {
   const { snap, connected } = useApp();
   const auth = useAuth();
@@ -86,9 +90,9 @@ export default function Studio() {
           <Route path="notifications" element={<Notifications />} />
           <Route path="integrations" element={<Integrations />} />
           <Route path="rhythm" element={<RhythmEditor />} />
-          <Route path="hub" element={<Hub />} />
-          <Route path="console" element={<Console />} />
-          <Route path="sim" element={<Simulator />} />
+          <Route path="hub" element={auth.isOwner ? <Hub /> : <OwnerOnly />} />
+          <Route path="console" element={auth.isOwner ? <Console /> : <OwnerOnly />} />
+          <Route path="sim" element={auth.isOwner ? <Simulator /> : <OwnerOnly />} />
           <Route path="data" element={<Data />} />
           <Route path="help" element={<Help />} />
           <Route path="explorer" element={<Navigate to="/studio/nights" replace />} />
@@ -128,7 +132,7 @@ function Overview() {
                   {p.presence.present ? "In bed" : p.presence.present === false ? "Not in bed" : "Not sure if in bed"}
                   {p.presence.stale ? <span className="mute"> · bed sensor quiet</span> : p.presence.echo ? <span className="mute"> · ignored a reading from the other side</span> : null}</span>
                 {(p.presence.hr != null || p.presence.br != null) && <span className="num mute">{p.presence.hr ?? "—"} bpm · {p.presence.br ?? "—"} breaths/min</span>}</div>
-              {p.schedule && <div className="row mute" style={{ fontSize: 12.5 }}><span>Bedtime {clock(p.schedule.window_start, snap.tz)}–{clock(p.schedule.window_end, snap.tz)}</span><span>Wake {clock(p.schedule.wake, snap.tz)}</span></div>}
+              {p.schedule && <div className="row mute" style={{ fontSize: 12.5 }}><span title={`Pre-conditioning can run ${clock(p.schedule.window_start, snap.tz)}–${clock(p.schedule.window_end, snap.tz)}`}>Bedtime {clock(p.schedule.bedtime, snap.tz)}</span><span>Wake {clock(p.schedule.wake, snap.tz)}</span></div>}
             </div>
           ))}
         </div>

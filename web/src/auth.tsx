@@ -10,6 +10,11 @@ interface AuthState { enabled: boolean; setup_needed: boolean; me: Principal | n
 interface AuthCtx { state: AuthState; me: Principal | null; isOwner: boolean; signOut: () => Promise<void>; refresh: () => Promise<void> }
 
 const A = createContext<AuthCtx | null>(null);
+/** A signed-in sleeper opens their own side first on the pages that pick a person (null for the owner and with sign-in off). */
+export function useOwnPerson(): string | null {
+  const c = useContext(A);
+  return c && c.state.enabled && !c.isOwner ? c.me?.person ?? null : null;
+}
 export function useAuth(): AuthCtx {
   const c = useContext(A);
   if (!c) throw new Error("no auth provider");

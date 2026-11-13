@@ -203,7 +203,11 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   alarm, charging/bedtime mode, watch connected, bedside dial. Each asks for its permission when switched on;
   location/Wi-Fi/dial then ask "Allow all the time" (a settings page on Android 11+, not awaited).
 - Sending: WorkManager every 15 min, every 5 min while away in the evening, at once on switch changes and
-  NEXT_ALARM_CLOCK_CHANGED; a failed send (offline, 429) retries after 1 min. No wake locks. Uses LocationManager
+  NEXT_ALARM_CLOCK_CHANGED. Plug state: JobScheduler's "requires charging" constraint proved unreliable (10+ min
+  unsatisfied on a wireless charger), so 19:00-02:00 the chained night alarm (inexact, allow-while-idle, every 5 min,
+  15 min otherwise at night) reads the plug state from the battery broadcast (PlugPolicy.kt, pure + tested) and sends
+  at once when it differs from what the server was last told (`plug_sent`); also checked when the app is opened.
+  The old on-charge job stays as a fallback. A failed send (offline, 429) retries after 1 min. No wake locks. Uses LocationManager
   (no play-services-location): a fix under 60 s old, else one fresh fix per provider (fused first).
 - Bedside dials: iBeacon UUID 7c1f0e2a-5d3b-4e8a-9b6c-ed0a11e1de00, major 1, minor 1 = left / 2 = right
   (server kv `dial_beacons`, `PUT /api/dial-beacons`). The app listens 8 s, low-power, filtered on that UUID, only

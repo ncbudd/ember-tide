@@ -15,6 +15,7 @@ export const NOTIFY_TYPES: readonly (readonly [NotifyKey, string, string])[] = [
   ["empty_side", "My side is pre-conditioned but empty", "in the evening; after midnight it waits for the morning"],
   ["left_on", "I turned my side on and left it empty", "after 20 min with nobody in it, with a Turn it off button"],
   ["not_started", "Ask to start my side if the bed isn't sure it's me", "after about 40 min lying down, with a Start now button"],
+  ["review", "My night, reviewed", "after wake, when Autopilot's \"Every morning\" review is on: the first lines of it, also shown on Tonight"],
   ["pet_question", "Was the pet on the bed?", "daytime only; a question from the night comes with the morning summary"],
   ["problems", "Bed or sensor trouble", "the bed can't be reached or a sensor stops updating"],
   ["hub", "Bed hub needs a look", "a fault, or the water needs checking (owner only); once a day per problem"],

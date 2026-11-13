@@ -467,7 +467,8 @@ and a number for each phase's temperature. No custom integration is needed.
    or open **Studio, Integrations, Home Assistant** in the app and fill it in there.
 4. You should now see entities within seconds: `climate.embertide_<name>` and friends. **Publish again** and **Remove from Home Assistant** are on the same Studio page.
 
-Voice works through Home Assistant: expose the climate entity and flash buttons to your assistant ("set Alex's side to 68"). The ESPHome bedside dial also
+Voice works through Home Assistant: expose the climate entity and flash buttons to your assistant ("set Alex's side to 68"). [Talk to your bed](voice.md)
+has the steps for Siri (HomeKit Bridge), Google Assistant, Alexa and Assist, and Apple Shortcuts for iPhones without Home Assistant. The ESPHome bedside dial also
 goes through Home Assistant; **Studio, Integrations** (Dials) shows the generated configuration.
 
 **Keep two brokers.** The bed's broker (this project's Mosquitto, anonymous, only the two `orion/...` topics) and Home Assistant's add-on broker (with logins) are separate

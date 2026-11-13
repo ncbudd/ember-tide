@@ -1298,3 +1298,9 @@ button.bedpick-half:focus-visible,.bedpick-whole:focus-visible{outline:2px solid
 /* short phones: the "Set it with Cooler and Warmer" hint gives its line back to the controls */
 @media (max-height:680px){.turnon-hint{display:none!important}.app:not(.compact) .tn-main:has(.turnon) .hero .meta{display:none}}
 .planrow.care-tonight .chips{flex-wrap:nowrap;flex:none}.planrow.care-tonight > span:first-child{min-width:0}
+
+/* the morning review card on Tonight: three lines until Show more; sideways swipes dismiss it, up/down still scroll */
+.revnote{touch-action:pan-y}
+.revnote .revtext{margin:4px 0 6px;font-size:14px;line-height:1.45;white-space:pre-wrap;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.revnote .revtext.open{-webkit-line-clamp:unset;display:block}
+.revnote .link,.revnote .icon-btn{min-height:44px}

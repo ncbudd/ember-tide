@@ -1,6 +1,6 @@
 name: Hardware support
 description: Another bed, sensor, watch, or ring you would like to see supported
-labels: [hardware]
+labels: ["feature", "status:triage"]
 body:
   - type: markdown
     attributes:

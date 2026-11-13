@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useApp } from "../ctx";
+import { useOwnPerson } from "../auth";
 import { cToF, fToC, nightsText, personaColor } from "../format";
 import type { Phase, Rhythm } from "../types";
 import Tip from "../components/Tip";
@@ -26,6 +27,7 @@ function planAt(pts: { m: number; c: number; ramp: number }[], m: number, end: n
 
 export default function RhythmEditor() {
   const { snap, say } = useApp();
+  const mine = useOwnPerson();
   const [pid, setPid] = useState<string | null>(null);
   const [rhythms, setRhythms] = useState<Rhythm[] | null>(null);
   const [draft, setDraft] = useState<Rhythm | null>(null);
@@ -38,7 +40,7 @@ export default function RhythmEditor() {
   const [showLast, setShowLast] = useState(true);
   const [w, setW] = useState(900);
   const wrap = useRef<HTMLDivElement>(null);
-  const person = snap?.people.find(p => p.id === (pid ?? snap?.people[0]?.id));
+  const person = snap?.people.find(p => p.id === (pid ?? mine ?? snap?.people[0]?.id));
 
   useEffect(() => { if (!wrap.current) return; const ro = new ResizeObserver(() => setW(Math.max(560, wrap.current!.clientWidth))); ro.observe(wrap.current); return () => ro.disconnect(); }, [draft?.id]);
   useEffect(() => {

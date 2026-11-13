@@ -70,7 +70,7 @@ async def test_normal_weeknight_scripted(tmp_path):
     assert n.side("left").setpoint == pytest.approx(f_to_c(63), abs=0.1)
     await n.until("2026-11-06T06:20")
     assert n.e(n.p1).s.phase_id == "wake"
-    await n.until("2026-11-06T07:00")
+    await n.until("2026-11-06T08:00")                                                          # (still in bed at the end: a lie-in, 45 min at most)
     assert not n.side("left").on and not n.side("right").on                                    # off after wake
 
 

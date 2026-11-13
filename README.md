@@ -84,7 +84,8 @@ Studio, the power tools on a computer or tablet:
   and **Health Connect** sync. **Wear OS app, tile and complication** for tonight, temperature and flashes.
 - **iPhone**: the web app as a Home Screen app, with notifications (iOS 16.4 or newer). A native app is planned.
 - **Home Assistant** over MQTT discovery: a thermostat per side, flash buttons, phase and in-bed sensors, per-phase temperatures. **Voice**
-  works through Home Assistant's assistants.
+  works through Home Assistant's assistants (Siri, Google Assistant, Alexa, Assist), and through Apple Shortcuts on an iPhone
+  ([Talk to your bed](docs/voice.md)).
 - **ESPHome bedside dial**: a rotary touch dial per side (shared package in `core/embertide/dial/`), also a Bluetooth beacon that helps
   tell the sleepers apart.
 - A simulator with scripted sleepers, a bed console, data export, and API keys for your own scripts.
@@ -158,6 +159,7 @@ All settings are in [docs/configuration.md](docs/configuration.md).
 | [Install](docs/install.md) | Step by step for Unraid, Synology, TrueNAS, Proxmox, Linux and Raspberry Pi, Windows and Mac, Portainer and CasaOS; first run, HTTPS and iPhone, Home Assistant, fixed addresses, updates and backups |
 | [Bed cutover](docs/bed-cutover.md) | The local DNS record, checking the connection, blocking the hub's internet, rolling back, firmware updates |
 | [Android](docs/android.md) | Download the APK (Google push or no Google), build it yourself, your own Firebase project, Health Connect, widget and tile, Wear OS |
+| [Talk to your bed](docs/voice.md) | Siri, Google Assistant, Alexa and Assist through Home Assistant; Siri with Apple Shortcuts; voice on Android |
 | [Configuration](docs/configuration.md) | Every environment variable, the data folder, ports |
 | [Troubleshooting](docs/troubleshooting.md) | Hub won't connect, unknown sides, echo, push, Home Assistant, Health Connect |
 | [Notifications](docs/notifications.md), [Care](docs/care.md), [Cycle](docs/cycle.md), [Integrations](docs/integrations.md), [Onboarding](docs/onboarding.md), [Settings map](docs/settings-map.md) | How the parts work |

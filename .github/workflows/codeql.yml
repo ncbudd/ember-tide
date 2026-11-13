@@ -1,0 +1,22 @@
+name: CodeQL
+
+# Python and TypeScript/JavaScript. Java/Kotlin (the Android app) is left out for now: it is the build-heavy one.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "41 5 * * 3"
+
+permissions: {}
+
+jobs:
+  codeql:
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/codeql.yml@v1
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+    with:
+      languages: '["python","javascript-typescript"]'

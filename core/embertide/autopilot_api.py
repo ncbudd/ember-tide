@@ -70,10 +70,25 @@ REVIEW_SYSTEM = """You review one night for the Autopilot of Ember & Tide, a dua
 You get JSON: the person's rhythm (°C), the night's sensor summary (estimates, not medical), what Autopilot noticed
 (signals: restlessness, heart rate rise, skin temperature change, the bed vs plan) and what it did or would have done,
 the person's own "too hot / too cold" taps, their morning check-in and anything they wrote about how they feel.
-Interpret their own words carefully; they matter most. Reply in plain language, in °F unless they use °C:
+Interpret their own words carefully; they matter most.
+How to read the numbers (get these right):
+- "planned_settings" are the temperatures the person CHOSE for each phase. The bed follows them on purpose: a rise or
+  fall from one phase to the next is the plan doing its job (e.g. warming toward wake), never the bed "overheating" or
+  "overshooting". Only "bed_vs_plan" (tracking) says whether the bed actually reached its setting.
+- These are water/pad settings, not body or room temperatures. How warm a setting feels depends on the room and the
+  season: in a cold room or cold weather a person who runs warm can still choose fairly warm settings and be comfortable.
+  Always weigh "room" (the bedroom's measured temperature) and "pad_vs_setting" (whether the pad reached its setting)
+  before calling a setting too warm or too cool, and mention the room when it matters.
+- "runs" (warm/cold) is only a general description of the person. It is NOT evidence about this night.
+- Evidence about this night is only: their taps, their flashes, their own changes, their morning check-in, and what
+  Autopilot noticed. If "evidence_tonight" is false, there was no sign of discomfort: say the night looked comfortable
+  for temperature and do NOT recommend a rhythm change (you may mention one thing to watch).
+Reply in plain language, in °F unless they use °C:
 1. How the night went for temperature, in two or three sentences.
 2. What you'd change in the rhythm, if anything, and why, pointing at the evidence.
-3. Anything Autopilot should do differently (e.g. more or less sensitive, a signal to trust less).
+3. What Autopilot found: sum up "autopilot" (its overnight signals, what it noticed, its pending suggestions, whether
+   it's still learning) in a sentence or two, say whether you agree with its suggestions and why, and anything it
+   should do differently (e.g. more or less sensitive, a signal to trust less).
 Never give medical advice. Only use facts that are in the context; never invent taps, data or numbers.
 Only if the evidence clearly supports a change, add ONE fenced block (never as an example or placeholder):
 ```proposal
@@ -267,6 +282,29 @@ def build_autopilot_router(state) -> APIRouter:
         p = person(pid)
         dd, _, _ = night_of(p, date)
         return ctl().store.get(f"ai_review:{pid}:{dd.isoformat()}") or {}
+
+    @r.get("/people/{pid}/autopilot/ai-review/last")
+    async def last_night_review(pid: str):
+        """The stored review of the night that just ended (for the Tonight page), or {}. Last night is the one that
+        began yesterday evening, whatever the hour today; Tonight hides the card itself once the next night starts."""
+        p = person(pid)
+        c = ctl()
+        now = datetime.fromtimestamp(c.clock.now_ts(), c.clock.tz)
+        dd = night_date(now) - timedelta(days=1) if now.hour >= 12 else night_date(now)
+        rv = c.store.get(f"ai_review:{pid}:{dd.isoformat()}")
+        if not rv:
+            return {}
+        return {**rv, "dismissed": bool(c.store.get(f"ai_review_dismissed:{pid}:{dd.isoformat()}"))}
+
+    @r.post("/people/{pid}/autopilot/ai-review/dismiss")
+    async def dismiss_review(pid: str, b: ReviewBody):
+        """Hide one night's review card on Tonight (kept for Autopilot's own page); synced across this person's devices."""
+        person(pid)
+        dd = _day(b.date) if b.date else None
+        if not dd:
+            raise HTTPException(422, "which night?")
+        ctl().store.put(f"ai_review_dismissed:{pid}:{dd.isoformat()}", ctl().clock.now_ts())
+        return {"ok": True}
 
     return r
 
@@ -536,6 +574,64 @@ def _room_summary(c, start: float, end: float) -> dict | None:
     tv, hv = [v for _, v in t], [v for _, v in h]
     return {"temp_c": {"min": min(tv), "max": max(tv), "avg": round(sum(tv) / len(tv), 1)} if tv else None,
             "humidity": {"min": min(hv), "max": max(hv), "avg": round(sum(hv) / len(hv))} if hv else None}
+
+
+def _f(c: float) -> str:
+    return f"{round(c * 9 / 5 + 32)}°F ({c:.1f}°C)"
+
+
+def _room_words(r: dict | None) -> dict | str:
+    """The bedroom in words a model reads right (bare Celsius min/max got ignored)."""
+    if not r or not r.get("temp_c"):
+        return "no room sensor"
+    t = r["temp_c"]
+    feel = "cool" if t["avg"] < 20.5 else "comfortable" if t["avg"] < 23.5 else "warm"
+    out = {"average": _f(t["avg"]), "range": f"{_f(t['min'])} to {_f(t['max'])}", "reads_as": f"a {feel} bedroom"}
+    if r.get("humidity"):
+        out["humidity"] = f"{r['humidity']['avg']}%"
+    return out
+
+
+def _pad_words(gaps: list[float]) -> str:
+    """Autopilot's pad-vs-setting samples (measured minus setting, °C) over the night, in words."""
+    if len(gaps) < 4:
+        return "not known"
+    m = sum(gaps) / len(gaps)
+    f = abs(m) * 9 / 5
+    if abs(m) < 0.3:
+        return "the pad stayed at its setting"
+    return (f"the pad ran about {f:.0f}°F {'below' if m < 0 else 'above'} its setting on average"
+            + (" (in a cool room the pad can't always reach a warm setting: the bed felt cooler than the number says)" if m < 0 else ""))
+
+
+def _stage_words(st: dict) -> dict | str:
+    """Minutes per sleep stage from the first wearable/import that has them (estimates)."""
+    for src in st.values():
+        mins: dict[str, int] = {}
+        for g in src["segments"]:
+            mins[g["stage"]] = mins.get(g["stage"], 0) + round((g["end"] - g["start"]) / 60)
+        if mins:
+            return {"from": src.get("label") or src["source"], "minutes": mins}
+    return "no stage data"
+
+
+def _signal_words(c, p, start: float, end: float) -> dict:
+    """What Autopilot measured through the night (its logged signals), as short averages / peaks."""
+    out = {}
+    for k, label in (("restless", "restlessness 0-1"), ("hr_rise", "heart rate vs settled, bpm"),
+                     ("wear_hr_rise", "watch heart rate vs settled, bpm"), ("skin_delta", "skin temperature change, °C"),
+                     ("room_vs_usual", "room vs its usual, °C"), ("score", "Autopilot discomfort score")):
+        v = [x for _, x in c.store.samples(f"ap:{p.id}:{k}", start, end)]
+        if len(v) >= 3:
+            out[label] = {"avg": round(sum(v) / len(v), 2), "peak": round(max(v, key=abs), 2)}
+    return out or {"note": "Autopilot logged no signals that night"}
+
+
+def _season(d: date) -> str:
+    """The season for the review, so a warm setting in a cold month reads right (northern hemisphere; there's no
+    weather source)."""
+    names = ["winter", "winter", "spring", "spring", "spring", "summer", "summer", "summer", "fall", "fall", "fall", "winter"]
+    return f"{names[d.month - 1]} ({d.strftime('%B')})"
 
 
 def _day(d) -> date:
@@ -846,10 +942,13 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
     ap = [x for x in evs if x["kind"] == "autopilot"]
     ctx = {
         "person": {"name": p.name, "runs": {"tide": "warm", "ember": "cold"}.get(p.persona, "varies"), "units": p.settings.units},
-        "rhythm_c": [{"id": ph.id, "name": ph.name, "temp_c": ph.temp_c, "shown_as": f"{round(ph.temp_c * 9 / 5 + 32)}°F / {ph.temp_c:.1f}°C"}
-                     for ph in (rh.phases if rh else [])],
+        "planned_settings": [{"id": ph.id, "name": ph.name, "temp_c": ph.temp_c, "shown_as": f"{round(ph.temp_c * 9 / 5 + 32)}°F / {ph.temp_c:.1f}°C"}
+                             for ph in (rh.phases if rh else [])],
         "rhythm_id": rh.id if rh else None,
-        "night": {k: s.get(k) for k in ("in_bed_min", "time_to_settle_min", "times_up", "hr_avg", "hr_low", "hot_flashes", "cold_flashes", "adjustments", "tracking_c")},
+        "season": _season(dd),
+        "night": {k: s.get(k) for k in ("in_bed_min", "time_to_settle_min", "times_up", "hr_avg", "hr_low", "hot_flashes", "cold_flashes", "adjustments")},
+        "bed_vs_plan": ({"avg_gap_c": s.get("tracking_c"), "means": "how far the bed was from its setting on average (small = it followed the plan)"}
+                        if s.get("tracking_c") is not None else "not known"),
         "autopilot_noticed": [f"{hm(x['ts'])} {x.get('phase')}: {x.get('status')} {x.get('direction')} ({short_reason(x)})"
                               + (f" held back: {x['blocked_by'][0]}" if x.get("blocked_by") else "") for x in ap[:12]],
         "their_taps": [f"{hm(x['ts'])} {x.get('phase')}: {x.get('feel')}" + (f' "{x["note"]}"' if x.get("note") else "") for x in evs if x["kind"] == "feel"][:12],
@@ -857,9 +956,24 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
         "their_changes": [f"{hm(x['ts'])} {x.get('delta_c') or x.get('temp_c')}" for x in evs if x["kind"] == "adjust" and x.get("source") != "autopilot"][:8],
         "morning_checkin": c.store.get(f"feedback:{p.id}:{dd.isoformat()}"),
         "skin_temp_c": {"samples": len(skin), "min": min((v for _, v in skin), default=None), "max": max((v for _, v in skin), default=None)} if skin else "no wearable data",
-        "room": _room_summary(c, start, end),
+        "room": _room_words(_room_summary(c, start, end)),
+        "pad_vs_setting": _pad_words([v for _, v in c.store.samples(f"ap:{p.id}:pad_over", start, end)]),
         "trends_30_nights": [t["title"] for t in _trends(c, p, 30)],
     }
+    # more of the night, and Autopilot's own view of it (signals it tracked, what it suggests), for the review to sum up
+    ctx["night"].update({"settled_min": s.get("settled_min"), "awake_moving_min": s.get("awake_moving_min"),
+                         "up_minutes": s.get("up_minutes"), "fell_asleep": hm(s["fell_asleep_est"]) if s.get("fell_asleep_est") else None,
+                         "in_bed_from": hm(s["in_bed_at"]) if s.get("in_bed_at") else None,
+                         "out_at": hm(s["out_at"]) if s.get("out_at") else None, "breathing_avg": s.get("br_avg")})
+    ctx["sleep_stages"] = _stage_words(c.store.get_stages(p.id, start, end))
+    ctx["autopilot"] = {
+        "mode": p.settings.autopilot.mode,
+        "still_learning": (lambda lr: None if lr["done"] else f"{lr['have']} of {lr['need']} nights")(c.autopilot.learning(p, now)),
+        "signals_overnight": _signal_words(c, p, start, end),
+        "pending_suggestions": [f"{x['title']}: {x['detail']}" for x in _suggest(c, p)][:5],
+    }
+    ctx["evidence_tonight"] = bool(ctx["autopilot_noticed"] or ctx["their_taps"] or ctx["morning_checkin"] or ctx["flashes"]
+                                   or ctx["their_changes"])
     if not ai.configured(state.cfg):
         sug = _suggest(c, p)
         text = ("No AI model is connected, so this is the built-in summary. "
@@ -867,14 +981,16 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
                 + (sug[0]["title"] + ". " + sug[0]["detail"] if sug else ""))
         out = {"answer": text, "proposal": sug[0]["proposal"] if sug else None, "model": None, "ts": now, "date": dd.isoformat()}
     else:
-        body_q = question or "Review this night for temperature and tell me what you would change."
+        body_q = question or ("Review this night for temperature and tell me what you would change." if ctx["evidence_tonight"] else
+                              "Review this night for temperature. There was no sign of discomfort (no taps, flashes, changes, "
+                              "check-in or Autopilot notices), so don't recommend a rhythm change.")
         try:
             text = await ai.complete(state.cfg, REVIEW_SYSTEM,
-                                     "Context:\n```json\n" + json.dumps(ctx, default=str)[:8000] + "\n```\n\n" + body_q)
+                                     "Context:\n```json\n" + json.dumps(ctx, default=str)[:14000] + "\n```\n\n" + body_q)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(502, f"The AI model didn't answer ({type(e).__name__}).")
         answer, proposal = ai.split_proposal(text)
-        evidence = ctx["autopilot_noticed"] or ctx["their_taps"] or ctx["morning_checkin"] or ctx["flashes"] or ctx["their_changes"]
+        evidence = ctx["evidence_tonight"]
         # only a real phase of this night's rhythm, within ±1.5 °C, and only with evidence that night (a non-number,
         # an unknown phase or a big jump used to slip through or crash the review)
         proposal = ai.check_rhythm_proposal(p, proposal) if evidence else None

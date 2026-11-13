@@ -61,6 +61,10 @@ class NightState:
     # in bed before the usual bedtime: when the night moved on from "Fall asleep" (a sign of sleep, or bedtime), and why
     sleep_at: float | None = None
     sleep_why: str | None = None
+    # lying in past the night's end: still in bed when the night ended, the wake target keeps running until they get up
+    lie_in: bool = False
+    lie_in_over: bool = False            # it ended (got up / cap): getting back in doesn't start another
+    snoozed_until: float | None = None   # a later alarm after the followed one rang (a snooze or an extended alarm)
     events: list[dict] = field(default_factory=list)
 
     def to_dict(self) -> dict:
@@ -205,11 +209,46 @@ class NightEngine:
             return False
         fa = self.s.wake_from_alarm
         if fa and fa <= now and fa < alarm <= fa + self.SNOOZE_S:
+            if self.s.snoozed_until != alarm:
+                self.s.snoozed_until = alarm
+                self._ev(now, "alarm_snoozed", until=alarm, alarm=fa)
             # the followed alarm already rang and the next one is a few minutes after it: a snooze. The wake holds
             # at the time the alarm first rang (a reset alarm well after it is a real change of plan and is followed)
             return False
         self.s.wake_override, self.s.wake_from_alarm = alarm, alarm
         self._ev(now, "wake_from_alarm", wake=alarm, planned=planned)
+        return True
+
+    # ---------- lying in ----------
+    LIE_IN_MAX_S = 45 * 60      # the wake target runs on at most this long past the night's end
+    LIE_IN_SNOOZE_MAX_S = 90 * 60   # ... or, with a snoozed / extended alarm, up to its time + LIE_IN_AFTER_ALARM_S, never past this
+    LIE_IN_AFTER_ALARM_S = 15 * 60
+    LIE_IN_UP_S = 3 * 60        # out of bed this long = got up, the night is over (short: the side must not heat an empty bed)
+    LIE_IN_UP_SNOOZE_S = 10 * 60  # while a snoozed alarm is still to come, a longer break (a bathroom trip) doesn't end it
+
+    def _lie_in(self, now: float, n: ResolvedNight, present: bool | None, active: float | None, away: bool) -> bool:
+        """Past the night's end but still in bed: keep the wake target going until they get up. Needs positive presence
+        when the night ends; unknown presence, away, an empty side: the night ends on time as always."""
+        s = self.s
+        if not s.started or s.skip or away or now < n.end or (s.pause_until and now < s.pause_until):
+            return False
+        if s.lie_in_over:
+            return False
+        cap = n.end + self.LIE_IN_MAX_S
+        sn = s.snoozed_until
+        if sn:
+            cap = min(max(cap, sn + self.LIE_IN_AFTER_ALARM_S), n.end + self.LIE_IN_SNOOZE_MAX_S)
+        if not s.lie_in:
+            if not (present or active is not None) or now >= cap:
+                s.lie_in_over = True
+                return False
+            s.lie_in = True
+            self._ev(now, "lie_in_started", end=n.end, until=cap)
+        up_s = self.LIE_IN_UP_SNOOZE_S if sn and now < sn + self.LIE_IN_AFTER_ALARM_S else self.LIE_IN_UP_S
+        if now >= cap or (s.absent_since is not None and now - s.absent_since >= up_s):
+            s.lie_in, s.lie_in_over = False, True
+            self._ev(now, "lie_in_ended", reason="cap" if now >= cap else "got up")
+            return False
         return True
 
     # ---------- tick ----------
@@ -302,7 +341,7 @@ class NightEngine:
             state, base = "skipped", None
         elif self.s.pause_until and now < self.s.pause_until:
             state, base = "paused", None
-        elif now >= n.end:
+        elif now >= n.end and not self._lie_in(now, n, present, active, away):
             state, base = "done", None
         elif away:
             state, base = "away", None
@@ -310,7 +349,7 @@ class NightEngine:
             if self.s.absent_since and now - self.s.absent_since > sched.absent_hold_min * 60:
                 state, base = "out_of_bed", None
             else:
-                base, ph = target_at(n, now)
+                base, ph = target_at(n, min(now, n.end - 1))     # past the end (lying in): the wake phase carries on
                 phase = ph.id if ph else None
                 state = "out_of_bed_hold" if self.s.absent_since else "rhythm"
                 base = self._lead(n, now, base, ph)
@@ -324,6 +363,10 @@ class NightEngine:
             state, base = "waiting", n.phases[0].temp_c if n.phases else None
             phase = n.phases[0].id if n.phases else None
 
+        if state == "done" and self.s.state != "done" and self.s.started:
+            # when the night really ended (the alarm can move it before the schedule's end): the summary counts
+            # getting up only until here
+            self._ev(now, "night_done", end=n.end)
         self.s.state, self.s.phase_id, self.s.base_c = state, phase, base
         target = base
 

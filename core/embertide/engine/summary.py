@@ -223,6 +223,12 @@ def _summarize_cached(store: Store, person: Person, d: date, tz: ZoneInfo, now: 
     return out
 
 
+def _lying_in(events: list[dict]) -> bool:
+    """Past the usual end but still in bed: a lie-in started and the night isn't done yet."""
+    last = max((e["ts"] for e in events if e["kind"] == "lie_in_started"), default=None)
+    return last is not None and not any(e["kind"] == "night_done" and e["ts"] >= last for e in events)
+
+
 def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, series: bool, start: float, end: float) -> dict | None:
     rows = store.history(person.zone, start, end, person=person.id)
     # the person's own events, plus pets seen on their side (stored without a person)
@@ -240,7 +246,7 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
     full_end = usual.end if usual else 0
     usual_bed = usual.bedtime if usual else None
     base = {"date": d.isoformat(), "label": datetime(d.year, d.month, d.day).strftime("%a, %b ") + str(d.day),
-            "in_progress": now < full_end, "feedback": fb,
+            "in_progress": now < full_end or _lying_in(events), "feedback": fb,
             # the night before a work day or a day off, by this person's own work days (someone may work weekends)
             "before": "work" if (d.weekday() + 1) % 7 in person.settings.work_days else "off"}
     if not rows:
@@ -277,6 +283,19 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
         was, up = restart.get("was_in_bed"), restart.get("up_since")
         if was and up and up > was:                   # (often before this summary's window: from the event itself)
             earlier = {"at": was, "minutes": round((up - was) / 60)}
+    # "up" only counts while the night was running: from the engine's start (event rhythm_started) to the schedule's end
+    # (when the engine goes to "done"; it records no event for that). Before the start, lying down and getting up again
+    # isn't getting up in the night: the in-bed stretches before it are kept as the short "earlier in bed" note.
+    # With no start event (older data) every gap between first in and last out counts as before.
+    started = max((e["ts"] for e in events if e["kind"] == "rhythm_started"), default=None)
+    # the engine's own "night_done" (an alarm can end the night before the schedule's end) wins over the schedule
+    done_at = min((e["ts"] for e in events if e["kind"] == "night_done" and started is not None and e["ts"] > started),
+                  default=None)
+    cut_end = done_at or full_end
+    if started is not None and earlier is None:
+        pre = [x for x in real if x[-1]["ts"] < started - 120]
+        if pre and len(pre) < len(real):
+            earlier = {"at": pre[0][0]["ts"], "minutes": round(sum(x[-1]["ts"] - x[0]["ts"] for x in pre) / 60)}
     occ = [r for x in real for r in x]
     in_bed_s = sum(dur[id(r)] for r in occ)
     first_in = occ[0]["ts"] if occ else None
@@ -295,8 +314,11 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
         else:
             # no rows for a while (the bed or the server was off): the time out of bed is only what was seen
             to = r["ts"] if last_empty is None or r["ts"] - last_empty <= 120 else last_empty + ROW_S
-            if run_start and to - run_start >= up_s and not any(a <= to and run_start <= b for a, b in act):
-                gaps.append({"from": run_start, "to": to, "minutes": round((to - run_start) / 60)})
+            # (a hold during which the person's own radar still saw them was a misread, not getting up: up_misread)
+            if run_start and to - run_start >= up_s and not any(a <= to and run_start <= b for a, b in act)                     and not any(m["kind"] == "up_misread" and run_start - 120 <= m.get("since", 0) <= to for m in events):
+                # (a trip that began after the night started and before it ended counts whole, even if it ran past either end)
+                if started is None or (started <= run_start and (not cut_end or run_start < cut_end)):
+                    gaps.append({"from": run_start, "to": to, "minutes": round((to - run_start) / 60)})
             run_start = last_empty = None
     occ_calm = [r for r in occ if not inside(r["ts"], act)]
     hrs = [r["hr"] for r in occ_calm if r["hr"]]

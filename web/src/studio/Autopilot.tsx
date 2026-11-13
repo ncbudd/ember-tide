@@ -6,7 +6,7 @@ import Tip from "../components/Tip";
 import LeftOutNights from "../components/LeftOutNights";
 import { HelpLink } from "./Help";
 import { useApp } from "../ctx";
-import { useAuth } from "../auth";
+import { useAuth, useOwnPerson } from "../auth";
 import { clock, cToF } from "../format";
 import type { AutopilotPolicy, Band, Baseline, Learning, Suggestions } from "../types";
 
@@ -94,6 +94,7 @@ const MOVING = new Set([4, 6, 7]);
 export default function Autopilot() {
   const { snap, say } = useApp();
   const auth = useAuth();
+  const mine = useOwnPerson();
   const [pid, setPid] = useState<string | null>(null);
   const [recal, setRecal] = useState<"idle" | "confirm" | "busy">("idle");
   const [rechecking, setRechecking] = useState(false);
@@ -119,7 +120,7 @@ export default function Autopilot() {
   const [review, setReview] = useState<{ answer: string; proposal: Suggestion["proposal"] | null; model: string | null; ts: number } | null>(null);
   const [reviewing, setReviewing] = useState(false);
   const [sel, setSel] = useState<Decision | null>(null);
-  const person = snap?.people.find(p => p.id === (pid ?? snap.people[0]?.id));
+  const person = snap?.people.find(p => p.id === (pid ?? mine ?? snap.people[0]?.id));
   const u = person?.settings.units ?? "F";
   const deg = (c: number | null | undefined, d = 0) => c == null ? "–" : `${(u === "F" ? cToF(c) : c).toFixed(d)}°`;
   const dd = (c: number) => `${c > 0 ? "+" : "−"}${Math.abs(u === "F" ? c * 9 / 5 : c).toFixed(u === "F" ? 0 : 1)}°`;

@@ -1,72 +1,65 @@
 name: CI
 
+# Plain pull_request trigger: runs with a read-only token and no secrets, so it is safe for fork PRs.
+# The test and build logic lives in the shared, SHA-pinned workflows of Ncbudd/ncbudd-pipeline.
+
 on:
   push:
+    branches: [main, master]
   pull_request:
 
-permissions:
-  contents: read
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   core:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5.4.2
-      - name: Install
-        run: uv pip install --system -e "core[dev]"
-      - name: Tests
-        working-directory: core
-        run: python -m pytest -q
-        # tests that need private real-world data skip themselves when it is absent
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/ci-python.yml@v1
+    permissions:
+      contents: read
+    with:
+      working-directory: core
+      # The suite is long (about half an hour end to end), so it runs as four parallel shards.
+      shards: "[0,1,2,3]"
+      # tests that need private real-world data skip themselves when it is absent
 
   web:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - run: npm ci
-      - run: npx tsc --noEmit -p .
-      - run: npm run build
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/ci-node.yml@v1
+    permissions:
+      contents: read
+    with:
+      working-directory: web
+      commands: |
+        npm ci
+        npx tsc --noEmit -p .
+        npm run build
 
   docker:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build the image
         run: docker build -t ember-tide .
 
   # The Android app: the no-Google ("minimal") flavor, so CI never needs a Firebase file or a signing key.
   # Release builds, signing and the Google push flavor are in release.yml.
   android:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
-        with:
-          distribution: temurin
-          java-version: 21
-      - name: Web build and Capacitor sync
-        working-directory: web
-        run: |
-          npm ci
-          npm run build
-          npx cap sync android
-      - name: Unit tests and debug build
-        working-directory: web/android
-        run: ./gradlew testMinimalDebugUnitTest assembleMinimalDebug --no-daemon
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/ci-android.yml@v1
+    permissions:
+      contents: read
+    with:
+      working-directory: web/android
+      gradle-tasks: testMinimalDebugUnitTest assembleMinimalDebug
+      node-version: "22"
+      node-lockfile: web/package-lock.json
+      prepare-command: |
+        cd web
+        npm ci
+        npm run build
+        npx cap sync android

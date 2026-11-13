@@ -16,6 +16,7 @@ import Simple from "./Simple";
 import AwayNote from "../components/AwayNote";
 import { CareTonight } from "../components/Care";
 import PetQuestion from "../components/PetQuestion";
+import ReviewNote from "../components/ReviewNote";
 import { useHardwareKeyboard } from "../keyboard";
 
 function BigTemp({ c, units, color, size, stale }: { c: number | null; units: "F" | "C"; color?: string; size?: number; stale?: boolean }) {
@@ -290,11 +291,12 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
 
       {/* At most one calm note at a time. Priority, highest first: can't reach the server > the bed isn't reporting >
           a bed hub fault (those three are App's banners, and hide everything here) > away (the note or the morning
-          question) > a pet question > a care job due > a suggestion (the Today card's bold line). Each piece fetches
+          question) > a pet question > last night's review > a care job due > a suggestion (the Today card's bold line). Each piece fetches
           its own data, so the order is kept in CSS: only the first rendered child of .notes shows (theme.css). */}
       <div className="notes">
         <AwayNote person={target} me={me} isOwner={isOwner} tz={snap.tz} />
         {v === "me" && !me.presence.present && <PetQuestion person={me.id} />}
+        {v === "me" && <ReviewNote person={me.id} on={!!me.settings.autopilot?.ai_review} state={me.night.state} />}
         <CareTonight running={snap.people.some(p => p.night.state === "rhythm" || p.night.state === "out_of_bed_hold")} />
       </div>
       {flashOn && n.flash ? (
@@ -327,7 +329,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
           {target.phases.filter((_p, i, arr) => (arr[i + 1]?.start ?? Infinity) > snap.now).map(p => {
             const cur = p.id === n.phase_id;
             return <div key={p.id} className={`planrow ${cur ? "cur" : ""}`}>
-              <span className="num tm">{cur ? "Now" : p.when_settled ? <small style={{ fontSize: 11.5 }}>When you settle</small> : clock(p.start, snap.tz)}</span>
+              <span className="num tm">{cur ? "Now" : p.when_settled ? <small style={{ fontSize: 11.5, display: "block", lineHeight: 1.2, whiteSpace: "normal" }}>When you settle</small> : clock(p.start, snap.tz)}</span>
               <span>{p.name}</span>
               <span className="num">{p.adjusted_c != null
                 ? <>{tempNum(p.adjusted_c, u)}°<small className="mute" style={{ marginLeft: 6, fontSize: 11 }}>usually {tempNum(p.temp_c, u)}°</small></>

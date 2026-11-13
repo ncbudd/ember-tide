@@ -128,7 +128,7 @@ export default function Access() {
         <div style={{ display: "grid", gap: 12, alignContent: "start" }}>
           <div className="box">
             <span className="k">Accounts</span>
-            <table className="t"><thead><tr><th>Username</th><th>Side</th><th>Role</th><th /></tr></thead><tbody>
+            <div style={{ overflowX: "auto" }}><table className="t"><thead><tr><th>Username</th><th>Side</th><th>Role</th><th /></tr></thead><tbody>
               {users.map(u => (
                 <tr key={u.id}>
                   <td>{u.username}{u.id === auth.me?.id && <span className="mute"> · you</span>}</td>
@@ -143,7 +143,7 @@ export default function Access() {
                     : <button className="pill" onClick={() => setConfirm(u.id)}>Remove</button>)}</td>
                 </tr>
               ))}
-            </tbody></table>
+            </tbody></table></div>
             {reset && <div className="row" style={{ gap: 8 }}><span style={{ fontSize: 13 }}>Reset link for {reset.user} (24 h, one use):</span></div>}
             {reset && <div className="row" style={{ gap: 8 }}><code className="secret">{reset.link}</code><button className="pill" onClick={() => copy(reset.link)}>Copy</button></div>}
             <span className="faint" style={{ fontSize: 12 }}>Removing an account signs it out everywhere. Its sleep history stays with the person.</span>

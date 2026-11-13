@@ -2,13 +2,20 @@
 
 ## Reporting a vulnerability
 
-Please report privately through GitHub's "Report a vulnerability" (Security tab) on this repository, or open a
-minimal issue asking for a private contact without details. Don't post exploits publicly. Expect an
+Please report privately through GitHub's private vulnerability reporting: open the **Security** tab of this
+repository and choose **Report a vulnerability**
+(`https://github.com/Ncbudd/ember-tide/security/advisories/new`). Don't post exploits publicly. Expect an
 acknowledgement within a week; this is a small hobby project, so fixes are best-effort.
 
 ## Supported versions
 
 Only the latest release (and `main`) gets fixes. The project is early (0.x).
+
+## What is checked automatically
+
+Every change runs Semgrep, CodeQL, dependency review, gitleaks and Trivy, plus a weekly OpenSSF Scorecard. Released
+server images are scanned, signed with Sigstore cosign, and carry an SBOM and build provenance attestation. Publishing
+a release waits for the maintainer's approval.
 
 ## Security model in brief
 

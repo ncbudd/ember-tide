@@ -1,0 +1,23 @@
+name: Security
+
+# Semgrep, Trivy, gitleaks, the identity-leak denylist and dependency review (shared workflow).
+# Plain pull_request trigger (never pull_request_target): fork PRs get no secrets, and the denylist step skips there.
+# The denylist itself is the LEAK_DENYLIST repository secret, never committed.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  schedule:
+    - cron: "17 5 * * 1"
+
+permissions: {}
+
+jobs:
+  security:
+    uses: Ncbudd/ncbudd-pipeline/.github/workflows/security.yml@v1
+    permissions:
+      contents: read
+      pull-requests: read
+    secrets:
+      LEAK_DENYLIST: ${{ secrets.LEAK_DENYLIST }}

@@ -179,6 +179,7 @@ class NotifyPrefs(BaseModel):
     bed_silent: bool = True     # the bed's sensors reported nothing usable all night, so it ran on the schedule (the sleeper; with the morning)
     sensor: bool = True         # a presence sensor keeps flipping or looks stuck (owner; daytime only)
     target: bool = True         # a side isn't reaching its temperature (the sleeper and owners; held for the morning)
+    review: bool = True           # the AI review of last night, when "Every morning" is on in Autopilot (after wake; also shown on Tonight)
     pet_question: bool = True     # "was the pet on the bed?" (daytime only; the question also waits in the app)
     quiet_hours: bool = True      # hold anything non-urgent while you're in bed (bedtime to wake); it comes with the morning summary
 

@@ -43,7 +43,7 @@ LEFT_ON_AFTER_S = 20 * 60     # on by hand, nobody in it this long → ask to tu
 IGNORED_AFTER_S = 20 * 60          # a side ignoring commands this long gets a "not taking changes" alert
 TICK_FAIL_AFTER = 120              # a person's update failing this many ticks in a row (~2 min) gets a "not updating" alert
 CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "not_started": 1, "left_on": 2, "problem": 3, "hub": 3, "maintenance": 1,
-        "account": 1, "reach": 2, "bridge": 1, "storage": 1, "wearable": 1, "bed_silent": 1, "sensor": 3, "target": 2}
+        "account": 1, "reach": 2, "bridge": 1, "storage": 1, "wearable": 1, "bed_silent": 1, "sensor": 3, "target": 2, "review": 1}
 DAILY_MAX = 4
 DEDUP_S = 6 * 3600            # the same message (person, kind, title) again within this is dropped
 EXEMPT = {"test", "action_done"}
@@ -82,6 +82,22 @@ GAP_KINDS_OWNER = {"hub": "hub", "bridge": "bridge", "storage": "storage", "sens
 CARE_DONE_LABEL, CARE_LATER_LABEL = "It's done", "Remind me next week"      # the same on every channel (app, ntfy, Home Assistant, web page)
 RUNNING = ("rhythm", "out_of_bed_hold")
 NIGHT_ACTS = {"pause", "skip", "start_now"}      # about one night: they stop working when that night ends (see new_action)
+
+
+def review_excerpt(answer: str, limit: int = 180) -> str:
+    """The first one or two sentences of a review, about `limit` characters at most, ending on a sentence boundary
+    (a single long sentence is cut at a word instead)."""
+    import re
+    parts = [x.strip() for x in re.findall(r".+?(?:[.!?](?=\s|$)|$)", answer.strip()) if x.strip()]
+    out = ""
+    for x in parts[:2]:
+        if len((out + " " + x).strip()) <= limit:
+            out = (out + " " + x).strip()
+        else:
+            break
+    if out:
+        return out
+    return answer[: limit - 1].rsplit(" ", 1)[0].rstrip(",;:- ") + "…"
 
 
 def summary_line(s: dict) -> str:
@@ -123,7 +139,7 @@ class Action:
 
 # Where a tap on a notification goes when the message doesn't name a page itself (phone screens; Studio only where a
 # message asks for it). The front page is Tonight, where the pet and away questions are answered.
-DEFAULT_LINKS = {"morning": "/sleep", "digest": "/sleep", "pet_question": "/", "away_check": "/", "maintenance": "/settings#care",
+DEFAULT_LINKS = {"review": "/", "morning": "/sleep", "digest": "/sleep", "pet_question": "/", "away_check": "/", "maintenance": "/settings#care",
                  "hub": "/settings#hub", "problem": "/", "wearable": "/settings#watch", "account": "/settings"}
 # What a Studio page is for someone without an owner account (Studio's owner tools aren't theirs)
 PHONE_FOR_STUDIO = {"/studio/hub": "/settings#hub", "/studio/devices": "/", "/studio/notifications": "/settings",
@@ -314,6 +330,8 @@ class Notifier:
             return prefs.target
         if k == "bed_silent":
             return prefs.bed_silent
+        if k == "review":
+            return False                  # a review of a night is not news a day later
         if k in ("away_precool", "empty_side"):
             return False
         if k == "left_on":
@@ -1072,6 +1090,26 @@ class Notifier:
         if not self.c.autopilot.learning(person, now)["done"]:
             acts = [Action("Too cold", "feel_cold"), Action("Just right", "feel_right"), Action("Too warm", "feel_warm")]
         return Message("morning", t, body, person.id, acts, priority=2, tags=["sunrise"])
+
+    def review_message(self, person, night: str, out: dict | None, now: float | None = None) -> Message | None:
+        """The AI review of a finished night as a notification: its first sentence or two. None when the person has this
+        switched off, is away, or there is nothing to say; otherwise at most once per person per night."""
+        from datetime import date
+        from .engine.away import is_away, night_verdict
+        now = self.c.clock.now_ts() if now is None else now
+        answer = " ".join(str((out or {}).get("answer") or "").split())
+        if not answer or not (out or {}).get("model") or not person.settings.notify.review or not person.settings.autopilot.ai_review:
+            return None                                   # (no model = only the built-in summary, not worth a ping)
+        if is_away(self.store, person.id, now) or night_verdict(self.c, person, date.fromisoformat(night))[0] == "away":
+            return None                                   # not their night: nothing to review
+        if not self._once(f"review:{person.id}:{night}"):
+            return None
+        return Message("review", "Your night, reviewed", review_excerpt(answer), person.id, priority=2, tags=["memo"], link="/")
+
+    def send_review(self, person, night: str, out: dict | None) -> bool:
+        """Called once the morning's background review has finished (and only then, never for a manual review)."""
+        m = self.review_message(person, night, out)
+        return self.send(m) if m else False
 
     # ---------- actions ----------
     def _night_end(self, person: str) -> float | None:

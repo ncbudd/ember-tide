@@ -45,7 +45,7 @@ class PetGuard:
     def assess(self, zone: str, now: float, household, side, weights: list[float], radar: list[float],
                person_kg: list[float], watch: str | None = None, rng: dict | None = None, sigs: dict | None = None,
                empty_side: bool = False, away: bool = False, phone: str | None = None, pre_start: bool = False,
-               early: bool = False) -> dict | None:
+               early: bool = False, crosstalk: str | None = None) -> dict | None:
         """side = the strip's SideState; weights = fresh kg readings from this side's scales; radar = votes (0/1)
         from presence devices on this side; person_kg = known body weights. None when pets don't apply.
         watch = the sleeper's watch verdict ("me", "not_me" once held long enough, or None); rng = the sleeper's
@@ -53,7 +53,9 @@ class PetGuard:
         empty_side = this occupancy began on an otherwise empty side (not the sleeper back from a short trip);
         away = the side's sleeper is marked away (engine/away.py) and the side isn't lent to a guest;
         phone = their phone's "in" / "out" / None (phone_context.bedside_state); pre_start = their night isn't running;
-        early = and it's before their usual bedtime (phone evidence alone only counts then)."""
+        early = and it's before their usual bedtime (phone evidence alone only counts then);
+        crosstalk = on an away side with someone on the other side: how the pad follows theirs ("tracks" / "apart" /
+        "unknown", presence.py). Not "apart" means it may be their heartbeat bleeding across, not a pet."""
         pets = [p for p in getattr(household, "pets", []) if p.sleeps_on_bed != "no" and p.side in ("either", "both", zone)]
         if not pets or not getattr(household, "pets_ignore", True):
             self.state.pop(zone, None)
@@ -132,6 +134,10 @@ class PetGuard:
             if not (ar[0] >= 3 and ar[1] >= 0.5 * ar[0]) and not (ar[0] < 3 and any(v >= 0.5 for v in radar)):
                 pet = self._which(pets, side.hr, side.br, sigs)
                 label = pet.name if pet else "a pet"
+                if crosstalk in ("tracks", "unknown"):
+                    # someone is on the other side and this pad is not (yet) clearly a different heartbeat: their own
+                    # signal across the mattress (2026-11-12). Not a pet; it stays unlabelled
+                    return out
                 if now - st["occ_since"] >= AWAY_CONFIRM_S:
                     out.update(suspected=True, pet=pet.name if pet else None, evidence="away",
                                why=f"you're away, so this is probably {label}")

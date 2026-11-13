@@ -142,7 +142,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
             from .autopilot_api import _review
             async def run():
                 try:
-                    await _review(state, person, d, None)
+                    out = await _review(state, person, d, None)
+                    state.notifier.send_review(person, d, out)
                 except Exception:  # noqa: BLE001
                     log.warning("morning AI review for %s failed", person.id)
             _asyncio.get_running_loop().create_task(run())

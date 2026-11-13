@@ -359,7 +359,7 @@ private fun SettingsPage(m: BedModel, hrTick: Int, onHr: () -> Unit) {
                                      else "Turn on \"Watch heart rate (live)\" in the phone app's Settings to use it."
                         "needs_background" -> "One more step: allow it all the time, so it works with the screen off while you sleep."
                         else -> "Ember & Tide can use your watch's heart rate at night to tell you from a pet on your side of the bed. It's sent only to your own server, only at night."
-                    }, color = MUTE, fontSize = 12.sp, textAlign = TextAlign.Center)
+                    }, color = MUTE, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 14.dp))
                 }
             }
             if (perm != "granted") item { Wide(if (perm == "needs_background") "Allow all the time" else "Allow heart rate", onClick = onHr) }
@@ -375,7 +375,7 @@ private fun SettingsPage(m: BedModel, hrTick: Int, onHr: () -> Unit) {
                 }
             }
             if (m.snap == null && m.problem != Problem.Unreachable) item {
-                Text("Sign in on your phone. Open Ember & Tide there and this watch follows.", color = MUTE, fontSize = 11.sp, textAlign = TextAlign.Center)
+                Text("Sign in on your phone. Open Ember & Tide there and this watch follows.", color = MUTE, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 14.dp))
             }
             item { Text(if (version.isNotEmpty()) "Version $version" else "Ember & Tide", color = MUTE, fontSize = 11.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 18.dp)) }
         }
