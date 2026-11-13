@@ -222,13 +222,15 @@ jobs:
             echo "- \`SHA256SUMS.txt\`: check a download with \`sha256sum -c SHA256SUMS.txt\`."
           } >> notes.md
           # The signing certificate, so people can check an APK before installing it (the same key for every release).
-          cert=$(keytool -printcert -jarfile "release-files/ember-tide-$VERSION-android-google-push.apk" | awk '/SHA256:/ {print $2; exit}')
+          # apksigner (Android SDK on the runner) reads the v2/v3 signatures; keytool only reads old v1 ones
+          apksigner="$(ls -d "${ANDROID_HOME:-/usr/local/lib/android/sdk}"/build-tools/*/ | sort -V | tail -1)apksigner"
+          cert=$("$apksigner" verify --print-certs "release-files/ember-tide-$VERSION-android-google-push.apk" | awk '/SHA-256 digest/ {print $NF; exit}')
           if [ -z "$cert" ]; then echo "Could not read the APK signing certificate."; exit 1; fi
           {
             echo
             echo "### Signing certificate"
             echo "All APKs are signed with the same key. SHA-256 fingerprint: \`$cert\`"
-            echo "Check one with \`apksigner verify --print-certs <file>.apk\` or \`keytool -printcert -jarfile <file>.apk\`."
+            echo "Check one with \`apksigner verify --print-certs <file>.apk\` (Android SDK build-tools)."
           } >> notes.md
       - name: Create the release
         env:
