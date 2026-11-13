@@ -55,6 +55,19 @@ async def test_end_before_the_night_is_over(tmp_path):
     assert e.s.skip_next is False
 
 
+async def test_end_after_a_pause_still_finishes_the_night(tmp_path):
+    # a real morning: the side was paused from the app, then "I'm up": the night must read as done (the morning
+    # summary waits for "done"), not stay "paused" until the pause runs out
+    n, e, end = await _lying_in(tmp_path)
+    e.tonight(n.clock.now_ts(), "pause", 60)
+    await n.step(2)
+    assert e.s.state == "paused"
+    e.tonight(n.clock.now_ts(), "end")
+    await n.step(2)
+    assert e.s.state == "done" and e.s.pause_until is None and not n.side("left").on
+    assert len(n.events("night_done")) == 1
+
+
 async def test_end_refused_when_no_night_running(tmp_path):
     n = Night(tmp_path, "2026-11-05T12:00")
     await n.step(2)

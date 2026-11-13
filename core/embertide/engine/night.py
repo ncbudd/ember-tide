@@ -158,9 +158,10 @@ class NightEngine:
         self._ev(now, "adjust_cleared", source=source)
 
     def running(self) -> bool:
-        """A night is under way that "I'm up" can end: started, and neither off, paused, away, done nor not begun."""
+        """A night is under way that "I'm up" can end: started and not yet done. A side switched off or paused after the
+        night began still counts, so ending it records the night (and lets the morning summary go out)."""
         s = self.s
-        return bool(s.started and not s.ended and not s.skip and s.state in ("rhythm", "out_of_bed_hold", "out_of_bed"))
+        return bool(s.started and not s.ended and s.state in ("rhythm", "out_of_bed_hold", "out_of_bed", "paused", "skipped"))
 
     def end_night(self, now: float, source: str = "app", reason: str = "ended by hand") -> None:
         """End the CURRENT night now (up for the day): any lie-in stops, the side goes off, the night is recorded as done
@@ -169,6 +170,7 @@ class NightEngine:
         if s.lie_in:
             self._ev(now, "lie_in_ended", reason=reason)
         s.lie_in, s.lie_in_over, s.ended = False, True, True
+        s.skip, s.pause_until = False, None      # a pause or "off" pressed earlier mustn't hide the end (or hold the morning summary)
         self._end_flash(now, source)
 
     def tonight(self, now: float, action: str, minutes: int | None = None, source: str = "app") -> None:
