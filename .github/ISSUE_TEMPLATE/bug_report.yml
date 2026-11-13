@@ -22,25 +22,36 @@ body:
     id: version
     attributes:
       label: Version
-      description: Open /healthz on your server, or say which commit you built.
+      description: Studio → Help shows the version (so does /healthz on your server), or say which commit or release you built.
+    validations:
+      required: true
   - type: dropdown
     id: bed
     attributes:
       label: Bed driver
-      options: [Simulator, Orion local (MQTT), Orion cloud, Not sure]
+      options: [Simulator (sim), Orion cloud (orion-cloud), Orion local MQTT (orion-mqtt), Not sure]
+    validations:
+      required: true
   - type: dropdown
     id: install
     attributes:
       label: How you run it
-      options: [Docker Compose, Docker run, From source, NAS or Portainer, Other]
+      options: [Docker (Compose, NAS or Portainer), Bare metal (no Docker), From source (development), Other]
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone or watch, and app version
+      description: "Android or iPhone (web app) and its OS version, the app version from the release you installed, or the browser. Leave blank if it happens on a computer."
   - type: textarea
     id: logs
     attributes:
       label: Relevant log lines
-      description: "`docker compose logs embertide` (and `mosquitto` for connection problems).  Redact secrets first."
+      description: "`docker compose logs embertide` (Docker), `journalctl -u embertide` (bare metal), `mosquitto` for connection problems. Remove API keys, passwords, tokens, serial numbers, addresses and domains first."
       render: text
   - type: textarea
     id: more
     attributes:
       label: Anything else
-      description: Phone or browser, Android version, a screenshot (use the simulator or blur names).
+      description: A screenshot (use the simulator or blur names).

@@ -12,18 +12,31 @@
 # Full guide: docs/install.md
 
 services:
+  # Runs for a second before the app, then exits: hands ./data to the app's user (uid 1000) when the folder is new and
+  # empty, or still owned by root (Docker creates it that way; older versions of the app wrote it that way), so a first
+  # start just works. A folder owned by any other user is left alone. Leave it as it is.
+  data-init:
+    image: busybox:1.37
+    user: "0:0"
+    command: ["sh", "-c", "if [ -z \"$$(ls -A /data)\" ] || [ \"$$(stat -c %u /data)\" = 0 ]; then chown -R 1000:1000 /data; fi"]
+    volumes:
+      - ./data:/data
+    restart: "no"
+
   embertide:
-    image: ghcr.io/ncbudd/ember-tide:latest    # ready-made image (amd64 and arm64). Pin a version, e.g. :0.1.0, if you prefer
+    image: ghcr.io/ncbudd/ember-tide:latest    # ready-made image (amd64 and arm64). Pin a version, e.g. :0.1.7, if you prefer
     # build: .                                 # or build it from this checkout instead (then also remove the image line above)
     container_name: ember-tide
     restart: unless-stopped
     ports:
       - "8790:8790"                            # web app and Studio; put HTTPS in front before exposing it (docs/install.md)
     volumes:
-      - ./data:/data                           # the whole database lives here: back this folder up
-    # The container runs as uid/gid 1000. If ./data is owned by someone else (an old root-owned folder, or Unraid's 99:100),
-    # run `chown -R 1000:1000 ./data` once, or uncomment this to run as the folder's owner instead (see `ls -ln`):
-    # user: "99:100"                           # Unraid (nobody:users); use your own uid:gid elsewhere
+      - ./data:/data                           # everything lives in this folder next to this file: back it up by copying it
+    depends_on:
+      data-init:
+        condition: service_completed_successfully
+    # Already have a data folder with data in it, owned by someone else? Run as its owner instead (and delete data-init):
+    # user: "99:100"                           # e.g. Unraid's nobody:users; `ls -ln` shows the numbers
     environment:
       TZ: Etc/UTC                              # CHANGE ME to your time zone, e.g. Europe/London, Asia/Tokyo, Australia/Sydney (schedules are local time)
       ET_TZ: Etc/UTC                           # same value again; Studio -> Your settings shows the zone in use so you can check
@@ -31,7 +44,7 @@ services:
       # --- Which bed? Pick ONE of A, B or C. ---
       # A) Simulator: try everything without a bed.
       ET_BED: sim
-      # B) Orion fully local over MQTT, through the broker below (recommended; needs the DNS step in docs/install.md
+      # B) Orion fully local over MQTT, through the broker below (advanced; needs the DNS step in docs/install.md
       #    and the "local-bed" profile: docker compose --profile local-bed up -d).
       # ET_BED: orion-mqtt
       # ET_MQTT_URL: mqtt://mosquitto:1883

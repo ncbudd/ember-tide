@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { h12 } from "../format";
 import { Link, useLocation } from "react-router-dom";
-import { api } from "../api";
+import { api, appServer } from "../api";
 
 /**
  * Studio → Help: what everything means, in plain words. Each section has a stable id for deep links
@@ -173,6 +173,10 @@ export default function Help() {
   const [q, setQ] = useState("");
   const [all, setAll] = useState(false);                 // every answer open (searching opens the matches too)
   const loc = useLocation();
+  const [version, setVersion] = useState<string | null>(null);   // the server's version, for bug reports
+  useEffect(() => {
+    fetch(appServer() + "/healthz").then(r => r.json()).then(j => setVersion(typeof j?.version === "string" ? j.version : null)).catch(() => setVersion(null));
+  }, []);
   useEffect(() => {
     if (!loc.hash) return;
     const el = document.getElementById(loc.hash.slice(1));
@@ -194,7 +198,8 @@ export default function Help() {
         <div><span className="k">Studio</span><h1 style={{ fontSize: 26 }}>Help</h1></div>
         <input type="search" className="help-search" placeholder="Search help…" aria-label="Search help" value={q} onChange={e => setQ(e.target.value)} />
       </div>
-      <div className="row help-intro"><p className="mute">What everything means, in plain words. Tap a question to see the answer.</p>
+      <div className="row help-intro"><p className="mute">What everything means, in plain words. Tap a question to see the answer.
+        {version && <> Ember &amp; Tide version <b>{version}</b> (include it when you report a problem).</>}</p>
         {!q && <button className="pill" aria-pressed={all} onClick={() => setAll(a => !a)}>{all ? "Close all answers" : "Show all answers"}</button>}</div>
       {!q && <nav className="chips help-toc" aria-label="Help sections">
         {SECTIONS.map(s => <a key={s.id} className="chip" href={`#${s.id}`}>{s.title}</a>)}

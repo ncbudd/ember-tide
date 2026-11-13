@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import threading
 from pathlib import Path
@@ -28,11 +29,27 @@ CREATE INDEX IF NOT EXISTS stages_p_ts ON stages(person, start);
 """
 
 
+def cant_write_message(folder) -> str:
+    """Plain words for the most common first-start problem: a data folder this user can't write (in Docker usually a
+    ./data folder that Docker created owned by root while the image runs as uid 1000)."""
+    uid = os.getuid() if hasattr(os, "getuid") else "?"
+    gid = os.getgid() if hasattr(os, "getgid") else "?"
+    return (f"Ember & Tide can't write to its data folder {folder} (running as uid {uid}). "
+            f"Fix it once on the host with: sudo chown -R {uid}:{gid} <your data folder>  "
+            "(the example Compose file's data-init helper does this for a new folder). See docs/install.md, Folder permissions.")
+
+
 class Store:
     def __init__(self, path: str | Path) -> None:
         self.path = str(path)
         if self.path != ":memory:":
-            Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            folder = Path(self.path).parent
+            try:
+                folder.mkdir(parents=True, exist_ok=True)
+            except PermissionError:
+                pass                                         # reported just below
+            if not os.access(folder, os.W_OK | os.X_OK):
+                raise SystemExit(cant_write_message(folder))
         self._db = sqlite3.connect(self.path, check_same_thread=False)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(SCHEMA)
