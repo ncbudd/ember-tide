@@ -5,12 +5,11 @@ import { api } from "../api";
 import { clock, contextText } from "../format";
 import type { PersonView, Snapshot, Suggestions } from "../types";
 
-/** A short "Today" note for the empty middle of Tonight in the daytime: how last night went, one suggestion or
+/** A short "Today" note for the empty middle of Tonight in the daytime: how last night went, one autopilot suggestion or
  *  observation if there is one, Autopilot's learning progress, and when tonight starts. Hides when there's nothing
  *  to say. Tapping it opens Sleep. */
 
 interface NightLite { date: string; has_data: boolean; in_progress: boolean; in_bed_min?: number; time_to_settle_min?: number | null; feedback: { temp?: string } | null }
-interface GuideLite { id: string; title: string; kind?: string; severity?: string }
 
 function dur(min: number): string {
   const h = Math.floor(min / 60), m = Math.round(min % 60);
@@ -23,7 +22,6 @@ export default function TodayCard({ me, snap }: { me: PersonView; snap: Snapshot
   const nav = useNavigate();
   const [night, setNight] = useState<NightLite | null>(null);
   const [sug, setSug] = useState<Suggestions | null>(null);
-  const [guide, setGuide] = useState<GuideLite | null>(null);
   const hour = Math.floor(snap.now / 3600);
   // only as much as there's room for: the full note, a one-line note, or nothing (on short screens the controls matter more)
   const ref = useRef<HTMLButtonElement>(null);
@@ -58,8 +56,6 @@ export default function TodayCard({ me, snap }: { me: PersonView; snap: Snapshot
     api.get<NightLite[]>(`/api/people/${me.id}/nights?count=2`)
       .then(ns => live && setNight(ns.find(n => n.has_data && !n.in_progress && (n.in_bed_min ?? 0) >= 30) ?? null)).catch(() => {});
     api.get<Suggestions>(`/api/people/${me.id}/autopilot/suggestions`).then(s => live && setSug(s)).catch(() => {});
-    api.get<GuideLite[]>(`/api/people/${me.id}/insights`)
-      .then(r => live && setGuide(r.find(i => i.kind === "guide" && i.severity === "suggest") ?? null)).catch(() => {});
     return () => { live = false; };
   }, [me.id, hour]);
 
@@ -73,7 +69,6 @@ export default function TodayCard({ me, snap }: { me: PersonView; snap: Snapshot
   }
   const item = sug?.items?.[0];
   if (item) lines.push({ text: item.title, strong: true });
-  else if (guide) lines.push({ text: guide.title, strong: true });
   const lr = sug?.learning;
   if (lr && !lr.done && me.settings.autopilot.mode !== "off") lines.push({ text: lr.paused ? `Autopilot's learning is paused while you're away (${lr.have} of ${lr.need} nights)` : `Autopilot is learning your nights: ${lr.have} of ${lr.need}` });
   const ctx = contextText(me.night, snap.now, snap.tz);

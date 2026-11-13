@@ -17,6 +17,7 @@ import AwayNote from "../components/AwayNote";
 import { CareTonight } from "../components/Care";
 import PetQuestion from "../components/PetQuestion";
 import ReviewNote from "../components/ReviewNote";
+import GuideNote from "../components/GuideNote";
 import { useHardwareKeyboard } from "../keyboard";
 
 function BigTemp({ c, units, color, size, stale }: { c: number | null; units: "F" | "C"; color?: string; size?: number; stale?: boolean }) {
@@ -305,6 +306,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         {v === "me" && !me.presence.present && <PetQuestion person={me.id} />}
         {v === "me" && <ReviewNote person={me.id} on={!!me.settings.autopilot?.ai_review} state={me.night.state} />}
         <CareTonight running={snap.people.some(p => p.night.state === "rhythm" || p.night.state === "out_of_bed_hold")} />
+        {v === "me" && <GuideNote person={me.id} />}
       </div>
       {flashOn && n.flash ? (
         <div className="flashcard" style={{ borderColor: n.flash.kind === "hot" ? "var(--cool)" : "var(--warm)" }}>

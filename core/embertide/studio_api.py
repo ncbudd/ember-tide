@@ -61,6 +61,11 @@ class ApplyBody(BaseModel):
     insight_id: str | None = None
 
 
+class GuideDismissBody(BaseModel):
+    id: str
+    sig: str = ""           # what was suggested (the new time): a different suggestion later is shown again
+
+
 class StageSeg(BaseModel):
     start: float | str          # seconds, milliseconds, or ISO time
     end: float | str
@@ -663,8 +668,26 @@ def build_studio_router(state) -> APIRouter:
             if a and newest <= a["night"]:
                 i["applied"] = a                     # no new nights since it was applied: don't suggest it again yet
                 i["proposal"] = None
+        gone = ctl().store.get(f"guide_dismissed:{pid}", {})
+        for i in out:
+            d = gone.get(i["id"])
+            if d and d["sig"] == str((i.get("proposal") or {}).get("to", "")):
+                i["dismissed"] = True
         return out
 
+
+    @r.post("/people/{pid}/insights/dismiss")
+    async def dismiss_insight(pid: str, b: GuideDismissBody):
+        """"Not now" on a tuning-guide suggestion: hidden on every device of this person until the suggestion changes."""
+        person(pid)
+        if not b.id.startswith("guide-"):
+            raise HTTPException(422, "only tuning-guide suggestions can be dismissed here")
+        gone = ctl().store.get(f"guide_dismissed:{pid}", {})
+        gone[b.id] = {"sig": b.sig, "ts": ctl().clock.now_ts()}
+        if len(gone) > 40:
+            gone = dict(sorted(gone.items(), key=lambda kv: kv[1]["ts"])[-40:])
+        ctl().store.put(f"guide_dismissed:{pid}", gone)
+        return {"ok": True}
 
     @r.post("/people/{pid}/insights/apply")
     async def apply(pid: str, b: ApplyBody):
