@@ -24,12 +24,12 @@ import logging
 import re
 import time
 from datetime import datetime
-from urllib.parse import unquote, urlparse
+from .mqtt_url import client_kwargs, parse_mqtt_url
 
 from . import __version__
 from .engine.rhythm import night_date, pick_rhythm
 from .models import PALETTE, person_color
-from .units import c_to_f, f_to_c
+from .units import c_to_f, clock_style, f_to_c
 
 log = logging.getLogger(__name__)
 BASE = "embertide"
@@ -41,8 +41,10 @@ def slug(name: str) -> str:
 
 
 class HaBridge:
-    def __init__(self, controller, url: str | None = None, prefix: str = "homeassistant") -> None:
+    def __init__(self, controller, url: str | None = None, prefix: str = "homeassistant",
+                 ca_file: str | None = None, insecure: bool = False) -> None:
         self.c = controller
+        self.ca_file, self.insecure = ca_file or None, insecure
         self.url = url
         self.prefix = prefix
         self.state = "off" if not url else "starting"
@@ -170,6 +172,11 @@ class HaBridge:
             out.append((topic, {**cfg, "_oid": cfg["default_entity_id"].split(".", 1)[1]}))
         return out
 
+    def _dial_time(self, ts: float, p) -> str:
+        """A time for the dial's tonight list: no AM/PM (the dial is narrow), 12 h or 24 h by the person's clock."""
+        dt = datetime.fromtimestamp(ts, self.c.clock.tz)
+        return f"{dt.hour % 12 or 12}:{dt.minute:02d}" if clock_style(p.settings) == "12" else f"{dt.hour:02d}:{dt.minute:02d}"
+
     def _rhythm(self, p):
         now = datetime.fromtimestamp(self.c.clock.now_ts(), self.c.clock.tz)
         return pick_rhythm(p.rhythms, night_date(now))
@@ -226,11 +233,11 @@ class HaBridge:
             for ph in pv.get("phases", []):
                 cur = ph["id"] == n.get("phase_id")
                 if cur or ph["start"] > snap["now"]:
-                    t = "now" if cur else datetime.fromtimestamp(ph["start"], self.c.clock.tz).strftime("%I:%M").lstrip("0")
+                    t = "now" if cur else self._dial_time(ph["start"], p)
                     rows.append(f"{t}|{ph['name']}|{conv(ph.get('adjusted_c') or ph['temp_c'])}")
             sch = pv.get("schedule")
             if sch:
-                rows.append(datetime.fromtimestamp(sch["end"], self.c.clock.tz).strftime("%I:%M").lstrip("0") + "|Side off|")
+                rows.append(self._dial_time(sch["end"], p) + "|Side off|")
             out[self.t(p, "tonight")] = ";".join(rows[:5])[:250] or "None"
             st = p.settings
             g = self.c.household.guest.get(p.zone)        # the dial shows its guest screen unless asked not to
@@ -399,8 +406,11 @@ class HaBridge:
         await self.start()
 
     def status(self) -> dict:
-        u = urlparse(self.url) if self.url else None
-        return {"state": self.state, "broker": f"{u.hostname}:{u.port or 1883}" if u else None, "prefix": self.prefix,
+        try:
+            t = parse_mqtt_url(self.url) if self.url else None
+        except ValueError:
+            t = None
+        return {"state": self.state, "broker": f"{t.host}:{t.port}" if t else None, "tls": bool(t and t.tls), "prefix": self.prefix,
                 "entities": len(self.discovery()), "commands_handled": self.handled, "ignored_retained": getattr(self, "ignored_retained", 0),
                 "object_ids": {p.id: self.oid(p) for p in self.c.household.people}}
 
@@ -435,14 +445,12 @@ class HaBridge:
 
     async def _run(self) -> None:
         import aiomqtt
-        u = urlparse(self.url)
+        t = parse_mqtt_url(self.url)
         backoff = 1
         while True:
             try:
                 will = aiomqtt.Will(f"{BASE}/status", b"offline", retain=True)
-                async with aiomqtt.Client(u.hostname or "localhost", u.port or 1883,
-                                          username=unquote(u.username) if u.username else None,
-                                          password=unquote(u.password) if u.password else None,
+                async with aiomqtt.Client(t.host, t.port, **client_kwargs(t, self.ca_file, self.insecure),
                                           identifier=f"embertide-ha-{int(time.time())}", will=will) as client:
                     self._client = client
                     self.state = "connected"

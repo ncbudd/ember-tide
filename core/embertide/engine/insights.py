@@ -12,11 +12,15 @@ from ..models import Person
 from .rhythm import night_date, pick_rhythm
 
 
+from ..units import clock_style, fmt_clock, fmt_delta, fmt_gap, fmt_hour  # noqa: E402
+
+
 def _hour(ts: float, tz: ZoneInfo) -> int:
     return datetime.fromtimestamp(ts, tz).hour
 
 
 def insights(person: Person, nights: list[dict], tz: ZoneInfo, now: float) -> list[dict]:
+    units, ck = person.settings.units, clock_style(person.settings)
     done = [n for n in nights if n.get("has_data") and not n.get("in_progress")]
     out: list[dict] = []
     if not done:
@@ -55,9 +59,9 @@ def insights(person: Person, nights: list[dict], tz: ZoneInfo, now: float) -> li
         h, cnt = hours.most_common(1)[0]
         target = "late" if 2 <= h < 6 else "deep"
         p = phase.get(target)
-        out.append({"id": "flash_cluster", "severity": "suggest" if p else "info", "title": f"{len(hf)} hot flashes, most around {h % 12 or 12} {'AM' if h < 12 else 'PM'}",
-                    "detail": f"{cnt} of them started in the {h % 12 or 12} o'clock hour. Running {p.name if p else 'that phase'} a little cooler may prevent some." ,
-                    "evidence": [datetime.fromtimestamp(m["ts"], tz).strftime("%a %H:%M") for m in hf][:8],
+        out.append({"id": "flash_cluster", "severity": "suggest" if p else "info", "title": f"{len(hf)} hot flashes, most around {fmt_hour(h, ck)}",
+                    "detail": f"{cnt} of them started in the {fmt_hour(h, ck)} hour. Running {p.name if p else 'that phase'} a little cooler may prevent some." ,
+                    "evidence": [f"{datetime.fromtimestamp(m['ts'], tz):%a} {fmt_clock(m['ts'], ck, tz)}" for m in hf][:8],
                     "proposal": {"rhythm_id": rh.id, "phase_id": target, "field": "temp_c", "from": p.temp_c, "to": round(p.temp_c - F, 2)} if p else None})
 
     # 4. lots of manual adjustment in one direction
@@ -72,16 +76,16 @@ def insights(person: Person, nights: list[dict], tz: ZoneInfo, now: float) -> li
             if p:
                 step = -F if net < 0 else F
                 out.append({"id": "manual_bias", "severity": "suggest", "title": f"You keep making it {'cooler' if net < 0 else 'warmer'}",
-                            "detail": f"{len(adj)} manual changes, net {round(net * 9 / 5)}°F, mostly around {h % 12 or 12} {'AM' if h < 12 else 'PM'}. Build it into {p.name}.",
-                            "evidence": [datetime.fromtimestamp(m['ts'], tz).strftime('%a %H:%M') for m in adj][:8],
+                            "detail": f"{len(adj)} manual changes, net {fmt_delta(net, units)}, mostly around {fmt_hour(h, ck)}. Build it into {p.name}.",
+                            "evidence": [f"{datetime.fromtimestamp(m['ts'], tz):%a} {fmt_clock(m['ts'], ck, tz)}" for m in adj][:8],
                             "proposal": {"rhythm_id": rh.id, "phase_id": target, "field": "temp_c", "from": p.temp_c, "to": round(p.temp_c + step, 2)}})
 
     # 5. the bed can't keep up with the plan → lengthen transitions
     trk = [n["tracking_c"] for n in done if n.get("tracking_c") is not None]
     if trk and mean(trk) > 1.2 and "deep" in phase:
         out.append({"id": "tracking", "severity": "suggest", "title": "The bed lags behind the plan",
-                    "detail": f"On average the pad is {mean(trk) * 9 / 5:.1f}°F off its target. Longer transitions make the changes smoother and more reachable.",
-                    "evidence": [f"{n['date']}: ±{n['tracking_c'] * 9 / 5:.1f}°F" for n in done if n.get("tracking_c") is not None],
+                    "detail": f"On average the pad is {fmt_gap(mean(trk), units)} off its target. Longer transitions make the changes smoother and more reachable.",
+                    "evidence": [f"{n['date']}: ±{fmt_gap(n['tracking_c'], units)}" for n in done if n.get("tracking_c") is not None],
                     "proposal": {"rhythm_id": rh.id, "phase_id": "deep", "field": "ramp_min", "from": phase["deep"].ramp_min, "to": phase["deep"].ramp_min + 10}})
 
     # 6. restless

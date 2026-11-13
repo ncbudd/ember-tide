@@ -7,7 +7,7 @@ import LeftOutNights from "../components/LeftOutNights";
 import { HelpLink } from "./Help";
 import { useApp } from "../ctx";
 import { useAuth, useOwnPerson } from "../auth";
-import { clock, cToF } from "../format";
+import { clock, cToF, h12 } from "../format";
 import type { AutopilotPolicy, Band, Baseline, Learning, Suggestions } from "../types";
 
 interface Reason { signal: string; label: string; value: string; detail: string; push: number }
@@ -283,7 +283,7 @@ export default function Autopilot() {
             {night && night.rows.length > 1 && <div className="row" style={{ justifyContent: "flex-start", gap: 8, flexWrap: "wrap" }}>
               <button className="pill" disabled={rechecking} onClick={recheck}>{rechecking ? "Looking again…" : "Re-check this night"}</button><Tip label="What does re-check do?" text={TIPS.recheck} />
               {night.recheck && <span style={{ fontSize: 13 }} role="status">{recheckText(night.recheck)}
-                <span className="faint" style={{ fontSize: 12 }}> · {new Date(night.recheck.ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}{night.recheck.used_skin ? ", with skin temperature" : ""}</span></span>}</div>}
+                <span className="faint" style={{ fontSize: 12 }}> · {new Date(night.recheck.ts * 1000).toLocaleString([], { ...h12(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}{night.recheck.used_skin ? ", with skin temperature" : ""}</span></span>}</div>}
             {night?.recheck?.moments && night.recheck.moments.length > 0 && <div style={{ display: "grid", gap: 2 }}>
               {night.recheck.moments.map((m, i) => <span key={i} style={{ fontSize: 12.5 }}><span className="num mute">{clock(m.ts, snap.tz)}</span> · ↺ would have made it {dd(m.delta_c)} {m.direction}{m.why ? ` (${m.why})` : ""}{m.missed ? <b style={{ fontWeight: 500, color: "var(--warm)" }}> · missed live</b> : ""}</span>)}</div>}
             {night && (night.feedback?.note || night.feel.length > 0) && <div style={{ display: "grid", gap: 4 }}>
@@ -386,7 +386,7 @@ export default function Autopilot() {
                 for (const im of imports) { const g = syncs[syncs.length - 1]; if (g && Math.abs(g[0].ts - im.ts) < 180) g.push(im); else syncs.push([im]); }
                 const today = new Date(snap.now * 1000).toLocaleDateString("en-CA", { timeZone: snap.tz });
                 return syncs.slice(0, 4).map((g, i) => { const sm = syncSummary(g, today); return <div key={i} style={{ fontSize: 12.5, borderTop: "1px solid var(--line)", paddingTop: 6, display: "grid", gap: 2 }}>
-                  <span><b style={{ fontWeight: 500 }}>Sync · {new Date(g[0].ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: snap.tz })}</b> <span className="faint">from {[...new Set(g.map(x => x.device))].join(", ")}</span></span>
+                  <span><b style={{ fontWeight: 500 }}>Sync · {new Date(g[0].ts * 1000).toLocaleString([], { ...h12(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: snap.tz })}</b> <span className="faint">from {[...new Set(g.map(x => x.device))].join(", ")}</span></span>
                   <span className="mute">{sm.what}</span>
                   {sm.notes.map((n, k) => <span key={k} className="faint">{n}</span>)}
                 </div>; });
@@ -440,7 +440,7 @@ function DecisionText({ d, dd, deg, full }: { d: Decision; dd: (c: number) => st
     : `Wanted to make it ${dd(d.delta_c)} ${d.direction}, but held back.`;
   return (
     <div style={{ display: "grid", gap: 6 }}>
-      <b style={{ fontWeight: 500, fontSize: 14, color: STATUS_COLOR[d.status] }}>{full && <span className="mute num" style={{ fontWeight: 400 }}>{new Date(d.ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · </span>}{head}</b>
+      <b style={{ fontWeight: 500, fontSize: 14, color: STATUS_COLOR[d.status] }}>{full && <span className="mute num" style={{ fontWeight: 400 }}>{new Date(d.ts * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", minute: "2-digit" })} · </span>}{head}</b>
       {d.reasons.length > 0 && <div style={{ display: "grid", gap: 3 }}>
         {d.reasons.map((r, i) => <div key={i} className="row" style={{ fontSize: 12.5, gap: 8 }}>
           <span><b style={{ fontWeight: 500 }}>{r.label}</b> <span className="mute">· {r.value} · {r.detail}</span></span>

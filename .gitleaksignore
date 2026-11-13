@@ -1,0 +1,2 @@
+# Fake API key in a test, removed in a later commit of PR #13 (squash-merged, so it never reaches main)
+f3cccb8cf202c142abe4b98f3e81d732eb63d597:core/tests/test_ai_settings.py:generic-api-key:16

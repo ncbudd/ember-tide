@@ -636,8 +636,12 @@ def build_studio_router(state) -> APIRouter:
     def context(p):
         c = ctl()
         nights = recent(c.store, p, c.clock.tz, c.clock.now_ts(), 7)
-        return nights, {"person": {"id": p.id, "name": p.name, "persona": p.persona, "units": p.settings.units},
-                        "rhythms": [rh.model_dump() for rh in p.rhythms],
+        from .units import clock_style, fmt_temp
+        u = p.settings.units
+        return nights, {"person": {"id": p.id, "name": p.name, "persona": p.persona, "units": u,
+                                   "language": p.settings.language, "clock": clock_style(p.settings)},
+                        "rhythms": [{**rh.model_dump(), "phases": [{**ph.model_dump(), "shown_as": fmt_temp(ph.temp_c, u)} for ph in rh.phases]}
+                                    for rh in p.rhythms],
                         "nights": [{k: v for k, v in n.items() if k not in ("series",)} for n in nights],
                         "insights": insights(p, nights, c.clock.tz, c.clock.now_ts())}
 
@@ -680,7 +684,7 @@ def build_studio_router(state) -> APIRouter:
 
     @r.get("/ai/status")
     async def ai_status():
-        cfg = state.cfg
+        cfg = ai.effective(state.cfg, ctl().store)
         return {"configured": ai.configured(cfg), "model": ai.model_name(cfg) if ai.configured(cfg) else None,
                 "provider": ai.provider(cfg), "url": cfg.llm_url if ai.provider(cfg) == "openai" else None}
 
@@ -701,14 +705,15 @@ def build_studio_router(state) -> APIRouter:
         if who is not None and who.role != "owner" and who.kind != "open" and who.person != p.id:
             raise HTTPException(403, "That's their own sleep data.")
         nights, ctxt = context(p)
-        if not ai.configured(state.cfg):
+        eff = ai.effective(state.cfg, ctl().store)
+        if not ai.configured(eff):
             ins = ctxt["insights"]
             return {"answer": "No AI model is connected, so here is what the built-in analysis found:\n\n" +
                     "\n".join(f"• {i['title']}: {i['detail']}" for i in ins) +
                     "\n\nConnect a local model (for example Ollama) with ET_LLM_URL to ask open questions.",
                     "proposal": next((i["proposal"] for i in ins if i.get("proposal")), None), "model": None}
         try:
-            out = await ai.ask(state.cfg, b.question, ctxt)
+            out = await ai.ask(eff, b.question, ctxt)
         except Exception as e:  # noqa: BLE001
             raise HTTPException(502, f"AI model error: {type(e).__name__}")
         out["proposal"] = ai.check_rhythm_proposal(p, out.get("proposal"))     # a real phase, within ±1.5 °C, or nothing

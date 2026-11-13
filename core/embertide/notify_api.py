@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import secrets
 from typing import Literal
 
@@ -12,7 +13,7 @@ from .notify import Message
 
 
 class ProviderBody(BaseModel):
-    kind: Literal["ntfy", "ha"]
+    kind: Literal["ntfy", "ha", "webhook", "apprise"]
     name: str = Field(min_length=1, max_length=60)
     person: str | None = None             # None = household (bed problems)
     enabled: bool = True
@@ -61,6 +62,31 @@ def _check(kind: str, s: dict) -> dict:
         if not url.startswith(("http://", "https://")):
             raise HTTPException(422, "The ntfy server address should start with http:// or https://")
         return {"url": url.rstrip("/"), "topic": s["topic"], "token": s.get("token") or None}
+    if kind in ("webhook", "apprise"):
+        what = "webhook" if kind == "webhook" else "Apprise server"
+        if not str(s.get("url", "")).startswith(("http://", "https://")):
+            raise HTTPException(422, f"The {what} address should start with http:// or https://")
+        hdrs = s.get("headers") or {}
+        if not isinstance(hdrs, dict) or len(hdrs) > 10:
+            raise HTTPException(422, "Headers: at most 10, name and value each.")
+        clean = {}
+        for k, v in hdrs.items():
+            k, v = str(k).strip(), str(v).strip()
+            if not k:
+                continue
+            if not re.fullmatch(r"[A-Za-z0-9!#$%&'*+.^_`|~-]{1,60}", k) or len(v) > 500 or any(ord(ch) < 32 for ch in v):
+                raise HTTPException(422, "A header name or value isn't valid.")
+            clean[k] = v
+        out = {"url": s["url"].rstrip("/"), "headers": clean}
+        if kind == "apprise":
+            key = str(s.get("key") or "").strip()
+            if key and not re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", key):
+                raise HTTPException(422, "The Apprise key can only have letters, numbers, dashes and underscores.")
+            urls = str(s.get("urls") or "").strip()
+            if not key and not urls:
+                raise HTTPException(422, "Give the Apprise config key (saved on the server), or one or more Apprise addresses such as tgram://...")
+            out.update(key=key or None, urls=urls or None, tag=str(s.get("tag") or "").strip() or None)
+        return out
     if not str(s.get("url", "")).startswith(("http://", "https://")):
         raise HTTPException(422, "The Home Assistant address should start with http:// or https://")
     if not s.get("token"):
@@ -75,6 +101,10 @@ def _public(p: dict, notifier=None) -> dict:
     s = dict(p.get("settings", {}))
     if s.get("token"):
         s["token"] = "••••" + s["token"][-4:]
+    if isinstance(s.get("headers"), dict):
+        s["headers"] = {k: "set" for k in s["headers"]}          # header values are secrets: names only
+    if s.get("urls"):
+        s["urls"] = "set"                                        # Apprise addresses hold tokens
     out = {**p, "settings": s}
     if notifier is not None and p.get("kind") == "ha":
         lis = notifier.ha_listeners.get(p["settings"].get("url", "").rstrip("/"))
@@ -124,6 +154,14 @@ def build_notify_router(state) -> APIRouter:
             if host(s.get("url")) != host(cur["settings"].get("url")):
                 raise HTTPException(422, "The address changed: enter the token again.")      # never sent to a new place
             s["token"] = cur["settings"].get("token")
+        if b.kind in ("webhook", "apprise"):
+            old = cur["settings"]
+            if str(s.get("url", "")).rstrip("/") != str(old.get("url", "")).rstrip("/") and (old.get("headers") or old.get("urls")):
+                if any(v == "set" for v in (s.get("headers") or {}).values()) or s.get("urls") == "set":
+                    raise HTTPException(422, "The address changed: enter the headers again.")   # never sent to a new place
+            s["headers"] = {k: (old.get("headers", {}).get(k, "") if v == "set" else v) for k, v in (s.get("headers") or {}).items()}
+            if s.get("urls") == "set":
+                s["urls"] = old.get("urls")
         cur.update(kind=b.kind, name=b.name.strip(), person=b.person, enabled=b.enabled, settings=_check(b.kind, s))
         n().save_providers(items)
         n().sync_ha_listeners()

@@ -13,6 +13,7 @@ from ..models import Person
 from ..store import Store
 from .active import TEXT as ACTIVE_TEXT, inside, windows as active_windows
 from .rhythm import pick_rhythm, resolve
+from ..units import clock_style, fmt_clock
 
 ROW_S = 15.0
 LATE_S = 2 * 3600          # in bed this long after the usual bedtime: a late night
@@ -70,9 +71,9 @@ def pet_moments(events: list[dict], zone: str, pets: list[dict], until: float) -
     return out
 
 
-def sleep_text(why: str | None, at: float, tz: ZoneInfo) -> str:
+def sleep_text(why: str | None, at: float, tz: ZoneInfo, clock: str = "24") -> str:
     """The story line for when an early night moved on from "Fall asleep"."""
-    clk = datetime.fromtimestamp(at, tz).strftime("%I:%M %p").lstrip("0")
+    clk = fmt_clock(at, clock, tz)
     return {"settled": f"You settled around {clk}, so the night moved on",
             "bedtime_mode": f"Your phone's bedtime mode came on around {clk}, so the night moved on",
             "charger": f"Your phone went on the charger by the bed around {clk}, so the night moved on",
@@ -82,7 +83,8 @@ def sleep_text(why: str | None, at: float, tz: ZoneInfo) -> str:
 
 
 def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | None = None,
-             zone: str | None = None, pets: list[dict] | None = None, until: float | None = None) -> list[dict]:
+             zone: str | None = None, pets: list[dict] | None = None, until: float | None = None,
+             clock: str = "24") -> list[dict]:
     """Collapse the raw log into a short story: flashes, grouped adjustments, starts, skips, and (with a zone) pets
     seen on that side."""
     out: list[dict] = []
@@ -105,7 +107,7 @@ def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | Non
                 continue
         if k == "rhythm_restarted":
             up = e.get("up_since")
-            clk = datetime.fromtimestamp(up, tz).strftime("%I:%M %p").lstrip("0") if up else None
+            clk = fmt_clock(up, clock, tz) if up else None
             out.append({"kind": k, "ts": e["in_bed"], "source": e.get("source"), "in_bed": e["in_bed"],
                         "was_in_bed": e.get("was_in_bed"), "up_since": up,
                         "text": f"Started again from the beginning (you'd been up since {clk})" if clk
@@ -159,7 +161,7 @@ def _moments(events: list[dict], tz: ZoneInfo, phase_names: dict[str, str] | Non
             if restart is not None and e["ts"] < restart["ts"]:
                 continue                                  # belonged to the start that was given up
             out.append({"kind": "sleep", "ts": e["at"], "why": e.get("why"), "source": "system",
-                        "text": sleep_text(e.get("why"), e["at"], tz)})
+                        "text": sleep_text(e.get("why"), e["at"], tz, clock)})
         elif k == "room_cold":
             if not any(m["kind"] == k and m.get("text") == e.get("text") for m in out):
                 out.append({"kind": k, "ts": e["ts"], "text": e.get("text"), "phase": e.get("phase"), "source": "system"})
@@ -250,7 +252,8 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
             # the night before a work day or a day off, by this person's own work days (someone may work weekends)
             "before": "work" if (d.weekday() + 1) % 7 in person.settings.work_days else "off"}
     if not rows:
-        return {**base, "has_data": False, "moments": _moments(events, tz, zone=person.zone, pets=pets, until=end)}
+        return {**base, "has_data": False, "moments": _moments(events, tz, zone=person.zone, pets=pets, until=end,
+                                                                   clock=clock_style(person.settings))}
 
     occ = [r for r in rows if r["occupied"] == 1]
     # each row stands for the time until the next row (capped), so sparse or dense sampling both add up right
@@ -371,7 +374,8 @@ def _summarize(store: Store, person: Person, d: date, tz: ZoneInfo, now: float, 
     on = [r for r in rows if r["on"] and r["measured"] is not None and r["target"] is not None]
     track = median(abs(r["measured"] - r["target"]) for r in on) if on else None   # median: flashes deliberately jump the target
     lows = [r["measured"] for r in occ if r["measured"] is not None]
-    moments = _moments(events, tz, {ph.id: ph.name for ph in rh.phases} if rh else None, zone=person.zone, pets=pets, until=end)
+    moments = _moments(events, tz, {ph.id: ph.name for ph in rh.phases} if rh else None, zone=person.zone, pets=pets, until=end,
+                      clock=clock_style(person.settings))
     for g in gaps:
         moments.append({"kind": "out_of_bed", "ts": g["from"], "minutes": g["minutes"]})
     for a, b in act:

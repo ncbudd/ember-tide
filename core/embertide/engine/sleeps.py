@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import statistics
 from datetime import datetime, timedelta
+from ..units import fmt_clock
 
 KEEP_DAYS = 120
 
@@ -86,9 +87,9 @@ def naps_before(store, pid: str, start: float, tz) -> list[dict]:
     return [x for x in all_for(store, pid) if x["kind"] == "nap" and a <= x["start"] < start - 600]
 
 
-def view(x: dict, tz) -> dict:
+def view(x: dict, tz, clock: str = "24") -> dict:
     """A nap or night for the app: times, how long asleep, where, in plain words."""
-    clk = lambda t: datetime.fromtimestamp(t, tz).strftime("%I:%M %p").lstrip("0")   # noqa: E731
+    clk = lambda t: fmt_clock(t, clock, tz)   # noqa: E731
     where = {"bed": "on the bed", "away": "away from the bed", "unknown": ""}.get(x.get("where") or "unknown", "")
     asleep = x.get("asleep_min")
     return {k: x.get(k) for k in ("id", "kind", "start", "end", "asleep_min", "deep_min", "rem_min", "light_min", "awake_min",

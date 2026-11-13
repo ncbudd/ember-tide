@@ -29,17 +29,62 @@ class AppState:
     controller: Controller
 
 
-def make_driver(cfg: Config, clock: Clock):
-    if cfg.bed == "orion-mqtt":
-        from .drivers.orion_mqtt import OrionMqtt
-        return OrionMqtt(cfg.mqtt_url, cfg.orion_serial)
-    if cfg.bed == "orion-cloud":
-        if not cfg.orion_api_key:
-            raise SystemExit("ET_ORION_API_KEY is required for the orion-cloud driver")
-        from .drivers.orion_cloud import OrionCloud
-        return OrionCloud(cfg.orion_api_key, cfg.orion_serial)
+def _orion_mqtt(cfg: Config, clock: Clock):
+    from .drivers.orion_mqtt import OrionMqtt
+    return OrionMqtt(cfg.mqtt_url, cfg.orion_serial, ca_file=cfg.mqtt_ca_file, insecure=cfg.mqtt_tls_insecure)
+
+
+def _orion_cloud(cfg: Config, clock: Clock):
+    if not cfg.orion_api_key:
+        raise SystemExit("ET_ORION_API_KEY is required for the orion-cloud driver")
+    from .drivers.orion_cloud import OrionCloud
+    return OrionCloud(cfg.orion_api_key, cfg.orion_serial)
+
+
+def _sim(cfg: Config, clock: Clock):
     from .drivers.sim import SimBed
     return SimBed(clock)
+
+
+# ET_BED value -> factory(cfg, clock) returning a driver (see docs/drivers.md). Add a built-in driver by adding a line here.
+DRIVERS = {"sim": _sim, "orion-mqtt": _orion_mqtt, "orion-cloud": _orion_cloud}
+
+
+def load_driver_class(spec: str):
+    """ET_BED=python:package.module:ClassName -> the class. Raises ValueError with a plain reason."""
+    import importlib
+    path = spec.removeprefix("python:").strip()
+    mod, sep, name = path.partition(":")
+    if not (mod and sep and name):
+        raise ValueError(f"ET_BED={spec!r}: use python:package.module:ClassName")
+    try:
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- the module comes from the operator's own ET_BED setting at startup, never from a request
+        module = importlib.import_module(mod)
+    except Exception as e:  # noqa: BLE001
+        raise ValueError(f"ET_BED={spec!r}: can't import {mod!r} ({e.__class__.__name__}: {e}). "
+                         "Is the package installed in the same Python as Ember & Tide?") from e
+    cls = getattr(module, name, None)
+    if cls is None or not callable(cls):
+        raise ValueError(f"ET_BED={spec!r}: module {mod!r} has no class {name!r}")
+    return cls
+
+
+def make_driver(cfg: Config, clock: Clock):
+    if cfg.bed.startswith("python:"):
+        try:
+            cls = load_driver_class(cfg.bed)
+        except ValueError as e:
+            raise SystemExit(str(e)) from None
+        d = cls(cfg, clock)
+        missing = [x for x in ("id", "name", "capabilities", "zones", "start", "stop", "latest", "set_zone", "command", "status")
+                   if not hasattr(d, x)]
+        if missing:
+            raise SystemExit(f"ET_BED={cfg.bed!r}: the driver is missing {', '.join(missing)} (see docs/drivers.md)")
+        return d
+    f = DRIVERS.get(cfg.bed)
+    if f is None:
+        raise SystemExit(f"ET_BED={cfg.bed!r} isn't a known bed driver. Use one of: {', '.join(DRIVERS)}, or python:package.module:ClassName")
+    return f(cfg, clock)
 
 
 class BodyLimit:
@@ -154,7 +199,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         app.state.cloud = state.cloud
         state.oura = app.state.oura = state.cloud.get("oura")
         state.cloud.start()
-        state.ha = HaBridge(state.controller, cfg.ha_mqtt_url or saved_ha.get("url"), cfg.ha_prefix if cfg.ha_mqtt_url else saved_ha.get("prefix", cfg.ha_prefix))
+        state.ha = HaBridge(state.controller, cfg.ha_mqtt_url or saved_ha.get("url"), cfg.ha_prefix if cfg.ha_mqtt_url else saved_ha.get("prefix", cfg.ha_prefix),
+                          ca_file=cfg.ha_mqtt_ca_file, insecure=cfg.ha_mqtt_tls_insecure)
         app.state.ha = state.ha
         await state.ha.start()
         if not cfg.auth:
@@ -185,7 +231,15 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         await sources.stop()
         await driver.stop()
 
-    app = FastAPI(title="Ember & Tide", version=__version__, lifespan=lifespan)
+    from .mcp_server import McpEndpoint                   # AI apps over MCP at /mcp (docs/mcp.md)
+    mcp_endpoint = McpEndpoint(state)
+
+    @asynccontextmanager
+    async def lifespan_with_mcp(app: FastAPI):
+        async with lifespan(app), mcp_endpoint.running():
+            yield
+
+    app = FastAPI(title="Ember & Tide", version=__version__, lifespan=lifespan_with_mcp)
 
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
@@ -198,7 +252,12 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 for e in exc.errors()[:20]]
         return JSONResponse(status_code=422, content={"detail": errs})
     from .auth_api import AuthMiddleware, build_auth_router
+    from .auth_api import parse_nets
+    if (cfg.auth_header or cfg.auth_header_email) and not cfg.trust_proxy:
+        raise ValueError("ET_AUTH_HEADER needs ET_TRUST_PROXY=on, so the header is only believed from your proxy.")
+    parse_nets(cfg.trusted_proxies)                       # a typo in ET_TRUSTED_PROXIES stops the start with a clear message
     app.add_middleware(AuthMiddleware, state=state)
+    app.add_middleware(mcp_endpoint.middleware)           # /mcp: its own bearer keys (before the SPA catch-all)
     app.add_middleware(BodyLimit)                         # outermost: refuse a huge body before anyone reads it
     from fastapi.middleware.cors import CORSMiddleware
     # The Android app's WebView origin. No cookies are used across origins: the app sends a bearer token.
@@ -237,6 +296,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     app.include_router(build_oura_router(state))
     from .cloud_api import build_cloud_router
     app.include_router(build_cloud_router(state))
+    from .ai_api import build_ai_router                       # Studio: connect an AI model (owner)
+    app.include_router(build_ai_router(state))
     from .assistant_api import build_assistant_router         # Ask: answers + proposed changes with confirm / undo
     app.include_router(build_assistant_router(state))
 

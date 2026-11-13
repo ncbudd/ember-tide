@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import type { PersonView } from "../types";
-import { clock, cToF, fToC, personaColor } from "../format";
+import { clock, cToF, fToC, personaColor, h12 } from "../format";
 
 interface Props {
   people: PersonView[];
@@ -74,7 +74,7 @@ export default function Horizon({ people, now, tz, units, height = 150, gradient
   const hours: number[] = [];
   const start = new Date(x0 * 1000); start.setMinutes(0, 0, 0);
   for (let t = start.getTime() / 1000 + 3600; t < x1; t += 3600) hours.push(t);
-  const fmtH = (t: number) => new Date(t * 1000).toLocaleTimeString([], { hour: "numeric", timeZone: tz }).replace(" ", "").toLowerCase();
+  const fmtH = (t: number) => new Date(t * 1000).toLocaleTimeString([], { ...h12(), hour: "numeric", timeZone: tz }).replace(" ", "").toLowerCase();
   const single = withCurve.length === 1;
   const fs = realSize ? 10 : Math.round(9 * Math.max(1, W / 480));
   const deg = (c: number, d = 0) => `${(units === "F" ? cToF(c) : c).toFixed(d)}°`;

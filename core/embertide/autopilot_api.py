@@ -19,6 +19,7 @@ from .engine.summary import night_window, summarize
 from .engine.wearables import night_devices
 from . import voice
 from .models import AutopilotPolicy
+from .units import clock_style, fmt_gap, fmt_temp, language_line, season_words
 
 
 class FeelBody(BaseModel):
@@ -70,20 +71,23 @@ REVIEW_SYSTEM = """You review one night for the Autopilot of Ember & Tide, a dua
 You get JSON: the person's rhythm (°C), the night's sensor summary (estimates, not medical), what Autopilot noticed
 (signals: restlessness, heart rate rise, skin temperature change, the bed vs plan) and what it did or would have done,
 the person's own "too hot / too cold" taps, their morning check-in and anything they wrote about how they feel.
-Interpret their own words carefully; they matter most.
+Interpret their own words carefully; they matter most. Assume nothing about where the person lives, their culture,
+work week or holidays: only what the context says. Temperatures in the context are already written in the person's own
+unit (person.units); use that unit and never convert or mention the other one. Dates are ISO and times are 24-hour;
+write times the way person.clock says ("12" = 1:30 PM, "24" = 13:30).
 How to read the numbers (get these right):
 - "planned_settings" are the temperatures the person CHOSE for each phase. The bed follows them on purpose: a rise or
   fall from one phase to the next is the plan doing its job (e.g. warming toward wake), never the bed "overheating" or
   "overshooting". Only "bed_vs_plan" (tracking) says whether the bed actually reached its setting.
 - These are water/pad settings, not body or room temperatures. How warm a setting feels depends on the room and the
-  season: in a cold room or cold weather a person who runs warm can still choose fairly warm settings and be comfortable.
+  time of year: in a cold room or cold weather a person who runs warm can still choose fairly warm settings and be comfortable.
   Always weigh "room" (the bedroom's measured temperature) and "pad_vs_setting" (whether the pad reached its setting)
   before calling a setting too warm or too cool, and mention the room when it matters.
 - "runs" (warm/cold) is only a general description of the person. It is NOT evidence about this night.
 - Evidence about this night is only: their taps, their flashes, their own changes, their morning check-in, and what
   Autopilot noticed. If "evidence_tonight" is false, there was no sign of discomfort: say the night looked comfortable
   for temperature and do NOT recommend a rhythm change (you may mention one thing to watch).
-Reply in plain language, in °F unless they use °C:
+Reply in plain language:
 1. How the night went for temperature, in two or three sentences.
 2. What you'd change in the rhythm, if anything, and why, pointing at the evidence.
 3. What Autopilot found: sum up "autopilot" (its overnight signals, what it noticed, its pending suggestions, whether
@@ -94,7 +98,8 @@ Only if the evidence clearly supports a change, add ONE fenced block (never as a
 ```proposal
 {"rhythm_id": "...", "phase_id": "...", "field": "temp_c", "to": <number>}
 ```
-Keep a change within ±1.5 °C. Numbers named *_c are Celsius; "to" in a proposal is Celsius too."""
+Keep a change within ±1.5 °C. Numbers named *_c are Celsius; "to" in a proposal is Celsius too (the only
+place °C appears when the person's unit is °F)."""
 
 
 def build_autopilot_router(state) -> APIRouter:
@@ -123,7 +128,7 @@ def build_autopilot_router(state) -> APIRouter:
     @r.get("/autopilot/meta")
     async def meta():
         return {"signals": [{"id": s, "label": LABELS[s]} for s in ALL_SIGNALS], "sensitivity": THRESHOLD,
-                "ai": _ai_on(state.cfg), "model": _ai_model(state.cfg)}
+                "ai": _ai_on(_eff(state)), "model": _ai_model(_eff(state))}
 
     @r.get("/people/{pid}/autopilot")
     async def status(pid: str):
@@ -307,6 +312,11 @@ def build_autopilot_router(state) -> APIRouter:
         return {"ok": True}
 
     return r
+
+
+def _eff(state):
+    from . import ai
+    return ai.effective(state.cfg, state.controller.store)
 
 
 def _ai_on(cfg) -> bool:
@@ -576,31 +586,27 @@ def _room_summary(c, start: float, end: float) -> dict | None:
             "humidity": {"min": min(hv), "max": max(hv), "avg": round(sum(hv) / len(hv))} if hv else None}
 
 
-def _f(c: float) -> str:
-    return f"{round(c * 9 / 5 + 32)}°F ({c:.1f}°C)"
-
-
-def _room_words(r: dict | None) -> dict | str:
-    """The bedroom in words a model reads right (bare Celsius min/max got ignored)."""
+def _room_words(r: dict | None, units: str = "C") -> dict | str:
+    """The bedroom in words a model reads right (bare min/max numbers got ignored), in the person's unit."""
     if not r or not r.get("temp_c"):
         return "no room sensor"
     t = r["temp_c"]
     feel = "cool" if t["avg"] < 20.5 else "comfortable" if t["avg"] < 23.5 else "warm"
-    out = {"average": _f(t["avg"]), "range": f"{_f(t['min'])} to {_f(t['max'])}", "reads_as": f"a {feel} bedroom"}
+    out = {"average": fmt_temp(t["avg"], units), "range": f"{fmt_temp(t['min'], units)} to {fmt_temp(t['max'], units)}",
+           "reads_as": f"a {feel} bedroom"}
     if r.get("humidity"):
         out["humidity"] = f"{r['humidity']['avg']}%"
     return out
 
 
-def _pad_words(gaps: list[float]) -> str:
+def _pad_words(gaps: list[float], units: str = "C") -> str:
     """Autopilot's pad-vs-setting samples (measured minus setting, °C) over the night, in words."""
     if len(gaps) < 4:
         return "not known"
     m = sum(gaps) / len(gaps)
-    f = abs(m) * 9 / 5
     if abs(m) < 0.3:
         return "the pad stayed at its setting"
-    return (f"the pad ran about {f:.0f}°F {'below' if m < 0 else 'above'} its setting on average"
+    return (f"the pad ran about {fmt_gap(m, units)} {'below' if m < 0 else 'above'} its setting on average"
             + (" (in a cool room the pad can't always reach a warm setting: the bed felt cooler than the number says)" if m < 0 else ""))
 
 
@@ -627,11 +633,10 @@ def _signal_words(c, p, start: float, end: float) -> dict:
     return out or {"note": "Autopilot logged no signals that night"}
 
 
-def _season(d: date) -> str:
-    """The season for the review, so a warm setting in a cold month reads right (northern hemisphere; there's no
-    weather source)."""
-    names = ["winter", "winter", "spring", "spring", "spring", "summer", "summer", "summer", "fall", "fall", "fall", "winter"]
-    return f"{names[d.month - 1]} ({d.strftime('%B')})"
+def _season(d: date, tz_name: str | None = None, override: str = "auto") -> str:
+    """The time of year for the review, so a warm setting in a cold month reads right. The hemisphere comes from the
+    household time zone (or its own setting); in the tropics there is no season word, only the month."""
+    return season_words(d, tz_name, override)
 
 
 def _day(d) -> date:
@@ -858,10 +863,9 @@ def _manual_changes(c, p, evs: list[dict]) -> list[dict]:
         if abs(diff) < 0.25:
             continue
         to = round(ph.temp_c + max(-2.8, min(2.8, diff)), 2)
-        f = abs(diff) * 9 / 5
         out.append({"id": f"manual-{last_night.isoformat()}-{ph_id}", "kind": "manual", "phase": ph_id, "phase_name": ph.name,
                     "direction": "cooler" if diff < 0 else "warmer", "nights": [last_night.isoformat()],
-                    **voice.suggestion_words("manual", "cooler" if diff < 0 else "warmer", {"phase": ph.name, "deg": f"{f:.0f}°F",
+                    **voice.suggestion_words("manual", "cooler" if diff < 0 else "warmer", {"phase": ph.name, "deg": fmt_gap(diff, p.settings.units),
                                              "source": names.get(x.get("source"), x.get("source") or "the app")}, p, last_night, len(out)),
                     "proposal": {"rhythm_id": rh.id, "phase_id": ph_id, "field": "temp_c", "from": ph.temp_c, "to": to}})
     return out
@@ -910,9 +914,10 @@ def _suggest(c, p) -> list[dict]:
         phase = next((x for x in (rh.phases if rh else []) if x.id == ph), None)
         if not phase:
             continue
-        step = -0.56 if d == "cooler" else 0.56
+        mag = 0.56 if p.settings.units == "F" else 0.5
+        step = -mag if d == "cooler" else mag
         out.append({"id": f"ap-{ph}-{d}-{max(nights[(ph, d)])}", "kind": "pattern", "phase": ph, "phase_name": phase.name, "direction": d, "nights": sorted(nights[(ph, d)]),
-                    **voice.suggestion_words("pattern", d, {"phase": phase.name, "n": n_nights, "look": look - 1, "step": "1 °F"}, p,
+                    **voice.suggestion_words("pattern", d, {"phase": phase.name, "n": n_nights, "look": look - 1, "step": "1 °F" if p.settings.units == "F" else "0.5 °C"}, p,
                                              datetime.fromtimestamp(now, c.clock.tz).date(), len(out)),
                     "proposal": {"rhythm_id": rh.id, "phase_id": ph, "field": "temp_c", "from": phase.temp_c, "to": round(phase.temp_c + step, 2)}})
     return out
@@ -933,6 +938,8 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
     skin = c.autopilot.skin(p, start, end)
     tzname = c.clock.tz
 
+    units = p.settings.units
+
     def hm(t):
         return datetime.fromtimestamp(t, tzname).strftime("%H:%M")
 
@@ -941,11 +948,12 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
 
     ap = [x for x in evs if x["kind"] == "autopilot"]
     ctx = {
-        "person": {"name": p.name, "runs": {"tide": "warm", "ember": "cold"}.get(p.persona, "varies"), "units": p.settings.units},
-        "planned_settings": [{"id": ph.id, "name": ph.name, "temp_c": ph.temp_c, "shown_as": f"{round(ph.temp_c * 9 / 5 + 32)}°F / {ph.temp_c:.1f}°C"}
+        "person": {"name": p.name, "runs": {"tide": "warm", "ember": "cold"}.get(p.persona, "varies"), "units": units,
+                   "language": p.settings.language, "clock": clock_style(p.settings)},
+        "planned_settings": [{"id": ph.id, "name": ph.name, "temp_c": ph.temp_c, "shown_as": fmt_temp(ph.temp_c, units)}
                              for ph in (rh.phases if rh else [])],
         "rhythm_id": rh.id if rh else None,
-        "season": _season(dd),
+        "season": _season(dd, getattr(tzname, "key", None), c.household.hemisphere),
         "night": {k: s.get(k) for k in ("in_bed_min", "time_to_settle_min", "times_up", "hr_avg", "hr_low", "hot_flashes", "cold_flashes", "adjustments")},
         "bed_vs_plan": ({"avg_gap_c": s.get("tracking_c"), "means": "how far the bed was from its setting on average (small = it followed the plan)"}
                         if s.get("tracking_c") is not None else "not known"),
@@ -956,8 +964,8 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
         "their_changes": [f"{hm(x['ts'])} {x.get('delta_c') or x.get('temp_c')}" for x in evs if x["kind"] == "adjust" and x.get("source") != "autopilot"][:8],
         "morning_checkin": c.store.get(f"feedback:{p.id}:{dd.isoformat()}"),
         "skin_temp_c": {"samples": len(skin), "min": min((v for _, v in skin), default=None), "max": max((v for _, v in skin), default=None)} if skin else "no wearable data",
-        "room": _room_words(_room_summary(c, start, end)),
-        "pad_vs_setting": _pad_words([v for _, v in c.store.samples(f"ap:{p.id}:pad_over", start, end)]),
+        "room": _room_words(_room_summary(c, start, end), units),
+        "pad_vs_setting": _pad_words([v for _, v in c.store.samples(f"ap:{p.id}:pad_over", start, end)], units),
         "trends_30_nights": [t["title"] for t in _trends(c, p, 30)],
     }
     # more of the night, and Autopilot's own view of it (signals it tracked, what it suggests), for the review to sum up
@@ -974,7 +982,8 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
     }
     ctx["evidence_tonight"] = bool(ctx["autopilot_noticed"] or ctx["their_taps"] or ctx["morning_checkin"] or ctx["flashes"]
                                    or ctx["their_changes"])
-    if not ai.configured(state.cfg):
+    eff = ai.effective(state.cfg, c.store)
+    if not ai.configured(eff):
         sug = _suggest(c, p)
         text = ("No AI model is connected, so this is the built-in summary. "
                 + (f"Autopilot noticed {len(ctx['autopilot_noticed'])} moments; you tapped {len(ctx['their_taps'])} times. " if ctx["autopilot_noticed"] or ctx["their_taps"] else "Nothing stood out last night. ")
@@ -985,8 +994,9 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
                               "Review this night for temperature. There was no sign of discomfort (no taps, flashes, changes, "
                               "check-in or Autopilot notices), so don't recommend a rhythm change.")
         try:
-            text = await ai.complete(state.cfg, REVIEW_SYSTEM,
-                                     "Context:\n```json\n" + json.dumps(ctx, default=str)[:14000] + "\n```\n\n" + body_q)
+            text = await ai.complete(eff, REVIEW_SYSTEM,
+                                     "Context:\n```json\n" + json.dumps(ctx, default=str)[:14000] + "\n```\n\n" + body_q
+                                     + "\n" + language_line(p.settings.language))
         except Exception as e:  # noqa: BLE001
             raise HTTPException(502, f"The AI model didn't answer ({type(e).__name__}).")
         answer, proposal = ai.split_proposal(text)
@@ -996,6 +1006,6 @@ async def _review(state, p, d: str | None, question: str | None) -> dict:
         proposal = ai.check_rhythm_proposal(p, proposal) if evidence else None
         if proposal and proposal["rhythm_id"] != ctx["rhythm_id"]:
             proposal = None
-        out = {"answer": answer, "proposal": proposal, "model": ai.model_name(state.cfg), "ts": now, "date": dd.isoformat()}
+        out = {"answer": answer, "proposal": proposal, "model": ai.model_name(eff), "ts": now, "date": dd.isoformat()}
     c.store.put(f"ai_review:{p.id}:{dd.isoformat()}", out)
     return out

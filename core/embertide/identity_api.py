@@ -18,6 +18,8 @@ from datetime import date as _date
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field, field_validator
 
+from .units import clock_style
+
 
 class WatchHrBody(BaseModel):
     samples: list[tuple[float, float]] = Field(default_factory=list, max_length=600)   # [unix s, bpm]
@@ -60,6 +62,13 @@ class FixBody(BaseModel):
 
 
 MIN_GAP_S = 20
+
+
+def _ck(c, q):
+    try:
+        return clock_style(c.person(q["person"]).settings)
+    except (KeyError, TypeError):
+        return "24"
 
 
 def build_identity_router(state) -> APIRouter:
@@ -124,7 +133,7 @@ def build_identity_router(state) -> APIRouter:
         q = petq.open_for(c.store, pid, c.clock.now_ts())
         if not q:
             return None
-        v = petq.view(q, c.household, c.clock.tz)
+        v = petq.view(q, c.household, c.clock.tz, clock_style(p.settings))
         from . import voice                               # the question, in this person's tone
         v["title"] = voice.say("pet_question", {"who": v["who"], "when": v["when"]}, person=p, day=c.clock.now().date())[0]
         return v
@@ -151,7 +160,7 @@ def build_identity_router(state) -> APIRouter:
         c = ctl()
         who = request.scope.get("state", {}).get("principal")
         mine = None if who is None or who.role == "owner" or who.kind == "open" else who.person   # partner/viewer: their own only
-        qs = [petq.view(q, c.household, c.clock.tz) | {"person": q["person"], "created": q["created"],
+        qs = [petq.view(q, c.household, c.clock.tz, _ck(c, q)) | {"person": q["person"], "created": q["created"],
                                                          "answered_at": q.get("answered_at")}
               for q in petq.questions(c.store)[-20:] if mine is None or q["person"] == mine]
         return {"questions": list(reversed(qs)), "pets": petq.signature_summary(c.store, c.household),

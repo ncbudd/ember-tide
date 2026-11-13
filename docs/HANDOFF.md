@@ -307,6 +307,12 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
 - Another person's side only with their sharing (partner_can_adjust / _flash), never automatic; never their rhythm or
   settings. Household text (notes, device and pet names) is cleaned and sent inside `<data>`; a question that doesn't
   ask for a change keeps only advice cards (rhythm phase, a waiting suggestion), marked "you didn't ask for this".
+- AI model settings (ai.py, ai_api.py, studio/AiModel.tsx, docs/ai-models.md): `ai.effective(cfg, store)` is the one
+  place that decides what is in use; callers never read `cfg.llm_*`. Saved settings (kv `ai_settings`: preset, url,
+  model, key, enabled; key never returned, owner-only `/api/ai/settings` GET/PUT/DELETE + POST `/test` and `/models`)
+  win; with nothing saved the `ET_LLM_*` env vars apply unchanged. Off = saved with enabled false. `PRESETS` holds the
+  choices; `chat_body` shapes the request per preset (local keeps `reasoning_effort: none`), and one 400 naming an
+  optional parameter is retried without it. Tests: test_ai_settings.py. The Docker image installs `embertide[claude]`.
 - Tests use a scripted fake model (test_assistant.py); the OpenAI-compatible and Anthropic clients are checked with
   fakes (no network, no keys). `/api/ai/ask` (older apps) and the morning review now drop any proposal that isn't a
   real phase within ±1.5 °C.

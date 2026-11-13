@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { h12 } from "../format";
 import { Link, useLocation } from "react-router-dom";
 import { api } from "../api";
 
@@ -237,7 +238,7 @@ function RecentErrors() {
           {items.slice(0, 20).map((e, i) => (
             <li key={i} style={{ fontSize: 13 }}>
               <button className="link" style={{ padding: 0, textAlign: "left" }} onClick={() => setOpen(open === i ? null : i)}>
-                {new Date(e.ts * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {e.route || "/"} · {e.message || e.kind}
+                {new Date(e.ts * 1000).toLocaleString([], { ...h12(), month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })} · {e.route || "/"} · {e.message || e.kind}
               </button>
               <span className="mute"> · {e.app ? "app" : "browser"} · {e.screen}</span>
               {open === i && <pre className="codeblock" style={{ whiteSpace: "pre-wrap", maxHeight: 240, overflow: "auto" }}>{[e.stack || "(no details)", e.agent, `build ${e.version}`].join("\n")}</pre>}

@@ -7,7 +7,7 @@ import ShowMore from "../components/ShowMore";
 import Horizon from "../components/Horizon";
 import { useApp } from "../ctx";
 import { useAuth } from "../auth";
-import { clock, cToF, eventText, personaColor, sourceText, STATE_TEXT, temp, weight, weightUnit } from "../format";
+import { clock, cToF, eventText, personaColor, sourceText, STATE_TEXT, temp, weight, weightUnit, h12 } from "../format";
 import type { EventRow } from "../types";
 import Access from "./Access";
 import Autopilot from "./Autopilot";
@@ -21,9 +21,11 @@ import { sideWord } from "./deviceKinds";
 const bedState = (x?: string | null) => !x ? "—" : x === "SYSTEM_ON" ? "On" : x === "SYSTEM_OFF" ? "Off (standby)" : x.replace(/^SYSTEM_/, "").replace(/_/g, " ").toLowerCase();
 import Help from "./Help";
 import Integrations from "./Integrations";
+import McpAccess from "./McpAccess";
 import Notifications from "./Notifications";
 import RhythmEditor from "./RhythmEditor";
 import Hub from "./Hub";
+import AiModel from "./AiModel";
 
 /** One Studio page breaking keeps the menu working; moving to another page clears it. */
 function PageBoundary({ children }: { children: React.ReactNode }) {
@@ -60,6 +62,8 @@ export default function Studio() {
         <NavLink to="/studio/rhythm">Rhythm editor</NavLink>
         <NavLink to="/studio/devices">Devices &amp; calibration</NavLink>
         <NavLink to="/studio/integrations">Integrations</NavLink>
+        {auth.isOwner && <NavLink to="/studio/ai">AI model</NavLink>}
+        <NavLink to="/studio/mcp">Connect an AI app</NavLink>
         <NavLink to="/studio/notifications">Notifications</NavLink>
         <NavLink to="/studio/access">People &amp; access</NavLink>
         <span className="navh">Tools</span>
@@ -73,7 +77,7 @@ export default function Studio() {
         <div className="foot">
           <span style={{ color: snap?.system.online ? "var(--good)" : "var(--bad)" }}>● {snap?.system.name ?? "…"}</span>
           <span>{connected ? "Live" : "Reconnecting…"}{snap && snap.speed !== 1 ? ` · ×${snap.speed}` : ""}</span>
-          {snap && <span className="num">{new Date(snap.now * 1000).toLocaleString([], { timeZone: snap.tz, weekday: "short", hour: "numeric", minute: "2-digit" })}</span>}
+          {snap && <span className="num">{new Date(snap.now * 1000).toLocaleString([], { ...h12(), timeZone: snap.tz, weekday: "short", hour: "numeric", minute: "2-digit" })}</span>}
         </div>
       </nav>
       <main className="smain">
@@ -86,9 +90,11 @@ export default function Studio() {
           <Route path="insights" element={<Insights />} />
           <Route path="autopilot" element={<Autopilot />} />
           <Route path="devices" element={<Devices />} />
+          <Route path="mcp" element={<McpAccess />} />
           <Route path="access" element={<Access />} />
           <Route path="notifications" element={<Notifications />} />
           <Route path="integrations" element={<Integrations />} />
+          <Route path="ai" element={auth.isOwner ? <AiModel /> : <OwnerOnly />} />
           <Route path="rhythm" element={<RhythmEditor />} />
           <Route path="hub" element={auth.isOwner ? <Hub /> : <OwnerOnly />} />
           <Route path="console" element={auth.isOwner ? <Console /> : <OwnerOnly />} />

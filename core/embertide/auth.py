@@ -11,6 +11,9 @@
   of the 90-day session. A signed-in person makes them for themselves; each is tied to the session that made it (signing
   out of that phone ends them), sees the snapshot as that person would, and can do only the few own-side things those
   surfaces need (DEVICE_SCOPES). Never account, people, Studio, settings or owner routes, even for the owner.
+- MCP keys (`et_m_…`): for AI apps that speak the Model Context Protocol (docs/mcp.md). A signed-in person makes them for
+  themselves; each acts as exactly that person, with the scope `read` or `change`. They only work on /mcp (never the
+  /api routes) and each call is done through a short-lived internal key (`et_i_…`, memory only) of that person.
 - Live tickets: the app opens the live WebSocket with a single-use ticket (30 s, memory only) instead of putting the
   session in the URL.
 - Changes made with a cookie must carry the `X-Embertide: 1` header (the web app always sends it), which a page
@@ -125,6 +128,7 @@ class Auth:
         self._fails: dict[str, list[float]] = {}
         self._tickets: dict[str, tuple[float, Principal]] = {}
         self._tickets_lock = threading.Lock()
+        self._internal: dict[str, tuple[float, Principal]] = {}          # et_i_ keys for in-process calls: memory only
 
     # ---------- helpers ----------
     def _q(self, sql: str, args: tuple = ()) -> list[tuple]:
@@ -342,6 +346,8 @@ class Auth:
         if not r:
             return None
         tid, name, role, person, last, kind, uid, session, scope = r[0]
+        if kind == "mcp":
+            return None                      # an MCP key is for /mcp only (mcp_key); it is never an API key
         now = time.time()
         if kind == "device":
             # alive only while the session that made it is, for the same account and the same side; the account's role
@@ -395,6 +401,71 @@ class Auth:
             return self._x("DELETE FROM tokens WHERE id=? AND kind='device' AND user_id=?", (tid, uid))
         return self._x("DELETE FROM tokens WHERE id=? AND kind='device'", (tid,))
 
+    # ---------- MCP keys (AI apps) ----------
+    MCP_SCOPES = ("read", "change")
+
+    def new_mcp_token(self, uid: str, person: str, label: str, scope: str) -> tuple[str, dict]:
+        """A key for one AI app, acting as `person` (the account's own side). Shown once; only its hash is kept."""
+        if scope not in self.MCP_SCOPES:
+            raise ValueError("unknown scope")
+        label = re.sub(r"[\x00-\x1f\x7f<>]", " ", label).strip()[:60] or "AI app"
+        tok = "et_m_" + secrets.token_urlsafe(30)
+        tid = "t_" + secrets.token_hex(5)
+        role = (self.user(uid) or {}).get("role") or "viewer"
+        self._x("INSERT INTO tokens(id,hash,name,role,person,created,created_by,kind,user_id,scope) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                (tid, _h(tok), label, role, person, time.time(), uid, "mcp", uid, scope))
+        return tok, next(t for t in self.mcp_tokens(uid) if t["id"] == tid)
+
+    def mcp_tokens(self, uid: str | None = None) -> list[dict]:
+        sql = ("SELECT t.id,t.name,t.scope,t.person,t.created,t.last_used,t.user_id,u.username FROM tokens t "
+               "LEFT JOIN users u ON u.id=t.user_id WHERE t.kind='mcp'")
+        rows = self._q(sql + (" AND t.user_id=?" if uid else "") + " ORDER BY t.created DESC", (uid,) if uid else ())
+        return [{"id": r[0], "label": r[1], "scope": r[2], "person": r[3], "created": r[4], "last_used": r[5],
+                 "user_id": r[6], "username": r[7]} for r in rows]
+
+    def revoke_mcp_token(self, tid: str, uid: str | None = None) -> int:
+        if uid:
+            return self._x("DELETE FROM tokens WHERE id=? AND kind='mcp' AND user_id=?", (tid, uid))
+        return self._x("DELETE FROM tokens WHERE id=? AND kind='mcp'", (tid,))
+
+    def mcp_key(self, tok: str) -> dict | None:
+        """The MCP key behind a bearer token, if it is one and still good: its account must still exist, be on the same
+        side, and (for `change`) not be view-only. Returns {id, label, scope, person, role} (role = the account's role now)."""
+        if not tok.startswith("et_m_"):
+            return None
+        r = self._q("SELECT id,name,scope,person,last_used,user_id FROM tokens WHERE hash=? AND kind='mcp'", (_h(tok),))
+        if not r:
+            return None
+        tid, label, scope, person, last, uid = r[0]
+        u = self._q("SELECT role,person FROM users WHERE id=?", (uid or "",))
+        if not u or not person or u[0][1] != person or scope not in self.MCP_SCOPES:
+            self._x("DELETE FROM tokens WHERE id=?", (tid,))
+            return None
+        role = u[0][0]
+        now = time.time()
+        if not last or now - last > 300:
+            self._x("UPDATE tokens SET last_used=? WHERE id=?", (now, tid))
+        return {"id": tid, "label": label, "scope": "read" if role == "viewer" else scope, "person": person, "role": role}
+
+    def internal_key(self, p: Principal, ttl: float = 60.0) -> str:
+        """A short-lived key (memory only) for the server's own in-process calls as `p`."""
+        now = time.time()
+        with self._tickets_lock:
+            for k in [k for k, (exp, _) in self._internal.items() if exp < now]:
+                del self._internal[k]
+            tok = "et_i_" + secrets.token_urlsafe(24)
+            self._internal[tok] = (now + ttl, p)
+        return tok
+
+    def drop_internal_key(self, tok: str) -> None:
+        with self._tickets_lock:
+            self._internal.pop(tok, None)
+
+    def _internal_principal(self, tok: str) -> Principal | None:
+        with self._tickets_lock:
+            hit = self._internal.get(tok)
+        return hit[1] if hit and hit[0] >= time.time() else None
+
     # ---------- live tickets ----------
     def new_ticket(self, p: Principal) -> str:
         """A single-use ticket for opening the live WebSocket as `p`, valid TICKET_S seconds, kept in memory only."""
@@ -420,6 +491,14 @@ class Auth:
             return self._session_by_hash(p.session or "")
         return p
 
+    def user_principal(self, name: str) -> Principal | None:
+        """The account with this username (case-insensitive), as a principal with no session: forward-auth sign-in."""
+        r = self._q("SELECT id,username,role,person FROM users WHERE lower(username)=lower(?)", (name,))
+        if not r:
+            return None
+        uid, username, role, person = r[0]
+        return Principal("user", uid, username, role, person)
+
     # ---------- request → principal ----------
     def principal(self, headers: dict[str, str]) -> Principal | None:
         if not self.enabled:
@@ -427,6 +506,8 @@ class Auth:
         a = headers.get("authorization", "")
         if a.lower().startswith("bearer "):
             tok = a[7:].strip()
+            if tok.startswith("et_i_"):
+                return self._internal_principal(tok)
             if tok.startswith("et_"):
                 return self.token_principal(tok)
             return self.session_principal(tok)          # an app session (same as the cookie, carried by the app)
@@ -453,6 +534,7 @@ OWNER_ONLY = [
     re.compile(r"^/api/integrations"), re.compile(r"^/api/pets"), re.compile(r"^/api/ha(/|$)"), re.compile(r"^/api/client-errors$"),
     re.compile(r"^/api/guest/(left|right|both)/(start|stop)$"), re.compile(r"^/api/bed-orientation$"),
     re.compile(r"^/api/dials(/|$)"), re.compile(r"^/api/notify/log$"),   # dial setup asks HA with the owner's token; the log is everyone's messages
+    re.compile(r"^/api/ai/settings"),                                    # the model address and key
     re.compile(r"^/api/hub(/|$)"),                                      # the control unit's detail (network name, address) and maintenance
     re.compile(r"^/api/dial-beacons$"),                                  # Studio's dial map; the phone app never reads it
 ]

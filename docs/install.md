@@ -49,12 +49,12 @@ Read this section once. The platform sections below send you back here instead o
 ### A. The Compose file and the broker
 
 Ember & Tide ships a Compose file, `docker-compose.example.yml`. **Compose** is a text file that tells Docker which programs to start.
-Ours starts two:
+Ours defines two services; only the first starts by default:
 
 | Service | Image | What it does |
 |---|---|---|
 | `embertide` | the ready-made image `ghcr.io/ncbudd/ember-tide` (web app and server in one image; amd64 and arm64) | the app, Studio and the API on port **8790**. Its data is the folder `./data`. |
-| `mosquitto` | `eclipse-mosquitto:2.0.20` | the **MQTT broker** the bed talks to, on port **1883**. Settings are in `deploy/mosquitto/`. |
+| `mosquitto` (profile `local-bed`) | `eclipse-mosquitto:2.0.20` | the **MQTT broker** the bed talks to, on port **1883**. It starts only when you ask for it with `docker compose --profile local-bed up -d`, so simulator and cloud users never run a broker. |
 
 Docker **pulls the ready-made image** the first time, which takes a minute. You still need the project folder for the Compose file and
 the broker's settings in `deploy/mosquitto/`; the app itself is not built on your machine. (To build the image yourself instead, see
@@ -94,7 +94,15 @@ docker compose up -d
 docker compose ps
 ```
 
-After a minute or two, `docker compose ps` should show both services as **healthy**.
+After a minute or two, `docker compose ps` should show the app as **healthy**. (When you later use the real bed through the bundled broker,
+start with `docker compose --profile local-bed up -d`, or put `COMPOSE_PROFILES=local-bed` in a `.env` file next to the Compose file so
+plain `docker compose up -d` includes it.)
+
+**Folder permissions.** The container runs as user and group **1000**, not root. A fresh folder or named volume just works. If `./data`
+already exists and belongs to someone else (a folder an older image wrote as root, or the shared-folder owner on a NAS), fix it once with
+`chown -R 1000:1000 ./data`, or tell the container to run as that folder's owner by adding `user: "<uid>:<gid>"` under the `embertide:`
+service (find the numbers with `ls -ln ./data`). On **Unraid**, shares are owned by `99:100` (nobody:users): use `user: "99:100"`. On **Synology**,
+use the numbers of the user that owns the shared folder (often `1026:100`; `id <username>` over SSH shows them) or `chown` it to `1000:1000`.
 
 **Check that it worked.** Open `http://<server-ip>:8790` on a phone or computer on your home network
 (for example `http://192.168.1.10:8790`). You should see the welcome screen asking you to create the owner account.
@@ -117,8 +125,9 @@ firmware does not like, and the bed drops off now and then. The example file alr
 | I want... | In the file |
 |---|---|
 | The simulator (the default) | leave `ET_BED: sim` |
-| The real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883` |
-| The maker's cloud with a personal key, no broker | `ET_BED: orion-cloud` and `ET_ORION_API_KEY`; you can delete the `mosquitto` service |
+| The real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`, then `docker compose --profile local-bed up -d` |
+| The maker's cloud with a personal key, no broker | `ET_BED: orion-cloud` and `ET_ORION_API_KEY` (the broker is not started without the profile) |
+| A bed of your own | `ET_BED: python:package.module:ClassName` ([drivers.md](drivers.md)) |
 | A different web port | change the **left** number in `"8790:8790"`, for example `"8791:8790"` |
 | Secrets out of the file | put them in a `.env` file and add `env_file: .env` ([details](configuration.md#environment-variables)) |
 
@@ -136,7 +145,7 @@ somewhere of their own, so the relative paths `.` and `./data` would point to th
 
 Each platform section says which folder to use in place of `/srv/embertide`.
 
-**Already have a broker?** Delete the `mosquitto` service and the `depends_on:` block, and set `ET_MQTT_URL` to your broker.
+**Already have a broker?** Just do not use the `local-bed` profile (or delete the `mosquitto` service), and set `ET_MQTT_URL` to your broker.
 The bed still needs a listener on port 1883 without a login; copy the two `topic` lines from `deploy/mosquitto/acl` into that broker's access list.
 
 ### B. First-run setup in the app
@@ -157,7 +166,7 @@ Locked out later? On the server, run `docker exec -it ember-tide python -m ember
 
 When the server works with the simulator and you are ready for the real bed:
 
-1. In `docker-compose.yml`, switch to the bed lines: `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`. Then run `docker compose up -d`.
+1. In `docker-compose.yml`, switch to the bed lines: `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`. Then run `docker compose --profile local-bed up -d` so the bundled broker starts too.
    (On a pasted-in stack, edit the stack and redeploy.)
 2. Add one local DNS record so the bed's usual name points at your server, and power-cycle the bed.
 
@@ -218,6 +227,39 @@ The live view uses a WebSocket (`/api/live`), so a proxy must pass upgrade heade
 
 This needs iOS 16.4 or newer. Not possible from a web app on iPhone: Apple Health, background location and Bluetooth scanning for the bedside dial.
 Use the bed's own sensors, a cloud wearable account (Oura, Withings, WHOOP, Polar) or a calendar feed instead. For Android, see [android.md](android.md).
+
+**Host it on its own address.** Give Ember & Tide its own (sub)domain or its own port (`sleep.example.com`, or
+`https://home.example.com:8790`). Serving it under a path such as `https://example.com/embertide` is not supported: the web app
+and its API assume they live at the root.
+
+**Which proxy may be believed.** With `ET_TRUST_PROXY: "on"`, forwarding headers are believed from any private or loopback
+address by default. To narrow that to your actual proxy, list it in `ET_TRUSTED_PROXIES`, for example
+`ET_TRUSTED_PROXIES: "172.18.0.0/16"` (your Docker network) or `"127.0.0.1, 192.168.1.5"`. Several entries are separated by commas.
+
+**Sign in through your own login portal (optional).** If Authelia, Authentik, Cloudflare Access or Tailscale Serve already signs
+people in, Ember & Tide can trust the username they pass along instead of asking for a second password. Off by default.
+
+```yaml
+      ET_TRUST_PROXY: "on"
+      ET_TRUSTED_PROXIES: "172.18.0.0/16"     # strongly recommended with this: only your proxy may name users
+      ET_AUTH_HEADER: "Remote-User"
+```
+
+The header is believed only when the connection comes from a trusted proxy, and it only ever signs in an **existing** account
+with that username (not case-sensitive); someone with no account gets a plain "ask the owner to add you" message, and nothing
+is created automatically. Create the accounts first (owner setup, then People in Studio). The password sign-in still works
+as a fallback. Make sure your proxy removes any copy of the header the visitor sends and sets its own; the ones below do that.
+
+| Proxy | Header to use |
+|---|---|
+| Authelia (forward auth) | `ET_AUTH_HEADER: Remote-User` (also sends `Remote-Email`, `Remote-Name`, `Remote-Groups`); copy them with `authResponseHeaders` / `auth_request_set`. |
+| Authentik (proxy outpost) | `ET_AUTH_HEADER: X-Authentik-Username` (and `X-Authentik-Email`). |
+| Cloudflare Access | Email only: `ET_AUTH_HEADER_EMAIL: Cf-Access-Authenticated-User-Email`. The account's username must be that email address. |
+| Tailscale Serve | `ET_AUTH_HEADER_EMAIL: Tailscale-User-Login` (a login such as `alex@example.com`); only present on tailnet traffic that `tailscale serve` proxies to `127.0.0.1`, so set `ET_TRUSTED_PROXIES: "127.0.0.1"` and make the server listen only on loopback (`ET_HOST: 127.0.0.1`). |
+
+Usernames in Ember & Tide are plain words; if yours differ from what the portal calls people, make the account name match
+(or use a portal that can send the name you want). The app itself (phones with the Android app, dials, watches) keeps using
+its own sign-in and keys.
 
 ### E. Updating and backups
 
@@ -336,7 +378,9 @@ Open the Docker tab and look at the Port Mappings column.
 
    Click **Save Changes**.
 5. **Compose Up.** Click **Compose Up** beside the stack. A window shows the image being pulled; the first time it takes a minute or two. When it says it is done, close it.
-   You should now see two new containers in the Docker list, `ember-tide` and `ember-tide-mosquitto`, both started.
+   You should now see the container `ember-tide` in the Docker list. (`ember-tide-mosquitto` appears only once you use the real bed through the
+   bundled broker: Unraid's Compose Up has no profile option, so for that remove the line `profiles: ["local-bed"]` from the `mosquitto` service first.)
+   If the data folder cannot be written, add `user: "99:100"` under the `embertide:` service (Unraid's own owner for shares), or run `chown -R 1000:1000 /mnt/user/appdata/embertide/data` once.
 6. **Open it.** Open `http://<unraid-ip>:8790` (the address you use for the Unraid web page, with `:8790`). You should see the welcome screen.
    Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
 
@@ -538,6 +582,50 @@ Where to look, in plain words:
 
 Use an address outside your router's normal pool if it lets you choose, and write it down; it is the `<server-ip>` used throughout this guide.
 
+## Without Docker (Linux, Raspberry Pi)
+
+For a machine where you would rather not run Docker. You need Python 3.12 or newer, Node 20 or newer (only to build the web app once),
+and `git`. The published Docker image is multi-arch (`linux/amd64` and `linux/arm64`), so a 64-bit Raspberry Pi (Pi 4 or 5 with the
+64-bit OS) runs the Docker route too; the steps below work on any Linux, including a Pi. On a Pi, building the web app takes a few minutes.
+
+1. **Make a service user and folders:**
+
+   ```bash
+   sudo useradd --system --home /var/lib/embertide --create-home --shell /usr/sbin/nologin embertide
+   sudo mkdir -p /opt/embertide && sudo chown "$USER" /opt/embertide
+   git clone https://github.com/Ncbudd/ember-tide.git /opt/embertide/src
+   ```
+
+2. **Install the server** in its own virtual environment:
+
+   ```bash
+   python3.12 -m venv /opt/embertide/venv
+   /opt/embertide/venv/bin/pip install /opt/embertide/src/core      # the same as `pip install ./core` from the project folder
+   ```
+
+3. **Build the web app** (this makes `web/dist`, which the server serves on the same port):
+
+   ```bash
+   cd /opt/embertide/src/web && npm ci && npm run build
+   ```
+
+4. **Set up the service.** Copy [embertide.service](embertide.service) to `/etc/systemd/system/` and adjust the time zone. Its paths match the
+   steps above. The settings it uses:
+   `ET_WEB_DIR` (the built web app), `ET_DATA_DIR` (the database folder, owned by the service user), `ET_PORT` and `ET_TZ`. Everything else is
+   in [configuration.md](configuration.md); secrets can go in `/etc/embertide.env` (`chmod 600`, owner root).
+
+   ```bash
+   sudo chown -R embertide:embertide /var/lib/embertide
+   sudo systemctl daemon-reload && sudo systemctl enable --now embertide
+   journalctl -u embertide -f          # logs
+   ```
+
+5. Open `http://<machine>:8790` and continue with [B. First-run setup](#b-first-run-setup-in-the-app). For the real bed you still need an
+   MQTT broker on port 1883 (install Mosquitto from your distribution and use `deploy/mosquitto/` as the model) and the DNS step from
+   [bed-cutover.md](bed-cutover.md).
+
+To update: `git pull`, `pip install` the core again, rebuild the web app, `sudo systemctl restart embertide`. Back up `/var/lib/embertide`.
+
 ## Advanced: plain Docker and running from source
 
 ### Plain `docker run`
@@ -548,7 +636,7 @@ Without Compose, this runs only the app (the simulator):
 docker run -d --name ember-tide --restart unless-stopped \
   -p 8790:8790 \
   -v ember-tide-data:/data \
-  -e TZ=America/New_York -e ET_TZ=America/New_York \
+  -e TZ=Europe/London -e ET_TZ=Europe/London \
   ember-tide
 ```
 
@@ -585,7 +673,7 @@ npm run build
 
 # run it: simulator, sign-in off, throwaway data folder
 cd ../core
-ET_AUTH=off ET_TZ=America/New_York ET_DATA_DIR=./data-dev uv run python -m embertide
+ET_AUTH=off ET_TZ=Europe/London ET_DATA_DIR=./data-dev uv run python -m embertide
 ```
 
 Open `http://localhost:8790`. While working on the interface, run `npm run dev` in `web/` instead; it proxies the API to port 8790 and reloads on save.

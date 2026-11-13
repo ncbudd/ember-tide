@@ -58,7 +58,7 @@ async def test_cold_room_learns_and_warms_the_wake_up_early(tmp_path):
     # the shortfall is said plainly, once per phase, and in the story
     notes = [e for e in r.events("room_cold", "p2") if e["ts"] >= ts("2026-11-05T00:00")]
     assert len(notes) == 1 and notes[0]["phase"] == "wake"
-    assert notes[0]["text"] == "The room is cold (65°), so your side is running a little below 80°"
+    assert notes[0]["text"] == "The room is cold (65°F), so your side is running a little below 80°F"
     s = summarize(r.store, r.p2, r.e(r.p2).night.date, TZ, r.clock.now_ts())
     assert [m["text"] for m in s["moments"] if m["kind"] == "room_cold"] == [notes[0]["text"]]
     snap_note = r.c.snapshot()["people"][1]["night"]["room_note"]
@@ -101,7 +101,7 @@ def test_lead_rules():
     assert padlag.lead_s(m, None, 22.2, 26.7, 1800, 3600, 4 * 3600) == 0           # no room sensor
     assert padlag.precool_lead_s(m, 26.0, 26.0, 20.0) == 1800
     assert padlag.precool_lead_s(m, 22.0, 22.0, 20.0) == 0
-    assert padlag.shortfall_text(18.4, 27.2, "C") == "The room is cold (18 °C), so your side is running a little below 27 °C"
+    assert padlag.shortfall_text(18.4, 27.2, "C") == "The room is cold (18.5°C), so your side is running a little below 27°C"
 
 
 def test_autopilot_does_not_take_a_cold_room_shortfall_as_a_reason():

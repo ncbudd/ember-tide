@@ -47,6 +47,11 @@ the pull request template: root cause, fix, how you verified it, and a release n
 - Keep pull requests small and about one thing. Say what changed and why, and how you checked it.
 - Screenshots help for any visible change; use the simulator, never a real household.
 
+## Supporting another bed
+
+A bed driver is one class that implements a small contract. [docs/drivers.md](docs/drivers.md) explains the contract, has a
+minimal example you can copy, and shows how to test and contribute one.
+
 ## Style
 
 - **Plain, calm language in the UI.** No jargon without a tooltip; say what happened and what to do. Big touch targets, right-handed layouts

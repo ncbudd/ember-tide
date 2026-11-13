@@ -48,6 +48,44 @@ Paths: dotted with list indexes, e.g. `data.readings`, `$.items[0].bpm`. Metrics
 `body_temp`, `resp_rate`, `spo2`, `resting_hr`, `temp_dev`, `readiness`, `weight_kg`, `steps`, `active_kcal`,
 `exercise_min`, `caffeine_mg`.
 
+## Without Home Assistant: openHAB, Node-RED, Homey and others
+
+Home Assistant gets entities by MQTT discovery, but the same MQTT topics and the HTTP paths work for any system that
+speaks MQTT or HTTP. Point `ET_HA_MQTT_URL` (or Studio, Integrations) at your broker; the name is historical, any broker works
+(`mqtts://` is supported too, see [configuration.md](configuration.md)). Discovery messages go to the usual
+`homeassistant/...` prefix and are simply ignored by systems that do not use them.
+
+**Reading state** (retained, so a new subscriber gets the value at once). Each person has the id shown in the Studio URL and
+in `/api/snapshot` (for example `p1`), and these topics under `embertide/<person id>/`: `mode` (`off` or `heat_cool`),
+`target` and `measured` (in the person's unit), `action` (`heating`, `cooling`, `idle`, `off`), `phase`, `next` (timestamp),
+`in_bed` (`ON`/`OFF`), `flash_end`, `checkin`, `plan`, `tonight`. The bridge's own availability is `embertide/status`
+(`online`/`offline`; it is the last-will topic, so a dead server shows as offline).
+
+**Sending commands.** Publish a plain payload to `embertide/<person id>/set/<what>`:
+
+| Topic ending | Payload |
+|---|---|
+| `set/mode` | `off` or `heat_cool` |
+| `set/target` | a temperature in the person's unit |
+| `set/flash` | `hot`, `cold`, `stop` or `extend` |
+| `set/feel` | the feedback kind the app offers (`too_hot`, `too_cold` or `just_right`) |
+| `set/tonight` | `pause` |
+
+Commands pass the same safety limits as the app. The bed's own broker topics (`orion/...`) are not part of this: do not
+publish to them.
+
+**HTTP instead of MQTT.** Make an API key in Studio, Access (it starts with `et_`) and call the server with
+`Authorization: Bearer <key>` and the header `X-Embertide: 1`; for example
+`POST /api/people/<person id>/flash` with `{"kind": "hot", "minutes": 20}`, and `GET /api/snapshot` for everything at once.
+Node-RED's `http request` node, openHAB's HTTP binding and Homey flows (a "Make a webhook request" card) can all do this.
+
+**Data going in.** An inbound webhook (above, "Generic paths") accepts JSON from anything that can POST: a Node-RED function
+node pushing a heart rate from another sensor, an openHAB rule, a Homey flow. Presence and room sensors can also be MQTT topics
+you subscribe to in Studio, Devices ("MQTT topic" type).
+
+**Notifications out.** Studio, Notifications can post JSON to your own webhook, or to an Apprise server, when something needs
+attention ([notifications.md](notifications.md)); a flow can pick that up.
+
 ## Adding a provider
 
 Subclass `CloudConnector` in `cloud/<id>.py`: set `id`, `name`, `device`, `auth_url`, `token_url`, `scopes`

@@ -271,7 +271,7 @@ async def test_units_follow_the_person(tmp_path):
     r.p1.settings.units = "C"
     await run_target(r, snap, "p1", measured=21.5, want=18.0)
     h = [x for x in r.c.store.get("notify_held") if x["kind"] == "target"][0]
-    assert "22 °C" in h["body"] and "18 °C" in h["body"]
+    assert "21.5°C" in h["body"] and "18°C" in h["body"] and "°F" not in h["body"]
 
 
 @pytest.mark.parametrize("case", ["near", "ramping", "flash", "commands", "hub", "cold_room", "off", "guest"])

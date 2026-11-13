@@ -56,6 +56,11 @@ class DeviceTokenBody(BaseModel):
     scope: Literal["watch", "phone"]
 
 
+class McpTokenBody(BaseModel):
+    label: str = Field("", max_length=60)
+    scope: Literal["read", "change"] = "read"
+
+
 _HASH_SLOTS = None
 
 
@@ -103,14 +108,43 @@ def _forwarded_hops(v: str) -> list[str | None]:
     return hops
 
 
-def _rightmost_untrusted(hops: list[str | None]) -> str | None:
+def parse_nets(spec: str | None) -> tuple:
+    """ET_TRUSTED_PROXIES: comma-separated addresses or CIDRs ("172.18.0.0/16, 10.0.0.5") -> network objects.
+    Empty = the default (any private / loopback / link-local peer). Raises ValueError naming the bad entry."""
+    import ipaddress
+    out = []
+    for part in (spec or "").replace(";", ",").split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            out.append(ipaddress.ip_network(part, strict=False))
+        except ValueError:
+            raise ValueError(f"ET_TRUSTED_PROXIES: {part!r} isn't an address or a CIDR range like 172.18.0.0/16") from None
+    return tuple(out)
+
+
+def is_trusted_peer(addr: str, nets: tuple = ()) -> bool:
+    """Is this connection from a proxy we believe? With ET_TRUSTED_PROXIES: only those networks; otherwise any
+    private / loopback address (the default)."""
+    import ipaddress
+    if not nets:
+        return _is_home(addr)
+    try:
+        a = ipaddress.ip_address(addr)
+    except ValueError:
+        return False
+    return any(a in n for n in nets if n.version == a.version)
+
+
+def _rightmost_untrusted(hops: list[str | None], nets: tuple = ()) -> str | None:
     """Walk a forwarding chain from the right (the hop our own proxy added) past our own proxies (private / loopback
     addresses) to the first address that isn't ours: that one was seen by a proxy we trust; anything left of it is
     whatever the visitor chose to send. A hop we can't read stops the walk (nothing beyond it can be believed)."""
     for h in reversed(hops):
         if h is None:
             return None
-        if not _is_home(h):
+        if not is_trusted_peer(h, nets):
             return h
     return None                                     # all private: nothing outside to name (see from_home)
 
@@ -124,24 +158,47 @@ def _is_home(addr: str) -> bool:
     return a.is_private or a.is_loopback or a.is_link_local
 
 
-def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool) -> str:
+def client_ip(req_headers: dict[str, str], peer: str | None, trust_proxy: bool, nets: tuple = ()) -> str:
     """The visitor's address, for per-address limits and the sign-in list.
 
     Forwarding headers count only with ET_TRUST_PROXY=on and only when the connection itself comes from a private or
     loopback address (plausibly the tunnel / proxy): straight from the internet they are the visitor's own words.
     Then Cloudflare's CF-Connecting-IP wins (Cloudflare sets it and overwrites any the visitor sends); otherwise the
     right-most address that isn't one of ours in X-Forwarded-For, then Forwarded, and X-Real-IP last (Cloudflare and
-    many proxies pass that one through untouched)."""
-    if trust_proxy and _is_home(peer or "?"):
+    many proxies pass that one through untouched).
+
+    ET_TRUSTED_PROXIES (`nets`) narrows "plausibly the proxy" from every private address to the listed networks."""
+    if trust_proxy and is_trusted_peer(peer or "?", nets):
         if (cf := _ip(req_headers.get("cf-connecting-ip"))):
             return cf
-        if req_headers.get("x-forwarded-for") and (f := _rightmost_untrusted([_ip(x) for x in req_headers["x-forwarded-for"].split(",")])):
+        if req_headers.get("x-forwarded-for") and (f := _rightmost_untrusted([_ip(x) for x in req_headers["x-forwarded-for"].split(",")], nets)):
             return f
-        if req_headers.get("forwarded") and (f := _rightmost_untrusted(_forwarded_hops(req_headers["forwarded"]))):
+        if req_headers.get("forwarded") and (f := _rightmost_untrusted(_forwarded_hops(req_headers["forwarded"]), nets)):
             return f
         if (xr := _ip(req_headers.get("x-real-ip"))) and not _is_home(xr):
             return xr
     return peer or "?"
+
+
+NOT_KNOWN_HERE = ("Your sign-in worked, but there is no Ember & Tide account for you. Ask the owner to add you "
+                  "(Studio, People) with the same username.")
+
+
+def header_identity(a: Auth, headers: dict[str, str], peer: str | None, cfg):
+    """Forward-auth (ET_AUTH_HEADER): the proxy in front has already signed the visitor in and names them in a header.
+
+    Believed only when ET_TRUST_PROXY is on and the connection comes from a trusted proxy (see client_ip): anywhere
+    else the header is the visitor's own words and is ignored. Returns None (nothing to go on), a Principal (an
+    existing account), or a str (the name of someone who has no account here; never created automatically)."""
+    names = [h.lower() for h in (cfg.auth_header, cfg.auth_header_email) if h]
+    if not names or not cfg.trust_proxy or not a.enabled or not is_trusted_peer(peer or "?", parse_nets(cfg.trusted_proxies)):
+        return None
+    for n in names:
+        v = (headers.get(n) or "").strip()
+        if not v or len(v) > 200 or any(ord(ch) < 32 for ch in v):
+            continue
+        return a.user_principal(v) or v
+    return None
 
 
 def via_untrusted_proxy(req_headers: dict[str, str], trust_proxy: bool) -> bool:
@@ -208,7 +265,7 @@ def build_auth_router(state) -> APIRouter:
         return {k.lower(): v for k, v in request.headers.items()}
 
     def ip(request: Request) -> str:
-        return client_ip(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy)
+        return client_ip(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy, parse_nets(state.cfg.trusted_proxies))
 
     def home(request: Request) -> bool:
         return from_home(hdrs(request), request.client.host if request.client else None, state.cfg.trust_proxy)
@@ -221,8 +278,16 @@ def build_auth_router(state) -> APIRouter:
     @r.get("/state")
     async def get_state(request: Request):
         a = auth()
-        p = a.principal({k.lower(): v for k, v in request.headers.items()})
-        return {"enabled": a.enabled, "setup_needed": a.setup_needed(), "me": me_view(p),
+        h = {k.lower(): v for k, v in request.headers.items()}
+        p = a.principal(h)
+        denied = None
+        if p is None and not a.setup_needed():
+            who = header_identity(a, h, request.client.host if request.client else None, state.cfg)
+            if isinstance(who, str):
+                denied = NOT_KNOWN_HERE
+            else:
+                p = who
+        return {"enabled": a.enabled, "setup_needed": a.setup_needed(), "me": me_view(p), "proxy_denied": denied,
                 "people": [{"id": x.id, "name": x.name, "taken": any(u["person"] == x.id for u in a.users())}
                            for x in state.controller.household.people] if a.setup_needed() else None}
 
@@ -370,6 +435,31 @@ def build_auth_router(state) -> APIRouter:
             raise HTTPException(403, "Only accounts have device keys.")
         return {"ok": bool(auth().revoke_device_token(tid, p.id))}
 
+    # ---- my MCP keys (AI apps: Claude Desktop, Claude Code, Copilot, Cursor ...) ----
+    @r.get("/me/mcp-tokens")
+    async def my_mcp_tokens(request: Request):
+        p = principal_of(request)
+        return auth().mcp_tokens(p.id) if p.kind == "user" else []
+
+    @r.post("/me/mcp-tokens")
+    async def make_mcp_token(b: McpTokenBody, request: Request):
+        p = principal_of(request)
+        if p.kind != "user":
+            raise HTTPException(403, "Sign in with your own account to connect an AI app.")   # not from an API key or another key
+        if not p.person:
+            raise HTTPException(422, "This account has no side of the bed, so an AI app would have nothing to look at.")
+        if p.role == "viewer" and b.scope == "change":
+            raise HTTPException(403, "This account can only look, so the key can only read.")
+        tok, row = auth().new_mcp_token(p.id, p.person, b.label, b.scope)
+        return {"token": tok, **row}
+
+    @r.delete("/me/mcp-tokens/{tid}")
+    async def revoke_my_mcp_token(tid: str, request: Request):
+        p = principal_of(request)
+        if p.kind != "user":
+            raise HTTPException(403, "Only accounts have AI app keys.")
+        return {"ok": bool(auth().revoke_mcp_token(tid, p.id))}
+
     # ---- owner: people & access ----
     @r.get("/users")
     async def list_users():
@@ -435,9 +525,13 @@ def build_auth_router(state) -> APIRouter:
     async def list_device_tokens():
         return auth().device_tokens()
 
+    @r.get("/tokens/mcp")
+    async def list_mcp_tokens():
+        return auth().mcp_tokens()
+
     @r.delete("/tokens/{tid}")
     async def revoke_token(tid: str):
-        return {"ok": bool(auth().revoke_token(tid))}          # an API key or anyone's device key
+        return {"ok": bool(auth().revoke_token(tid))}          # an API key or anyone's device key or AI app key
 
     return r
 
@@ -501,11 +595,20 @@ class AuthMiddleware:
         path = scope["path"].rstrip("/") or "/"
         if not ticketed:
             p = a.principal(headers)
+        unknown = False
+        if p is None and a.enabled and not ticketed:
+            who = header_identity(a, headers, (scope.get("client") or (None,))[0], self.state.cfg)
+            if isinstance(who, str):
+                unknown = True
+            else:
+                p = who
         scope.setdefault("state", {})["principal"] = p
         if ((method, path) in PUBLIC or path.startswith("/api/notify/act/")      # single-use action codes are their own key
                 or any(m == method and rx.match(path) for m, rx in PUBLIC_PATTERNS)):
             return await self.app(scope, receive, send)
         if p is None:
+            if unknown:
+                return await self._deny(scope, receive, send, 403, NOT_KNOWN_HERE)
             return await self._deny(scope, receive, send, 401, "Please sign in.")
         if a.enabled and p.kind == "user" and method not in ("GET", "HEAD", "OPTIONS") and headers.get("x-embertide") != "1":
             return await self._deny(scope, receive, send, 403, "Missing X-Embertide header.")
