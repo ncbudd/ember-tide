@@ -1,6 +1,6 @@
 [project]
 name = "embertide"
-version = "0.1.8"
+version = "0.1.9"
 description = "Ember & Tide: a local-first controller for dual-zone smart mattress toppers (Orion first)"
 license = { text = "PolyForm-Noncommercial-1.0.0" }
 authors = [{ name = "Ncbudd" }]

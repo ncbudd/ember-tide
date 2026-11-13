@@ -43,3 +43,7 @@ web/android/app/release/
 web/android/wear/build/
 scripts/screenshots/shots/
 scripts/screenshots/edge-profile/
+
+# wrangler local state
+relay/.wrangler/
+relay/node_modules/
