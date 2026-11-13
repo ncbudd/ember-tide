@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from .drivers.base import CommandError
 from .engine.night import NightNotRunning
 from .units import clock_style
-from .models import Person, PersonSettings, Rhythm, off_nights, sync_rhythm_days, work_nights
+from .models import Person, PersonSettings, Rhythm, clamp_phase_temp, off_nights, sync_rhythm_days, work_nights
 
 
 class AdjustBody(BaseModel):
@@ -221,7 +221,8 @@ def build_router(app_state) -> APIRouter:
                 if rh.id == e.night.rhythm_id:
                     for ph in rh.phases:
                         if ph.id == phase_id:
-                            ph.temp_c = round(b.temp_c if b.temp_c is not None else ph.temp_c + (b.delta_c or 0), 2)
+                            raw = b.temp_c if b.temp_c is not None else ph.temp_c + (b.delta_c or 0)
+                            ph.temp_c = clamp_phase_temp(raw, ctl().household)
             ctl().reload_household(ctl().household)
             e.clear_override(now)
             ctl().store.event(now, "rhythm_changed", pid, b.source, phase=phase_id)
@@ -295,6 +296,7 @@ def build_router(app_state) -> APIRouter:
                 raise HTTPException(422, "the end date must be within the next 90 days")
             away.start(c, pid, now, by=by, until=b.until)
             e = c.engine_for(pid)
+            e._end_flash(now, by)
             if e.s.started and e.s.state in ("waiting", "rhythm", "out_of_bed_hold", "out_of_bed"):
                 e.s.started, e.s.in_bed, e.s.reanchor = False, None, None   # started by whatever lay there: not their night
         else:
@@ -446,6 +448,9 @@ def build_router(app_state) -> APIRouter:
         starts = [(base.get(ph.start.kind) or _lt(d0, ph.start.time or "03:00", tz)) + ph.start.offset_min * 60 for ph in rh.phases]
         if any(b < a for a, b in zip(starts, starts[1:])):
             raise HTTPException(422, "phases are out of order: each one has to start after the one before")
+        hh = ctl().household
+        for ph in rh.phases:
+            ph.temp_c = clamp_phase_temp(ph.temp_c, hh)
         if rh.nights:
             want = work_nights(p.settings.work_days) if rh.nights == "work" else off_nights(p.settings.work_days)
             if rh.days != want:

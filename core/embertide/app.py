@@ -16,7 +16,7 @@ from .api import build_router
 from .clock import Clock
 from .config import Config
 from .engine.controller import Controller
-from .models import Household
+from .models import Household, load_household
 from .seed import default_household
 from .store import Store
 
@@ -147,7 +147,7 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         clock = Clock(cfg.tz, speed=cfg.sim_speed if cfg.bed == "sim" else 1.0)
         store = Store(cfg.db_path)
         saved = store.get("household")
-        household = Household.model_validate(saved) if saved else default_household()
+        household = load_household(saved, log) if saved else default_household()
         if not saved:
             store.put("household", household.model_dump())
         driver = make_driver(cfg, clock)

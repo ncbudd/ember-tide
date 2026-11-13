@@ -28,7 +28,7 @@ from .mqtt_url import client_kwargs, parse_mqtt_url
 
 from . import __version__
 from .engine.rhythm import night_date, pick_rhythm
-from .models import PALETTE, person_color
+from .models import PALETTE, clamp_phase_temp, person_color
 from .units import c_to_f, clock_style, f_to_c
 
 log = logging.getLogger(__name__)
@@ -372,7 +372,7 @@ class HaBridge:
                 ph = next((x for x in (rh.phases if rh else []) if x.id == parts[4]), None)
                 if not ph:
                     return None
-                ph.temp_c = round(c, 2)
+                ph.temp_c = clamp_phase_temp(c, self.c.household)
                 self.c.reload_household(self.c.household)
                 self.c.store.event(now, "rhythm_changed", p.id, "ha", rhythm=rh.id, phase=ph.id)
                 done = f"{ph.name} = {payload}"

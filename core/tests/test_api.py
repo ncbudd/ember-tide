@@ -85,3 +85,65 @@ def test_explorer_side_follows_bed_orientation(tmp_path):
         assert "left side" in src()
         assert c.put("/api/bed-orientation", json={"from_foot": True}, headers={"X-Embertide": "1"}).status_code == 200
         assert "right side" in src()
+
+
+def test_every_night_insights_and_put_rhythm_clamp_to_household_limits(tmp_path):
+    with client(tmp_path) as c:
+        c.post("/api/sim", json={"jump_to": "2026-11-05T22:40"})
+        r = c.post("/api/people/p1/adjust", json={"temp_c": 44.0, "until": "every_night"})
+        assert r.status_code == 200
+        rhs = c.get("/api/people/p1/rhythms").json()
+        wn = next(x for x in rhs if x["id"] == "weeknights")
+        active_ph = r.json()["people"][0]["night"]["phase_id"]
+        assert next(ph["temp_c"] for ph in wn["phases"] if ph["id"] == active_ph) == 35.0
+
+        r2 = c.post("/api/people/p1/adjust", json={"temp_c": 10.0, "until": "every_night"})
+        assert r2.status_code == 200
+        rhs2 = c.get("/api/people/p1/rhythms").json()
+        wn2 = next(x for x in rhs2 if x["id"] == "weeknights")
+        assert next(ph["temp_c"] for ph in wn2["phases"] if ph["id"] == active_ph) == 12.0
+
+        r3 = c.post("/api/people/p1/insights/apply", json={
+            "proposal": {"rhythm_id": "weeknights", "phase_id": "deep", "field": "temp_c", "to": 42.0}
+        })
+        assert r3.status_code == 200
+        rhs3 = c.get("/api/people/p1/rhythms").json()
+        wn3 = next(x for x in rhs3 if x["id"] == "weeknights")
+        assert next(ph["temp_c"] for ph in wn3["phases"] if ph["id"] == "deep") == 35.0
+
+        wn3["phases"][0]["temp_c"] = 41.0
+        r4 = c.put("/api/people/p1/rhythms/weeknights", json=wn3)
+        assert r4.status_code == 200
+        rhs4 = c.get("/api/people/p1/rhythms").json()
+        wn4 = next(x for x in rhs4 if x["id"] == "weeknights")
+        assert wn4["phases"][0]["temp_c"] == 35.0
+
+
+def test_startup_clamps_out_of_range_saved_household(tmp_path, caplog):
+    from embertide.seed import default_household
+    from embertide.store import Store
+
+    cfg = Config()
+    cfg.data_dir, cfg.tz, cfg.bed, cfg.web_dir, cfg.llm_url, cfg.auth = tmp_path, "America/New_York", "sim", tmp_path / "noweb", None, False
+    saved = default_household().model_dump()
+    saved["people"][0]["rhythms"][0]["phases"][0]["temp_c"] = 50.0
+    saved["people"][0]["rhythms"][0]["phases"][1]["temp_c"] = 5.0
+    st = Store(cfg.db_path)
+    st.put("household", saved)
+    st._db.close()
+
+    with caplog.at_level("WARNING", logger="embertide"):
+        with TestClient(create_app(cfg)) as c:
+            ph = c.get("/api/people/p1/rhythms").json()[0]["phases"]
+            assert ph[0]["temp_c"] == 45.0
+            assert ph[1]["temp_c"] == 10.0
+    assert any("clamped saved phase" in rec.message for rec in caplog.records)
+
+
+def test_set_away_ends_active_flash(tmp_path):
+    with client(tmp_path) as c:
+        c.post("/api/sim", json={"jump_to": "2026-11-05T22:40"})
+        r1 = c.post("/api/people/p1/flash", json={"kind": "hot", "minutes": 30})
+        assert r1.status_code == 200 and r1.json()["people"][0]["night"]["flash"] is not None
+        r2 = c.post("/api/people/p1/away", json={"away": True})
+        assert r2.status_code == 200 and r2.json()["people"][0]["night"]["flash"] is None

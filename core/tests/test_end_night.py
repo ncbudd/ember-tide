@@ -163,3 +163,116 @@ async def test_lie_in_unchanged_without_phone_or_watch(tmp_path):
     await n.until(iso(end + 46 * 60))
     assert e.s.state == "done"
     assert _reason(n.events("lie_in_ended")[0]) == "cap"
+
+
+async def test_manual_adjust_in_inactive_states_never_keeps_bed_on(tmp_path):
+    from test_scenarios import ts
+    from embertide.engine.night import NightEngine
+    from embertide.seed import default_household
+
+    n = Night(tmp_path, "2026-11-05T22:20")
+    n.present("left", True)
+    await n.until("2026-11-05T23:00")
+    e = n.e(n.p1)
+    n.present("left", False)
+    await n.until("2026-11-05T23:35")
+    assert e.s.state == "out_of_bed" and e.s.target_c is None
+    e.adjust(n.clock.now_ts(), temp_c=28.0)
+    await n.step(2)
+    assert e.s.override is None and e.s.target_c is None and not n.side("left").on
+
+    # Before precool in an inactive state ('away'), a manual override must neither heat now nor survive precool.
+    e2 = NightEngine(default_household().people[0], TZ)
+    e2.tick(ts("2026-11-05T21:05"), False)
+    e2.away = True
+    e2.tick(ts("2026-11-05T21:06"), False)
+    assert e2.s.state == "away"
+    e2.adjust(ts("2026-11-05T21:06:10"), temp_c=27.0)
+    assert e2.tick(ts("2026-11-05T21:07"), False) is None
+    assert e2.tick(ts("2026-11-05T21:35"), False) is None and e2.s.override is None
+
+
+async def test_empty_side_safety_cutoff_after_two_hours(tmp_path):
+    n = Night(tmp_path, "2026-11-05T14:00")
+    n.present("left", False)
+    await n.step(1)
+    e = n.e(n.p1)
+    e.adjust(n.clock.now_ts(), temp_c=27.0)   # no timer: "until tonight's schedule"
+    await n.until("2026-11-05T15:58")
+    assert e.s.target_c == 27.0 and n.side("left").on
+    await n.until("2026-11-05T16:02")
+    assert e.s.target_c is None and not n.side("left").on
+    await n.step(10)
+    assert len(n.events("empty_side_off")) == 1 and e.s.target_c is None
+
+
+async def test_empty_side_cutoff_skips_flash_first_30min_and_guest_mode(tmp_path):
+    from embertide.models import GuestSide
+
+    n = Night(tmp_path / "flash", "2026-11-05T14:00")
+    n.present("left", False)
+    await n.step(1)
+    e = n.e(n.p1)
+    e.adjust(n.clock.now_ts(), temp_c=26.0)   # no timer
+    await n.until("2026-11-05T15:50")
+    assert e.s.target_c == 26.0
+    e.flash("hot", n.clock.now_ts(), minutes=40)
+    await n.until("2026-11-05T16:10")
+    assert e.s.target_c is not None and n.side("left").on and not n.events("empty_side_off")
+    # starting a flash is someone at the bed: the 2-hour empty-side clock starts again from it
+    await n.until("2026-11-05T16:22")
+    assert not n.events("empty_side_off")
+    await n.until("2026-11-05T17:52")
+    assert e.s.target_c is None and not n.side("left").on and len(n.events("empty_side_off")) == 1
+
+    ng = Night(tmp_path / "guest", "2026-11-05T21:00")
+    ng.present("right", False)
+    ng.hh.guest["right"] = GuestSide(since=ng.clock.now_ts(), on=True, temp_c=23.0)
+    await ng.until("2026-11-05T23:15")
+    assert ng.side("right").on and not ng.events("empty_side_off")
+
+
+async def test_flash_ends_on_out_of_bed_done_and_away(tmp_path):
+    from embertide.engine import away as away_mod
+
+    n = Night(tmp_path / "oob", "2026-11-05T22:20")
+    n.present("left", True)
+    await n.until("2026-11-05T23:00")
+    e = n.e(n.p1)
+    e.flash("hot", n.clock.now_ts(), minutes=60)
+    await n.step(2)
+    assert e.s.flash is not None and e.s.target_c is not None
+    n.present("left", False)
+    await n.until("2026-11-05T23:35")
+    assert e.s.state == "out_of_bed" and e.s.flash is None and e.s.target_c is None and not n.side("left").on
+
+    n2 = Night(tmp_path / "done", "2026-11-05T22:20")
+    n2.present("left", True)
+    await n2.until("2026-11-06T06:00")
+    e2 = n2.e(n2.p1)
+    e2.flash("cold", n2.clock.now_ts(), minutes=60)
+    await n2.step(2)
+    assert e2.s.flash is not None
+    n2.present("left", False)
+    await n2.until(iso(e2.night.end + 120))
+    assert e2.s.state == "done" and e2.s.flash is None and e2.s.target_c is None
+
+    n3 = Night(tmp_path / "away", "2026-11-05T22:20")
+    n3.present("left", True)
+    await n3.until("2026-11-05T22:45")
+    e3 = n3.e(n3.p1)
+    e3.flash("hot", n3.clock.now_ts(), minutes=60)
+    away_mod.start(n3.c, "p1", n3.clock.now_ts(), by="app")
+    await n3.step(2)
+    assert e3.s.state == "away" and e3.s.flash is None and e3.s.target_c is None
+
+
+async def test_empty_side_cutoff_leaves_a_chosen_timer_alone(tmp_path):
+    # "turn my side on for 4 hours" to pre-warm an empty bed: the person chose that, so it runs its timer
+    n = Night(tmp_path, "2026-11-05T13:00")
+    n.present("left", False)
+    await n.step(1)
+    e = n.e(n.p1)
+    e.adjust(n.clock.now_ts(), temp_c=27.0, minutes=240)
+    await n.until("2026-11-05T16:30")
+    assert e.s.target_c == 27.0 and not n.events("empty_side_off")

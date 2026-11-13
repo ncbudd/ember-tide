@@ -75,3 +75,23 @@ async def test_skipped_night_has_no_lie_in(tmp_path):
     e.s.skip = True
     await n.until(iso(end + 600))
     assert e.s.state == "skipped" and not n.events("lie_in_started")
+
+
+async def test_noon_rollover_waits_for_lie_in_to_finish(tmp_path):
+    from embertide.seed import default_household
+
+    hh = default_household()
+    hh.people[0].rhythms[0].schedule.bedtime = "23:00"
+    hh.people[0].rhythms[0].schedule.window_start = "22:00"
+    hh.people[0].rhythms[0].schedule.wake = "11:30"
+    hh.people[0].rhythms[0].schedule.after_wake_min = 0
+    n = Night(tmp_path, "2026-11-05T22:55", household=hh)
+    n.present("left", True)
+    await n.until("2026-11-06T11:45", dt=300)
+    e = n.e(n.p1)
+    assert e.s.key == "2026-11-05" and e.s.lie_in and n.side("left").on
+    await n.until("2026-11-06T12:05", dt=60)
+    assert e.s.key == "2026-11-05" and e.s.started and e.s.lie_in and e.s.state == "rhythm" and n.side("left").on
+    n.present("left", False)
+    await n.until("2026-11-06T12:12", dt=60)
+    assert e.s.key == "2026-11-06" and not e.s.started and not n.side("left").on

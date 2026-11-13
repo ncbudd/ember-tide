@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .models import Anchor, Household, Person, Phase, Rhythm, Schedule
+from .models import Anchor, Household, Person, Phase, Rhythm, Schedule, clamp_phase_temp
 from .units import f_to_c
 
 
@@ -31,13 +31,13 @@ def default_rhythms(persona: str) -> list[Rhythm]:
     ]
 
 
-def apply_persona_temps(person) -> None:
+def apply_persona_temps(person, household: Household | None = None) -> None:
     """Set each default phase to the persona's starting temperature (first-time setup: "I run cold / hot")."""
     t = dict(zip(("wind_down", "fall_asleep", "deep", "late", "wake"), PERSONA_TEMPS_F.get(person.persona, PERSONA_TEMPS_F["neutral"])))
     for rh in person.rhythms:
         for ph in rh.phases:
             if ph.id in t:
-                ph.temp_c = round(f_to_c(t[ph.id]), 2)
+                ph.temp_c = clamp_phase_temp(f_to_c(t[ph.id]), household)
 
 
 def default_household() -> Household:

@@ -693,7 +693,7 @@ def build_studio_router(state) -> APIRouter:
     async def apply(pid: str, b: ApplyBody):
         p = person(pid)
         try:
-            what = apply_schedule(p, b.proposal) or apply_proposal(p, b.proposal)
+            what = apply_schedule(p, b.proposal) or apply_proposal(p, b.proposal, ctl().household)
         except KeyError as e:
             raise HTTPException(400, str(e))
         ctl().reload_household(ctl().household)
