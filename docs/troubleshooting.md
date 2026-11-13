@@ -33,8 +33,14 @@ The web port is different: if 8790 is taken, change the left number (`"8791:8790
 
 Symptoms: the app restarts over and over, and `docker compose logs embertide` mentions "unable to open database file" or "permission denied".
 The container runs as an unprivileged user (uid and gid 1000), so the most common cause is ownership: a data folder created by root (by an older image, or by hand) cannot be written.
-Fix it once with `chown -R 1000:1000 /path/to/data` (on Unraid, from the terminal: `chown -R 1000:1000 /mnt/user/appdata/embertide/data`), or keep the old behaviour by adding
-`user: "0:0"` to the service in the Compose file. Other causes are the folder itself: the `data` folder was not created, the path in the Compose file is wrong
+The fix, once:
+
+- **Any system:** in the project folder, run `chown -R 1000:1000 ./data` (over SSH or a terminal). Or tell the container to run as the folder's owner by adding `user: "<uid>:<gid>"` under the `embertide:` service (find the numbers with `ls -ln ./data`) and removing the `data-init` service.
+- **Unraid:** use `user: "99:100"` (nobody:users, Unraid's own owner for shares), or from the terminal run `chown -R 1000:1000 /mnt/user/appdata/embertide/data`.
+- **Synology:** use the numbers of the user that owns the shared folder (often `1026:100`; `id <username>` over SSH shows them) in `user:`, or `chown` the folder to `1000:1000`.
+- Or keep the old behaviour by adding `user: "0:0"` to the service in the Compose file.
+
+Other causes are the folder itself: the `data` folder was not created, the path in the Compose file is wrong
 (a relative `./data` in a stack tool that keeps the file elsewhere; use the full path), or the share is read-only or has a restrictive ACL.
 On Unraid, use `/mnt/user/appdata/embertide/data` and check the share is not read-only. On Synology, create the folder inside a shared folder such as
 `docker`, and check Control Panel, Shared Folder, Permissions. Create the `data` folder yourself before starting, and keep it off network mounts that do not support file locking.
@@ -47,7 +53,14 @@ permission errors when containers start. Turn it on, restart the container, and 
 ### Other devices cannot reach the app on Windows
 
 Windows blocks incoming connections by default. Allow Docker Desktop on private networks when asked, or open TCP 8790 and 1883 for your Private network
-(commands in [install](install.md#windows-and-mac)). Make sure the network profile is Private, not Public, and that the computer does not sleep.
+(run these in a PowerShell opened as administrator):
+
+```powershell
+New-NetFirewallRule -DisplayName "Ember & Tide web" -Direction Inbound -Protocol TCP -LocalPort 8790 -Profile Private -Action Allow
+New-NetFirewallRule -DisplayName "Ember & Tide broker" -Direction Inbound -Protocol TCP -LocalPort 1883 -Profile Private -Action Allow
+```
+
+ Make sure the network profile is Private, not Public, and that the computer does not sleep.
 
 ## Both sides say "unknown" (or someone is shown as not in bed while lying there)
 
@@ -111,7 +124,7 @@ HTTPS address, entered as the server address at sign-in.
 
 ## Times are an hour out or the night starts at the wrong time
 
-`ET_TZ` (and `TZ`) must be your real time zone, and the Compose file needs both. After changing it, restart the container.
+`TZ` in the Compose file must be your real time zone (for example `America/New_York`). After changing it, run `docker compose up -d` again. (`ET_TZ` also works and wins if both are set.)
 
 ## Still stuck
 

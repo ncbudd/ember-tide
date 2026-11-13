@@ -43,7 +43,7 @@ Tick off what you can, and tell us about anything that confused you, not only th
 - [ ] **Morning summary:** is the story of the night readable and roughly right?
 - [ ] **Notifications:** turn them on for your phone, check they arrive, and check that quiet hours behave.
 - [ ] **Android app:** sideload the APK from the release ([android.md](docs/android.md)); try the widget, the Hot flash tile, and the Wear OS app if you have a watch.
-- [ ] **iPhone web app:** add it to the Home Screen and turn on notifications (iOS 16.4 or newer).
+- [ ] **iPhone web app:** open it in Safari over plain `http://` at home; notifications need HTTPS ([simplest way](docs/install.md#d-https-phones-away-from-home-and-iphone-notifications)), iOS 16.4 or newer.
 - [ ] **AI model page (optional):** Studio, Insights, if you have a model to point it at ([ai-models.md](docs/ai-models.md)).
 - [ ] **MCP (optional):** connect an AI app to ask about your sleep ([mcp.md](docs/mcp.md)).
 

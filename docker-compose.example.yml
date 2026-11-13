@@ -5,7 +5,7 @@
 #   open http://<this-machine>:8790 from a device on your home network
 #
 # It starts with the built-in simulator, so you can look around before touching the bed. The broker below only starts
-# when you ask for it: to connect the bed locally, switch to option B below (after the DNS step in docs/install.md)
+# when you ask for it: to connect the bed locally, switch to option C below (after the DNS step in docs/install.md)
 # and run `docker compose --profile local-bed up -d` (or put COMPOSE_PROFILES=local-bed in a .env file).
 # Simulator and cloud users do not need the broker and never start it.
 # Ember & Tide never updates itself: when you choose, run `docker compose pull && docker compose up -d`.
@@ -38,20 +38,24 @@ services:
     # Already have a data folder with data in it, owned by someone else? Run as its owner instead (and delete data-init):
     # user: "99:100"                           # e.g. Unraid's nobody:users; `ls -ln` shows the numbers
     environment:
-      TZ: Etc/UTC                              # CHANGE ME to your time zone, e.g. Europe/London, Asia/Tokyo, Australia/Sydney (schedules are local time)
-      ET_TZ: Etc/UTC                           # same value again; Studio -> Your settings shows the zone in use so you can check
+      # CHANGE ME: your time zone, because schedules use local time. Examples: America/New_York, America/Chicago,
+      # America/Denver, America/Los_Angeles, Europe/London, Australia/Sydney. Studio -> Your settings shows the zone in use.
+      TZ: Etc/UTC
 
       # --- Which bed? Pick ONE of A, B or C. ---
+      # A line that starts with "#" is switched off. To switch to another choice:
+      #   1. Put "# " (a hash and a space) in front of the lines you are using now.
+      #   2. Remove the "# " (just those two characters, keep the spaces before them) from the lines you want.
       # A) Simulator: try everything without a bed.
       ET_BED: sim
-      # B) Orion fully local over MQTT, through the broker below (advanced; needs the DNS step in docs/install.md
+      # B) Orion cloud with a personal API key from the maker's web app (no broker, no network changes).
+      # ET_BED: orion-cloud
+      # ET_ORION_API_KEY: os_live_xxxxxxxx
+      # C) Advanced, fully local over MQTT, through the broker below (needs the DNS step in docs/install.md
       #    and the "local-bed" profile: docker compose --profile local-bed up -d).
       # ET_BED: orion-mqtt
       # ET_MQTT_URL: mqtt://mosquitto:1883
       # ET_ORION_SERIAL: OSCTXXXXXXXX          # optional; auto-detected from the first bed that reports
-      # C) Orion cloud with a personal API key (no broker needed).
-      # ET_BED: orion-cloud
-      # ET_ORION_API_KEY: os_live_xxxxxxxx
 
       # --- Optional ---
       # ET_PUBLIC_URL: https://sleep.example.com              # how phones reach the server; makes notification buttons work

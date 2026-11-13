@@ -13,7 +13,7 @@ You need:
 - [ ] **A computer that stays on all the time.** A NAS, a mini PC, a Raspberry Pi 4 or newer, or a spare laptop.
 - [ ] **Docker** on that computer (the guide shows how to get it), or a NAS that already has it.
 - [ ] **About 10 minutes** for the server, and another 10 for the bed.
-- [ ] **For the real bed only:** an Orion Sleep topper, and a router (or DNS server) where you can add one local DNS record.
+- [ ] **For the real bed only:** an Orion Sleep topper, and either a personal API key from Orion's web app (easiest) or a router (or DNS server) where you can add one local DNS record (advanced, fully local).
 - [ ] A **fixed address** for the server on your network. See [Give the server a fixed address](#give-the-server-a-fixed-address).
 
 You can install the server first and look around with the built-in **simulator**, and connect the bed later.
@@ -83,8 +83,8 @@ ember-tide/
 cp docker-compose.example.yml docker-compose.yml
 ```
 
-**Set your time zone** in `docker-compose.yml`, in both places (`TZ` and `ET_TZ`), for example `Europe/London` or `America/Chicago`
-(the [list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)). Schedules use local time, so a wrong
+**Set your time zone** in `docker-compose.yml` (the `TZ` line), for example `America/New_York`, `America/Chicago`, `America/Denver`,
+`America/Los_Angeles`, `Europe/London` or `Australia/Sydney` (the [list of names](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones)). Schedules use local time, so a wrong
 zone means a wrong bedtime.
 
 **Start it:**
@@ -94,16 +94,11 @@ docker compose up -d
 docker compose ps
 ```
 
-After a minute or two, `docker compose ps` should show the app as **healthy**. (When you later use the real bed through the bundled broker,
+After a minute or two, `docker compose ps` should show the app as **healthy**. (`data-init` shows as Exited: that is normal.) (When you later use the real bed through the bundled broker,
 start with `docker compose --profile local-bed up -d`, or put `COMPOSE_PROFILES=local-bed` in a `.env` file next to the Compose file so
 plain `docker compose up -d` includes it.)
 
-**Folder permissions.** Nothing to do for a new install: the app runs as user and group **1000** (not root), and the example file's
-`data-init` helper hands `./data` to that user before the app starts when the folder is new and empty or still owned by root (as Docker
-and older versions of the app leave it). A folder owned by any other user is left alone. If the app ever can't write its folder it stops with a message naming the fix. If your folder already holds data and belongs to someone else (a folder an older image wrote as root, or the shared-folder owner on a NAS), fix it once with
-`chown -R 1000:1000 ./data`, or tell the container to run as that folder's owner by adding `user: "<uid>:<gid>"` under the `embertide:`
-service (find the numbers with `ls -ln ./data`). On **Unraid**, shares are owned by `99:100` (nobody:users): use `user: "99:100"`. On **Synology**,
-use the numbers of the user that owns the shared folder (often `1026:100`; `id <username>` over SSH shows them) or `chown` it to `1000:1000`.
+**Folder permissions.** Nothing to do for a new install: a small helper prepares the `data` folder for you. If the app ever says it cannot write there, see [the fix](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas).
 
 **Check that it worked.** Open `http://<server-ip>:8790` on a phone or computer on your home network
 (for example `http://192.168.1.10:8790`). You should see the welcome screen asking you to create the owner account.
@@ -121,13 +116,14 @@ Two rules follow from that:
 If you use the broker for the bed, keep the Mosquitto version at **2.0.20**. Version 2.0.21 changed keep-alive handling in a way the bed's
 firmware does not like, and the bed drops off now and then. The example file already pins the right one.
 
-**Other choices in the same file** (each is a comment in the file; change it, then run `docker compose up -d` again):
+**Other choices in the same file.** A line that starts with `#` is switched off. To switch, put `# ` in front of the old line, and remove the `# `
+(just those two characters; keep the spaces before them) from the lines you want. Then run `docker compose up -d` again:
 
 | I want... | In the file |
 |---|---|
 | The simulator (the default) | leave `ET_BED: sim` |
-| The real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`, then `docker compose --profile local-bed up -d` |
-| The maker's cloud with a personal key, no broker | `ET_BED: orion-cloud` and `ET_ORION_API_KEY` (the broker is not started without the profile) |
+| The real bed, with a personal key from the maker's web app (easiest) | `ET_BED: orion-cloud` and `ET_ORION_API_KEY` (no broker needed) |
+| Advanced: the real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`, then `docker compose --profile local-bed up -d` |
 | A bed of your own | `ET_BED: python:package.module:ClassName` ([drivers.md](drivers.md)) |
 | A different web port | change the **left** number in `"8790:8790"`, for example `"8791:8790"` |
 | Secrets out of the file | put them in a `.env` file and add `env_file: .env` ([details](configuration.md#environment-variables)) |
@@ -165,19 +161,34 @@ Locked out later? On the server, run `docker exec -it ember-tide python -m ember
 
 ### C. Point the bed at your server
 
-When the server works with the simulator and you are ready for the real bed:
+When the server works with the simulator and you are ready for the real bed, pick one way.
+
+**Option 1: the maker's cloud with your own API key (easiest).** No network changes, and the maker's own app keeps working.
+It checks the bed about every 10 seconds, so it is a little slower.
+
+1. Sign in to Orion's web app at https://app.orionsleep.com/api-keys (the same account as your Orion phone app), create a personal API key and copy it. (Pages can move; look for "API keys".)
+2. In `docker-compose.yml`, switch to the cloud lines: `ET_BED: orion-cloud` and `ET_ORION_API_KEY: <your key>`, pasted as it is, no quotes needed (see "Other choices" above for how to switch lines).
+   Then apply it: in a terminal, `docker compose up -d`; on **Synology**, edit the file in File Station, then in Container Manager open **Project**, `embertide`, **Action**, **Build**; on a pasted-in stack (Portainer, Unraid), edit the stack and redeploy. Do not share this key or post it anywhere.
+
+**Option 2, advanced: fully local.** Faster and works without the internet, but it needs a local DNS record, and the maker's cloud features stop while it is in place.
 
 1. In `docker-compose.yml`, switch to the bed lines: `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`. Then run `docker compose --profile local-bed up -d` so the bundled broker starts too.
    (On a pasted-in stack, edit the stack and redeploy.)
 2. Add one local DNS record so the bed's usual name points at your server, and power-cycle the bed.
 
-[Bed cutover](bed-cutover.md) shows both steps for UniFi, Pi-hole, AdGuard Home, dnsmasq, OpenWrt and OPNsense, how to check it
+For option 2, [Bed cutover](bed-cutover.md) shows both steps for UniFi, Pi-hole, AdGuard Home, dnsmasq, OpenWrt and OPNsense, how to check it
 worked, how to block the hub's internet, and how to **roll back** at any time.
 
 ### D. HTTPS: phones away from home and iPhone notifications
 
-At home, plain `http://` is fine. You need HTTPS to reach the app away from home, to install the iPhone Home Screen app,
-or to use browser notifications (they only work on secure addresses). **Never port-forward the web port to the internet.**
+At home, plain `http://` is fine. Opening the app in Safari or any browser at `http://<server-ip>:8790` works, and Add to Home Screen
+may work as a shortcut (it then opens like a website, without notifications). You need HTTPS for browser and iPhone **notifications**
+(they only work on secure addresses) and to use the app **away from home**. **Never port-forward the web port to the internet.**
+
+**Simplest recipe for most people: Tailscale.** It is a private network between your own devices, with no public address. Install it on the server and on your phone,
+then open the server's Tailscale address. That reaches the app away from home over `http://`. For notifications you also need `https://`, which Tailscale may
+provide with its **Serve** feature (see Tailscale's own guide for `tailscale serve`). Then set `ET_PUBLIC_URL` to the `https://` address it shows. The options below are for people who already run a web server or a domain.
+
 Whatever you choose, set two things on the server (in the `environment:` part of the Compose file):
 
 - `ET_PUBLIC_URL: https://sleep.example.com`, which is how phones reach it. Notification buttons call back to this address.
@@ -185,7 +196,7 @@ Whatever you choose, set two things on the server (in the `environment:` part of
 
 The live view uses a WebSocket (`/api/live`), so a proxy must pass upgrade headers. Easiest options, from simplest:
 
-- **A private VPN such as Tailscale or WireGuard.** No public address at all; `http://` over the VPN works for everything except browser notifications.
+- **A private VPN such as Tailscale or WireGuard** (see above). No public address at all; `http://` over the VPN works for everything except browser notifications.
 - **Caddy** (gets its own certificate, handles WebSockets):
 
   ```caddyfile
@@ -324,7 +335,7 @@ Works on Raspberry Pi OS (64-bit), Debian, Ubuntu, Fedora and most others.
 
    No `git`? Install it with `sudo apt install git`, or download the ZIP as described in [A](#a-the-compose-file-and-the-broker).
 
-3. **Copy the Compose file and set your time zone** (both `TZ` and `ET_TZ`):
+3. **Copy the Compose file and set your time zone** (the `TZ` line):
 
    ```bash
    cp docker-compose.example.yml docker-compose.yml
@@ -340,7 +351,7 @@ Works on Raspberry Pi OS (64-bit), Debian, Ubuntu, Fedora and most others.
    docker compose ps
    ```
 
-   The first start pulls the image, which takes a minute or two. You should now see both services, and after a minute both say **healthy**.
+   The first start pulls the image, which takes a minute or two. You should now see `ember-tide`, and after a minute it says **healthy**. A line for `data-init` that says Exited is normal: that helper runs once and stops.
 
 5. **Open it.** Find the machine's address with `hostname -I`, then open `http://<server-ip>:8790`. You should see the welcome screen.
    Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
@@ -375,7 +386,7 @@ Open the Docker tab and look at the Port Mappings column.
 
    - `./data:/data` becomes `/mnt/user/appdata/embertide/data:/data`
    - the two Mosquitto lines become `/mnt/user/appdata/embertide/ember-tide/deploy/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro` and `/mnt/user/appdata/embertide/ember-tide/deploy/mosquitto/acl:/mosquitto/config/acl:ro`
-   - set `TZ` and `ET_TZ` to your time zone
+   - set `TZ` to your time zone
 
    Click **Save Changes**.
 5. **Compose Up.** Click **Compose Up** beside the stack. A window shows the image being pulled; the first time it takes a minute or two. When it says it is done, close it.
@@ -403,17 +414,17 @@ Needs **DSM 7.2 or newer** with **Container Manager** (install it from Package C
 
 1. **Make the folders.** In **File Station**, open the shared folder `docker` (create it in Control Panel, Shared Folder, if it is missing), then create the folder
    `embertide` inside it. You should now have `/volume1/docker/embertide`.
-2. **Put the project in that folder.** On your computer, download the project ZIP from the repository page and unpack it. Upload the unpacked folder's
-   contents into `docker/embertide` with File Station (drag and drop). `Dockerfile`, `docker-compose.example.yml` and the folder `deploy` should now sit directly in `docker/embertide`.
-3. **Rename and edit the Compose file.** In File Station, rename `docker-compose.example.yml` to `docker-compose.yml`. Right-click it, **Open with Text Editor**, set `TZ` and `ET_TZ` to your time zone, and save.
+2. **Put the project in that folder.** On your computer, download the project ZIP ([direct link](https://github.com/ncbudd/ember-tide/archive/refs/heads/main.zip)) and unpack it. You get a folder called `ember-tide-main`. Open it and upload what is **inside** it (not the folder itself) into `docker/embertide` with File Station (drag and drop). `Dockerfile`, `docker-compose.example.yml` and the folder `deploy` should now sit directly in `docker/embertide`.
+3. **Rename and edit the Compose file.** In File Station, copy `docker-compose.example.yml` and name the copy `docker-compose.yml` (or just rename it). Right-click it, **Open with Text Editor**, set `TZ` to your time zone, and save.
 4. **Create the project.** Open **Container Manager**, **Project**, **Create**. Project name `embertide`. Path: click Set Path and choose `/volume1/docker/embertide`.
    Source: **Use existing docker-compose.yml** (it detects your file). Click **Next**, skip the web portal page, **Next**, then **Done**.
-5. **Wait for the download.** The first time it takes a minute or two. You should now see the project `embertide` as **Running**, with two containers.
-6. **Open it.** Open `http://<nas-ip>:8790`. You should see the welcome screen. Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
+5. **Wait for the download.** The first time it takes a minute or two. You should now see the project `embertide` as **Running**. Only `ember-tide` stays running; `data-init` shows **Exited** or **Stopped**, which is normal (it runs once and stops).
+6. **Open it.** Open `http://<nas-ip>:8790`. Your NAS's address (`<nas-ip>`) is the one in your browser's address bar when you open DSM, or in DSM under Control Panel, Network. You should see the welcome screen. Continue with [B. First-run setup](#b-first-run-setup-in-the-app).
 
 **Good to know on Synology**
 
 - The data is `/volume1/docker/embertide/data`. Add it to Hyper Backup.
+- **The broker** (`mosquitto`) does not run by default; you only need it for the advanced fully local bed method. To enable it later, edit `docker-compose.yml` and delete the line `profiles: ["local-bed"]` in the `mosquitto` service, then Container Manager, Project, `embertide`, **Action**, **Build**.
 - Port 1883 is normally free on a Synology. If you also run Mosquitto, Home Assistant or similar there, see
   [port 1883 in use](troubleshooting.md#port-1883-is-already-in-use).
 - If the app reports it cannot open its database, see [permissions](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas).
@@ -463,7 +474,7 @@ The cleanest way is a small Debian machine just for this, with Docker inside it.
    curl -fsSL https://get.docker.com | sh
    ```
 
-4. **Follow the Linux steps** from step 2 of [Docker Compose on Linux or a Raspberry Pi](#docker-compose-on-linux-or-a-raspberry-pi). You should now see both services healthy.
+4. **Follow the Linux steps** from step 2 of [Docker Compose on Linux or a Raspberry Pi](#docker-compose-on-linux-or-a-raspberry-pi). You should now see `ember-tide` healthy.
 5. **Open it** at `http://<machine-ip>:8790`. Give the VM or container a fixed address, since the bed's DNS record will point at it.
 
 ## Portainer
@@ -481,8 +492,8 @@ Portainer can run the Compose file as a **stack**. It needs the project folder o
 2. In Portainer, choose your environment, **Stacks, Add stack**. Name it `embertide`.
 3. Choose **Web editor** and paste the contents of `docker-compose.example.yml`.
 4. Change the paths with the table in [A](#a-the-compose-file-and-the-broker) (data folder `/srv/embertide/data`, and the two
-   Mosquitto files under `/srv/embertide/ember-tide/deploy/mosquitto/`). Set `TZ` and `ET_TZ`.
-5. Click **Deploy the stack**. You should now see the stack with two running containers.
+   Mosquitto files under `/srv/embertide/ember-tide/deploy/mosquitto/`). Set `TZ`.
+5. Click **Deploy the stack**. You should now see the stack with `ember-tide` running (`data-init` exits after a moment; that is normal).
 6. **Open it** at `http://<host-ip>:8790`. Logs: Containers, `ember-tide`, **Logs**.
 
 To update: in Portainer open the stack and click **Update the stack** with **Re-pull image** turned on.
@@ -528,14 +539,14 @@ If both brokers would sit on one machine and both want port 1883, give the Home 
 Docker Desktop is fine for **trying it out**. For the real bed, the computer must stay on, awake and connected, with a fixed address. A small always-on machine is better for that.
 
 1. **Install Docker Desktop** from docker.com, open it once, and wait until it says it is running. (On Windows, accept the WSL 2 option if it asks.)
-2. **Get the project.** Download the ZIP from the repository page and unpack it, or use `git clone` if you have Git. Open a terminal (PowerShell on Windows, Terminal on Mac) in that folder.
+2. **Get the project.** Download the ZIP (https://github.com/ncbudd/ember-tide/archive/refs/heads/main.zip) and unpack it, or use `git clone` if you have Git. Go into the folder that holds `docker-compose.example.yml` (Windows' Extract All can put it one level down, inside a second `ember-tide-main` folder). Open a terminal there: on Windows, in File Explorer, right-click empty space in that folder, then **Open in Terminal**. On a Mac, right-click the folder in Finder, then **New Terminal at Folder** (if you do not see it, turn it on in System Settings, Keyboard, Keyboard Shortcuts, Services).
 3. **Copy the Compose file and set your time zone:**
 
    ```bash
    cp docker-compose.example.yml docker-compose.yml        # Windows PowerShell: copy docker-compose.example.yml docker-compose.yml
    ```
 
-   Open `docker-compose.yml` in a text editor and set `TZ` and `ET_TZ`.
+   Open `docker-compose.yml` in a text editor and set `TZ` (on Windows: `notepad docker-compose.yml`; on a Mac: `open -e docker-compose.yml`).
 4. **Start it:**
 
    ```bash
@@ -544,15 +555,9 @@ Docker Desktop is fine for **trying it out**. For the real bed, the computer mus
 
 5. **Open it** at `http://localhost:8790` on that computer. You should see the welcome screen. From a phone, use the computer's address (below).
 
-**Windows firewall.** Other devices can only reach the app if Windows allows it. When Windows asks "allow Docker Desktop on private networks?", say yes. Or, in an
-administrator PowerShell, open the two ports for your home network:
+**Windows firewall.** If Windows asks to allow Docker Desktop, click **Allow** on private networks. If other devices still cannot open the app, see [the fix](troubleshooting.md#other-devices-cannot-reach-the-app-on-windows).
 
-```powershell
-New-NetFirewallRule -DisplayName "Ember & Tide web" -Direction Inbound -Protocol TCP -LocalPort 8790 -Profile Private -Action Allow
-New-NetFirewallRule -DisplayName "Ember & Tide broker" -Direction Inbound -Protocol TCP -LocalPort 1883 -Profile Private -Action Allow
-```
-
-Your network must be set to **Private** (Settings, Network). Find the computer's address with `ipconfig` (Windows) or System Settings, Network (Mac).
+Your network must be set to **Private** (Settings, Network). Find the computer's address with `ipconfig` (Windows: use the **IPv4 Address** under **Wi-Fi** or **Ethernet**, usually `192.168.x.x`; ignore `vEthernet` adapters, which phones can't reach) or System Settings, Network (Mac).
 
 **Mac:** if macOS asks to allow incoming connections for Docker, choose Allow. Also stop the Mac from sleeping (System Settings, Battery or Energy) if it runs the bed.
 
@@ -569,7 +574,7 @@ When you are ready for the real bed, do [C. Point the bed at your server](#c-poi
 
 ## Give the server a fixed address
 
-The bed's DNS record points at your server's address, so that address must not change. Ask your router to always hand the same address to the server. This is
+The bed's DNS record points at your server's address, so that address must not change. Ask your router to always hand the same address to the server. The list below says where to click in common routers. This is
 called a **DHCP reservation** (or "fixed IP", "static lease" or "address reservation"). Do the same for the bed's hub; it makes the hub easy to find later.
 
 Where to look, in plain words:
@@ -581,7 +586,7 @@ Where to look, in plain words:
 - **ASUS:** router page, LAN, **DHCP Server**, Manually Assigned IP around the DHCP list.
 - **Anything else:** in the router's page, look for "DHCP reservation", "static lease" or "address binding" under LAN or DHCP.
 
-Use an address outside your router's normal pool if it lets you choose, and write it down; it is the `<server-ip>` used throughout this guide.
+Simply reserve the server's current address in your router app, and write it down; it is the `<server-ip>` used throughout this guide. To find it: on a Synology, Control Panel, Network (or the address in the browser bar when you open DSM); on Linux, `hostname -I`; on Windows, `ipconfig`; on a Mac, System Settings, Network.
 
 ## Without Docker (Linux, Raspberry Pi)
 
@@ -658,7 +663,7 @@ Without Compose, this runs only the app (the simulator):
 docker run -d --name ember-tide --restart unless-stopped \
   -p 8790:8790 \
   -v ember-tide-data:/data \
-  -e TZ=Europe/London -e ET_TZ=Europe/London \
+  -e TZ=Europe/London \
   ember-tide
 ```
 
