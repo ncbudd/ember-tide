@@ -154,3 +154,20 @@ def test_tonight_wake_override_range(tmp_path):
         assert c.post("/api/people/p1/context", json={"wake": now + 6 * 3600}).status_code == 200
         assert c.post("/api/people/p1/context", json={"wake": now + 3 * 86400}).status_code == 422
         assert c.post("/api/people/p1/context", json={"wake": 5}).status_code == 422
+
+
+def test_guide_suggestion_dismissal_is_remembered_until_it_changes(tmp_path, monkeypatch):
+    from embertide import studio_api
+    shown = {"to": "23:00"}
+    monkeypatch.setattr(studio_api, "tuning_guide", lambda c, p, now: [
+        {"id": "guide-bedtime-weeknights", "severity": "suggest", "kind": "guide", "title": "t", "detail": "d", "evidence": [],
+         "proposal": {"rhythm_id": "weeknights", "schedule": "bedtime", "from": "22:15", "to": shown["to"]}}])
+    with make(tmp_path) as c:
+        get = lambda: next(i for i in c.get("/api/people/p1/insights").json() if i["id"] == "guide-bedtime-weeknights")  # noqa: E731
+        assert not get().get("dismissed")
+        assert c.post("/api/people/p1/insights/dismiss", json={"id": "guide-bedtime-weeknights", "sig": "23:00"}).status_code == 200
+        assert get()["dismissed"] is True
+        shown["to"] = "23:30"                                    # the pattern moved: it comes back
+        assert not get().get("dismissed")
+        assert c.post("/api/people/p1/insights/dismiss", json={"id": "other", "sig": "x"}).status_code == 422
+        assert c.post("/api/people/nobody/insights/dismiss", json={"id": "guide-x"}).status_code == 404

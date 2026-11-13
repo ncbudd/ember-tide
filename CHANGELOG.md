@@ -3,13 +3,33 @@
 All notable changes. The project follows [Semantic Versioning](https://semver.org/) loosely while it is 0.x: anything may change between
 minor versions, and each entry says what to check when upgrading.
 
-## Unreleased
+## 0.1.7
 
+**Upgrade notes:** the image now includes the Anthropic SDK and the MCP server package. `ET_BED` with an unknown value
+now stops startup with the list of drivers instead of quietly using the simulator. In the example Compose file the
+bundled Mosquitto broker moved under the `local-bed` profile (`docker compose --profile local-bed up -d`), and `TZ`
+defaults to `Etc/UTC`: set your own zone.
+
+- **Bring your own AI model.** Studio, AI model: pick a local model (Ollama, LM Studio, any OpenAI-compatible server)
+  or a hosted one (Claude, OpenAI, GitHub Models, Google Gemini, OpenRouter), load its models, test and save. The key
+  stays on the server. `ET_LLM_*` settings remain the defaults. See docs/ai-models.md.
+- **Connect AI apps (MCP).** Studio, Connect an AI app: personal keys let Claude Desktop, Claude Code, VS Code with
+  Copilot, Cursor and other MCP clients read your nights and, if allowed, make the same changes Ask can, within the
+  same limits. See docs/mcp.md.
+- **Your language, units and clock everywhere.** New Assistant language and 12/24-hour clock settings. The assistant,
+  reviews, insights, summaries and notifications follow each person's units and clock; seasons follow your time zone
+  (southern hemisphere included). New people start with their region's units.
+- **More home setups.** Notifications to any webhook or an Apprise server (Gotify, Pushover, Telegram, Matrix,
+  email…); sign-in through a forward-auth proxy (`ET_AUTH_HEADER`); `ET_TRUSTED_PROXIES`; MQTT over TLS (`mqtts://`);
+  your own bed driver (`ET_BED=python:module:Class`, docs/drivers.md); install without Docker; `.env.example`.
 - **"I'm up" ends the night.** A new button on the Tonight screen (big in the morning and during a lie-in, in the
-  Tonight menu otherwise) ends the current night now: the side turns off and the morning summary counts it as done.
-  The dial's or watch's off press in the morning does the same instead of switching off the coming night. A lie-in
-  also ends about 3 minutes after your phone and watch stop vouching for the bed, even if something (a pet) stays on
-  the pad. See docs/HANDOFF.md.
+  Tonight menu otherwise) ends the current night now: the side turns off and the morning summary counts it as done,
+  even if the side was paused or switched off earlier. The dial's or watch's off press in the morning does the same
+  instead of switching off the coming night. A lie-in also ends about 3 minutes after your phone and watch stop
+  vouching for the bed, even if something (a pet) stays on the pad.
+- **Suggestions you can act on.** Tuning-guide suggestions on Tonight now open with the full text, the nights they're
+  based on and the choices right there; swipe one away for "not now". Dismissals are remembered on the server, so they
+  stay dismissed on every device until the pattern changes.
 
 ## 0.1.6
 

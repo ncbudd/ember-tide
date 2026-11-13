@@ -1314,3 +1314,11 @@ button.bedpick-half:focus-visible,.bedpick-whole:focus-visible{outline:2px solid
 .aicard span{font-size:12px;color:var(--mute)}
 .aicard[aria-pressed="true"]{border-color:var(--acc);box-shadow:0 0 0 1px var(--acc)}
 .aiform{display:grid;gap:12px}
+
+/* Tuning-guide suggestion on Tonight: open by default, swipe sideways = Not now */
+.guidenote{touch-action:pan-y;display:grid;gap:6px}
+.guidenote .gn-title{margin:0;font-size:15.5px;line-height:1.4;font-weight:500;white-space:normal}
+.guidenote .gn-detail{margin:0;font-size:13.5px;line-height:1.45;color:var(--mute)}
+.guidenote .gn-ev{margin:0;padding-left:18px;font-size:12.5px;line-height:1.5;color:var(--mute)}
+.guidenote .gn-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:4px}
+.guidenote .gn-actions .btn{min-height:44px;padding:10px 16px;font-size:14.5px}

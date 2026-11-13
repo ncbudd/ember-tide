@@ -332,19 +332,15 @@ function MorningSuggestions({ pid, units, say }: { pid: string; units: "F" | "C"
   );
 }
 
-interface GuideItem { id: string; kind?: string; title: string; detail: string; proposal: { rhythm_id: string; schedule?: string; from?: string | number; to: string | number } | null; applied?: unknown }
+interface GuideItem { id: string; kind?: string; title: string; detail: string; proposal: { rhythm_id: string; schedule?: string; from?: string | number; to: string | number } | null; applied?: unknown; dismissed?: boolean }
 
 /** Tuning-guide changes (bedtime / wake that match how your nights really go). Only ones with a change to make;
- *  "Not now" hides it on this phone until it comes back with new evidence (a different suggested time). */
+ *  "Not now" is remembered on the server for this person until it comes back with new evidence (a different suggested time). */
 function GuideCards({ pid, say }: { pid: string; say: (m: string) => void }) {
   const [items, setItems] = useState<GuideItem[]>([]);
-  const key = `et-guide-hidden:${pid}`;
-  const hidden = (): string[] => { try { return JSON.parse(localStorage.getItem(key) || "[]"); } catch { return []; } };
-  const [hide, setHide] = useState<string[]>(hidden);
-  const load = () => api.get<GuideItem[]>(`/api/people/${pid}/insights`).then(r => setItems(r.filter(i => i.kind === "guide" && i.proposal?.schedule))).catch(() => {});
-  useEffect(() => { load(); setHide(hidden()); }, [pid]);
-  const sig = (i: GuideItem) => `${i.id}:${i.proposal?.to}`;
-  const shown = items.filter(i => !hide.includes(sig(i))).slice(0, 2);
+  const load = () => api.get<GuideItem[]>(`/api/people/${pid}/insights`).then(r => setItems(r.filter(i => i.kind === "guide" && i.proposal?.schedule && !i.dismissed))).catch(() => {});
+  useEffect(() => { load(); }, [pid]);
+  const shown = items.slice(0, 2);
   if (!shown.length) return null;
   return (
     <div className="card">
@@ -356,7 +352,7 @@ function GuideCards({ pid, say }: { pid: string; say: (m: string) => void }) {
           <div className="chips">
             <button className="btn pri" onClick={async () => { try { await api.post(`/api/people/${pid}/insights/apply`, { proposal: i.proposal, insight_id: i.id, source: "guide" }); say(`${i.proposal!.schedule === "bedtime" ? "Bedtime" : "Wake"} is now ${hm12(String(i.proposal!.to))}`); load(); } catch (e) { say(`Couldn't do that: ${(e as Error).message}`); } }}>
               Change to {hm12(String(i.proposal!.to))}</button>
-            <button className="chip" onClick={() => { const n = [...hide, sig(i)]; setHide(n); try { localStorage.setItem(key, JSON.stringify(n.slice(-40))); } catch { /* private mode */ } }}>Not now</button>
+            <button className="chip" onClick={() => { setItems(items.filter(x => x.id !== i.id)); api.post(`/api/people/${pid}/insights/dismiss`, { id: i.id, sig: String(i.proposal?.to ?? "") }).catch(() => { /* hidden here anyway */ }); }}>Not now</button>
           </div>
         </div>
       ))}
