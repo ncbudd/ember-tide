@@ -1,0 +1,18 @@
+[
+  { "name": "android urgent",
+    "input": { "token": "tok-android", "e": "c2VjcmV0LWNpcGhlcnRleHQ", "urgent": true, "ios": false, "now": 1800000000 },
+    "expected": { "message": { "token": "tok-android", "data": { "e": "c2VjcmV0LWNpcGhlcnRleHQ" }, "android": { "priority": "high", "ttl": "21600s" } } } },
+  { "name": "android normal",
+    "input": { "token": "tok-android", "e": "AAAA", "urgent": false, "ios": false, "now": 1800000000 },
+    "expected": { "message": { "token": "tok-android", "data": { "e": "AAAA" }, "android": { "priority": "normal", "ttl": "21600s" } } } },
+  { "name": "iphone urgent",
+    "input": { "token": "tok-ios", "e": "c2VjcmV0", "urgent": true, "ios": true, "now": 1800000000 },
+    "expected": { "message": { "token": "tok-ios", "data": { "e": "c2VjcmV0" }, "android": { "priority": "high", "ttl": "21600s" },
+      "apns": { "headers": { "apns-priority": "10", "apns-push-type": "alert", "apns-expiration": "1800021600" },
+                "payload": { "aps": { "alert": { "title": "Ember & Tide", "body": "New message" }, "mutable-content": 1, "sound": "default" } } } } } },
+  { "name": "iphone normal",
+    "input": { "token": "tok-ios", "e": "c2VjcmV0", "urgent": false, "ios": true, "now": 1800000000 },
+    "expected": { "message": { "token": "tok-ios", "data": { "e": "c2VjcmV0" }, "android": { "priority": "normal", "ttl": "21600s" },
+      "apns": { "headers": { "apns-priority": "5", "apns-push-type": "alert", "apns-expiration": "1800021600" },
+                "payload": { "aps": { "alert": { "title": "Ember & Tide", "body": "New message" }, "mutable-content": 1, "sound": "default" } } } } } }
+]

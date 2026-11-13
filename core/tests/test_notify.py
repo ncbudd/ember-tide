@@ -377,7 +377,9 @@ async def test_fcm_unregistered_phone_is_removed(tmp_path):
     assert n.c.notifier.devices(n.p1.id) == []
 
 
-def test_fcm_registration_needs_the_server_set_up(tmp_path):
+def test_fcm_registration_needs_the_server_set_up(tmp_path, monkeypatch):
+    monkeypatch.setenv("ET_PUSH_RELAY", "off")      # no relay, no key: Google push is off
+    monkeypatch.delenv("ET_FCM_CREDENTIALS", raising=False)
     with make(tmp_path) as c:
         _, pub, auth = _phone_keys()
         r = c.post("/api/notify/me/push", json={"kind": "fcm", "endpoint": "a" * 160, "p256dh": pub, "auth": auth, "person": "p1"}, headers=H)

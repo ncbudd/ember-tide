@@ -1,0 +1,17 @@
+name = "ember-tide-push"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# The public address (homepush.dev is the maintainer's neutral domain for project push relays). wrangler deploy
+# creates the DNS record. If you host your own relay, change or remove this and point ET_PUSH_RELAY_URL at yours.
+routes = [{ pattern = "embertide.homepush.dev", custom_domain = true }]
+
+# Create the namespace once with:  npx wrangler kv namespace create RELAY_KV
+# then paste the id it prints below.
+[[kv_namespaces]]
+binding = "RELAY_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# Secrets (never put these in this file):
+#   npx wrangler secret put FCM_SERVICE_ACCOUNT   (paste the Firebase service-account JSON)
+#   npx wrangler secret put IP_SALT               (optional: any random text, used when hashing addresses)

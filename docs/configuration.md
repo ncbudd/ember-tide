@@ -30,7 +30,9 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_HA_MQTT_CA_FILE` | none | Same as `ET_MQTT_CA_FILE`, for the Home Assistant bridge (`ET_HA_MQTT_URL=mqtts://...`, port 8883 by default). |
 | `ET_HA_MQTT_TLS_INSECURE` | `off` | `on` skips certificate checks for an `mqtts://` Home Assistant broker (self-signed). |
 | `ET_HA_DISCOVERY_PREFIX` | `homeassistant` | MQTT discovery prefix used for Home Assistant entities. Change only if you changed it in Home Assistant. |
-| `ET_FCM_CREDENTIALS` | `<data dir>/fcm-service-account.json` | Path to your own Firebase service-account key, to send Google push notifications to the Android app. Optional. |
+| `ET_FCM_CREDENTIALS` | `<data dir>/fcm-service-account.json` | Path to your own Firebase service-account key, to send Google push notifications to the Android app. Optional. With this key present, pushes go straight to Google and never touch the relay below. |
+| `ET_PUSH_RELAY` | `on` | Phone pushes for the Android app use the Ember & Tide push relay when this server has no Firebase key of its own. `off`, `0` or `false` turns the relay off (Web Push, ntfy, Home Assistant and webhooks are unaffected). See [notifications.md](notifications.md#the-push-relay). |
+| `ET_PUSH_RELAY_URL` | `https://embertide.homepush.dev` | Address of the relay. Change it only to use a relay you host yourself (`relay/`). |
 | `ET_LLM_URL` | none | Default for the AI model (the choice saved in Studio, AI model, overrides all four `ET_LLM_*` settings; see [ai-models.md](ai-models.md)). An OpenAI-compatible endpoint for the optional "Ask" assistant and morning review, for example Ollama at `http://host:11434/v1`. Unset means built-in analysis only; nothing leaves the house. |
 | `ET_LLM_MODEL` | `qwen2.5:7b` | Model name sent to that endpoint. |
 | `ET_LLM_KEY` | none | API key for the endpoint, if it needs one. |
@@ -39,7 +41,7 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_TRACE` | `on` | A compact JSON line every 15 seconds in `<data dir>/traces/`, kept 14 days, for tuning presence on real nights (no names). `off`, `0` or `false` disables it. |
 | `TZ` | none | Standard time-zone variable; used by the container and as the fallback for `ET_TZ`. |
 
-That is 30 variables (29 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_LLM_KEY`, URLs with passwords) are best
+That is 32 variables (31 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_LLM_KEY`, URLs with passwords) are best
 kept in a `.env` file next to your Compose file with restricted permissions, which is git-ignored here (`.env.example` lists every variable to copy from):
 
 ```yaml
