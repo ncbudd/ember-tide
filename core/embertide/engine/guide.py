@@ -26,6 +26,12 @@ def _shift(hm: str, minutes: int) -> str:
     return f"{t // 60:02d}:{t % 60:02d}"
 
 
+def _say_hm(hm: str, style: str) -> str:
+    """A schedule time ("23:00") in the person's clock style, for text only (proposals keep "HH:MM")."""
+    h, m = (int(x) for x in hm.split(":"))
+    return f"{h % 12 or 12}:{m:02d} {'AM' if h < 12 else 'PM'}" if style == "12" else f"{h:02d}:{m:02d}"
+
+
 def _round15(x: float) -> int:
     return int(round(x / 15.0) * 15)
 
@@ -115,7 +121,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                 out.append({"id": f"guide-bedtime-{rh.id}", "severity": "suggest", "kind": "guide",
                             "title": f"{rh.name}: you usually get into bed {abs(round(med))} min {'after' if med > 0 else 'before'} your set bedtime",
                             "detail": f"On {len(offs)} ordinary nights (late events and nights away left out). Moving bedtime to "
-                                      f"{to} lines up wind-down and pre-condition with when you actually go to bed.",
+                                      f"{_say_hm(to, ck)} lines up wind-down and pre-condition with when you actually go to bed.",
                             "evidence": [f"{r['date']}: in bed {_hm(r['in_bed'], tz, ck)}" for r in mine][-7:],
                             "proposal": {"rhythm_id": rh.id, "schedule": "bedtime", "from": rh.schedule.bedtime, "to": to}})
         wo = [((r["out"] - r["rn"].wake) / 60, r) for r in mine if r["out"]]
@@ -125,7 +131,7 @@ def tuning_guide(c, p, now: float) -> list[dict]:
                 to = _shift(rh.schedule.wake, _round15(med))
                 out.append({"id": f"guide-wake-{rh.id}", "severity": "suggest", "kind": "guide",
                             "title": f"{rh.name}: you usually get up {abs(round(med))} min {'before' if med < 0 else 'after'} your wake time",
-                            "detail": f"The warm wake is timed for {rh.schedule.wake}. Setting wake to {to} times it for when you really get up.",
+                            "detail": f"The warm wake is timed for {_say_hm(rh.schedule.wake, ck)}. Setting wake to {_say_hm(to, ck)} times it for when you really get up.",
                             "evidence": [f"{r['date']}: up {_hm(r['out'], tz, ck)}" for _, r in wo][-7:],
                             "proposal": {"rhythm_id": rh.id, "schedule": "wake", "from": rh.schedule.wake, "to": to}})
 

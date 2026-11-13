@@ -98,9 +98,10 @@ After a minute or two, `docker compose ps` should show the app as **healthy**. (
 start with `docker compose --profile local-bed up -d`, or put `COMPOSE_PROFILES=local-bed` in a `.env` file next to the Compose file so
 plain `docker compose up -d` includes it.)
 
-**Folder permissions.** The container runs as user and group **1000**, not root. A fresh folder or named volume just works. If `./data`
-already exists and belongs to someone else (a folder an older image wrote as root, or the shared-folder owner on a NAS), fix it once with
-`chown -R 1000:1000 ./data`, or tell the container to run as that folder's owner by adding `user: "<uid>:<gid>"` under the `embertide:`
+**Folder permissions.** The app runs as user and group **1000**, not root. A fresh, empty folder (including the `./data` folder Docker
+creates for you) or a named volume just works: the container hands it to uid 1000 on first start. If `./data` already holds data that
+belongs to someone else (a folder an older image wrote as root, or the shared-folder owner on a NAS), the container keeps running as root
+and logs how to switch: fix it once with `chown -R 1000:1000 ./data`, or tell the container to run as that folder's owner by adding `user: "<uid>:<gid>"` under the `embertide:`
 service (find the numbers with `ls -ln ./data`). On **Unraid**, shares are owned by `99:100` (nobody:users): use `user: "99:100"`. On **Synology**,
 use the numbers of the user that owns the shared folder (often `1026:100`; `id <username>` over SSH shows them) or `chown` it to `1000:1000`.
 
@@ -588,6 +589,13 @@ For a machine where you would rather not run Docker. You need Python 3.12 or new
 and `git`. The published Docker image is multi-arch (`linux/amd64` and `linux/arm64`), so a 64-bit Raspberry Pi (Pi 4 or 5 with the
 64-bit OS) runs the Docker route too; the steps below work on any Linux, including a Pi. On a Pi, building the web app takes a few minutes.
 
+Before step 1, get the tools. On Ubuntu and Debian the Python virtual-environment module is a separate package, so `python3 -m venv`
+fails with "ensurepip is not available" until you run `sudo apt install python3.12-venv` (use the version your system has, and `python3-pip` if you
+want `pip` in the environment). Ubuntu's own `nodejs` package is usually older than Node 20; get a current LTS release from
+[nodejs.org](https://nodejs.org/en/download), with [nvm](https://github.com/nvm-sh/nvm) or from your distribution's Node repository, and check
+`python3 --version` (3.12 or newer) and `node --version` (20 or newer) before you continue. The commands that start with `sudo` need an account that can use it;
+without one, skip step 1's service user and the systemd steps and use "Try it in the foreground" below.
+
 1. **Make a service user and folders:**
 
    ```bash
@@ -620,9 +628,23 @@ and `git`. The published Docker image is multi-arch (`linux/amd64` and `linux/ar
    journalctl -u embertide -f          # logs
    ```
 
+   Check that it runs: `curl http://localhost:8790/healthz` should answer `{"ok":true,"version":"...","id":"..."}`.
+
+   **Try it in the foreground (no service user, no systemd).** Handy for a first look. It uses the built-in simulator and a throwaway data folder,
+   so no bed is needed; stop it with Ctrl+C:
+
+   ```bash
+   mkdir -p ~/embertide-data
+   ET_WEB_DIR=/opt/embertide/src/web/dist ET_DATA_DIR=$HOME/embertide-data ET_PORT=8790 ET_TZ=Etc/UTC      /opt/embertide/venv/bin/python -m embertide
+   ```
+
+   Use your own time zone for `ET_TZ` (for example `Europe/London`). Without `ET_WEB_DIR` pointing at the built `web/dist`, the API runs but `/` has no web app.
+
 5. Open `http://<machine>:8790` and continue with [B. First-run setup](#b-first-run-setup-in-the-app). For the real bed you still need an
    MQTT broker on port 1883 (install Mosquitto from your distribution and use `deploy/mosquitto/` as the model) and the DNS step from
    [bed-cutover.md](bed-cutover.md).
+
+Locked out of the owner account? Run `/opt/embertide/venv/bin/python -m embertide reset-password <username>` with the same `ET_DATA_DIR` set; it prints a one-time link.
 
 To update: `git pull`, `pip install` the core again, rebuild the web app, `sudo systemctl restart embertide`. Back up `/var/lib/embertide`.
 
@@ -641,8 +663,8 @@ docker run -d --name ember-tide --restart unless-stopped \
 ```
 
 For a real bed against a broker you already run, add `-e ET_BED=orion-mqtt -e ET_MQTT_URL=mqtt://192.168.1.10:1883`. A named volume (above) or a folder
-(`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`. The container runs as uid and gid 1000, not root. A fresh named volume just works; a folder that an older
-(root) image already wrote to needs a one-time `chown -R 1000:1000 /srv/ember-tide` (see [troubleshooting](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas)). The image listens on `0.0.0.0:8790`, keeps its data in `/data`, and has a health check on `/healthz`.
+(`-v /srv/ember-tide:/data`) both work; the database is `/data/embertide.db`. The app runs as uid and gid 1000, not root. A fresh named volume or empty folder just works; a folder that an older
+(root) image already wrote to keeps running as root until you `chown -R 1000:1000 /srv/ember-tide` once (see [troubleshooting](troubleshooting.md#the-data-folder-cannot-be-written-synology-unraid-nas)). The image listens on `0.0.0.0:8790`, keeps its data in `/data`, and has a health check on `/healthz`.
 
 ### Build the image yourself
 

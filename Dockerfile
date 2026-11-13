@@ -20,10 +20,13 @@ COPY --from=web /web/dist /app/web
 ENV ET_WEB_DIR=/app/web \
     ET_DATA_DIR=/data \
     ET_PORT=8790
-# Run as an unprivileged user (uid/gid 1000). /data is created owned by it, so a fresh named volume just works;
-# an existing bind-mounted data folder written by the old root image needs a one-time `chown -R 1000:1000` (docs/install.md).
+# The app runs as an unprivileged user (uid/gid 1000). The entrypoint starts as root only to set up a NEW data folder
+# (a bind-mounted ./data that Docker created owned by root) and then drops to uid 1000; existing data owned by someone
+# else keeps the old root behaviour. A Compose `user:` line skips all of this. See docker/entrypoint.sh.
 RUN groupadd --system --gid 1000 embertide && useradd --system --uid 1000 --gid 1000 --no-create-home embertide     && mkdir -p /data && chown embertide:embertide /data
-USER 1000:1000
+COPY --chmod=755 docker/entrypoint.sh /app/entrypoint.sh
+# nosemgrep: dockerfile.security.missing-user.missing-user, dockerfile.security.missing-user-entrypoint.missing-user-entrypoint -- the entrypoint drops to uid 1000 itself (setpriv) once the data folder is set up
+ENTRYPOINT ["/app/entrypoint.sh"]
 VOLUME /data
 EXPOSE 8790
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD python -c "import urllib.request;urllib.request.urlopen('http://localhost:${ET_PORT:-8790}/healthz')" || exit 1

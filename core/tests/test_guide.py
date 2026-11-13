@@ -115,3 +115,9 @@ async def test_late_workouts_and_caffeine_slow_settling(tmp_path, monkeypatch):
     g = ids(tuning_guide(n.c, n.p1, n.clock.now_ts()))
     assert "guide-exercise" in g and "35 min" in g["guide-exercise"]["detail"]
     assert "guide-caffeine" not in g
+
+
+def test_schedule_times_in_text_follow_the_clock_style():
+    from embertide.engine.guide import _say_hm
+    assert _say_hm("00:00", "12") == "12:00 AM" and _say_hm("23:15", "12") == "11:15 PM"
+    assert _say_hm("00:00", "24") == "00:00" and _say_hm("07:30", "24") == "07:30"

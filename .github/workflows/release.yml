@@ -32,6 +32,9 @@ jobs:
       version_code: ${{ steps.v.outputs.version_code }}
       major_minor: ${{ steps.v.outputs.major_minor }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Work out the version
         id: v
         env:
@@ -47,6 +50,12 @@ jobs:
           # Keep minor and patch under 100. Android refuses to install an APK with a lower versionCode over a higher one.
           if [ "$minor" -ge 100 ] || [ "$patch" -ge 100 ]; then echo "minor and patch must stay below 100 for the versionCode scheme."; exit 1; fi
           code=$(( major * 10000 + minor * 100 + patch ))
+          # The app reports its own version (Studio, /healthz, Home Assistant): it must match the tag.
+          for f in core/embertide/__init__.py core/pyproject.toml web/package.json; do
+            if ! grep -Eq "(version|__version__)\"?[[:space:]]*[:=][[:space:]]*\"$v\"" "$f"; then
+              echo "$f doesn't say version $v. Bump it (and add the CHANGELOG section) in a pull request first."; exit 1
+            fi
+          done
           echo "version=$v" >> "$GITHUB_OUTPUT"
           echo "version_code=$code" >> "$GITHUB_OUTPUT"
           echo "major_minor=$major.$minor" >> "$GITHUB_OUTPUT"
@@ -211,6 +220,15 @@ jobs:
             echo "- \`ember-tide-$VERSION-wear-os.apk\`: the Wear OS tile and heart-rate app."
             echo "- Server: \`docker pull ghcr.io/ncbudd/ember-tide:$VERSION\` (see docs/install.md)."
             echo "- \`SHA256SUMS.txt\`: check a download with \`sha256sum -c SHA256SUMS.txt\`."
+          } >> notes.md
+          # The signing certificate, so people can check an APK before installing it (the same key for every release).
+          cert=$(keytool -printcert -jarfile "release-files/ember-tide-$VERSION-android-google-push.apk" | awk '/SHA256:/ {print $2; exit}')
+          if [ -z "$cert" ]; then echo "Could not read the APK signing certificate."; exit 1; fi
+          {
+            echo
+            echo "### Signing certificate"
+            echo "All APKs are signed with the same key. SHA-256 fingerprint: \`$cert\`"
+            echo "Check one with \`apksigner verify --print-certs <file>.apk\` or \`keytool -printcert -jarfile <file>.apk\`."
           } >> notes.md
       - name: Create the release
         env:

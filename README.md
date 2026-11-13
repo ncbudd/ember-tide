@@ -5,6 +5,12 @@
 actually in bed. It runs on a small server in your home, talks to the bed over its own local protocol, and works with a phone
 app, Home Assistant, a bedside dial, a watch and whatever sensors you already have. Nothing needs the cloud, and nothing updates itself.
 
+**Unofficial:** an independent community project, not affiliated with or endorsed by Orion Sleep or its maker. "Orion" only names the hardware it works with.
+
+## Beta testing
+
+New here as a tester? Read [TESTING.md](TESTING.md) first: safety notes, the recommended first path (the simulator, then the `orion-cloud` driver, no network changes), what to try this round and how to report problems.
+
 It is built first for the **Orion Sleep** topper. The pictures below show the simulator with two made-up sleepers, Alex and Sam.
 
 <p align="center">

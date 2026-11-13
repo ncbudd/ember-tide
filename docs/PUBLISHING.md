@@ -66,6 +66,9 @@ files that were removed), review `git status` there, and commit as Ncbudd with a
 A release is one tag. The workflow `.github/workflows/release.yml` does the rest.
 
 1. **CHANGELOG.** Add a section headed `## X.Y.Z` (the text after it, such as "(first public release)", is fine). Its body becomes the release notes.
+   In the same pull request set the version to `X.Y.Z` in `core/embertide/__init__.py`, `core/pyproject.toml` and `web/package.json`
+   (and the two root entries in `web/package-lock.json`): the release stops if they don't match the tag. The notes also get
+   the APK signing certificate's SHA-256 fingerprint automatically.
    The checks in section 1 must pass.
 2. **Tag and push the tag to the publish repository** (the one made in section 2, not the working repository):
 
