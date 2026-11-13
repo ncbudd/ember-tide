@@ -160,6 +160,7 @@ function momentBase(m: Moment, units: "F" | "C"): [string, string, string?] {
     }
     case "adjust_cleared": return ["↺", "Went back to the rhythm"];
     case "tonight_skip": return ["○", "Turned off for the night"];
+    case "tonight_end": return ["○", "Ended the night by hand"];
     case "tonight_resume": return ["●", "Turned back on"];
     case "tonight_pause": return ["‖", "Paused for an hour"];
     case "tonight_start_now": return ["▸", "Started by hand"];

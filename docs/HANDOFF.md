@@ -396,6 +396,11 @@ adb -s <watch> install -r wear/build/outputs/apk/debug/wear-debug.apk
   `was_in_bed`, `up_since`); summaries count in bed from the new start (`earlier_in_bed` note), the story says
   "Started again from the beginning (you'd been up since …)". A next-phase change from the given-up night ends; a
   whole-night change carries. A 3 AM hour up after hours asleep resumes as always.
+- Lie-in and "I'm up" (night.py): `tonight` action `end` ends the current night now (lie-in stops, `night_done`, side off;
+  `skip_next` untouched; 409 when no night is running). `skip` in the wake phase or a lie-in means `end`, so a dial/watch
+  off press in the morning never cancels tonight. During a lie-in only, the phone and watch both vanishing from the
+  votes for `LIE_IN_PERSONAL_GONE_S` (after having voted earlier), with the pad empty `LIE_IN_GAP_S` or the watch and pad
+  disagreeing, end it ("your phone and watch left the bed"), even while a pet keeps the pad and radar present.
 - In bed early, waiting for sleep (night.py `_sleep_tick`, engine/sleepsign.py; `Schedule.wait_for_sleep`, default on,
   phone Rhythm tab + Studio Rhythm editor under "Start when I'm in bed on my side"): a night started by getting in before
   the usual bedtime runs as always but the in-bed phases after the first ("Deep" at in-bed + 40) count from the sleep

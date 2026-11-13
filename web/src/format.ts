@@ -172,6 +172,7 @@ export function eventText(e: { kind: string; source?: string | null; [k: string]
     case "rhythm_restarted": return "Back in bed · night started again from the beginning";
     case "rhythm_changed": return "Rhythm edited";
     case "tonight_skip": return "Turned off for the night";
+    case "tonight_end": return "Night ended by hand";
     case "tonight_resume": return "Turned back on";
     case "tonight_pause": return `Paused${min}`;
     case "tonight_start_now": return "Started by hand";

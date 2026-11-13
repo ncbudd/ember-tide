@@ -14,6 +14,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from .drivers.base import CommandError
+from .engine.night import NightNotRunning
 from .units import clock_style
 from .models import Person, PersonSettings, Rhythm, off_nights, sync_rhythm_days, work_nights
 
@@ -52,7 +53,7 @@ class GuestSetBody(BaseModel):
 
 
 class TonightBody(BaseModel):
-    action: Literal["skip", "resume", "start_now", "pause", "delay"]
+    action: Literal["skip", "resume", "start_now", "pause", "delay", "end"]
     minutes: int | None = Field(None, ge=1, le=720)
     source: str = Field("app", max_length=20)
 
@@ -260,7 +261,10 @@ def build_router(app_state) -> APIRouter:
     async def tonight(pid: str, b: TonightBody):
         find(pid)
         not_guest(pid)
-        ctl().engine_for(pid).tonight(ctl().clock.now_ts(), b.action, b.minutes, b.source)
+        try:
+            ctl().engine_for(pid).tonight(ctl().clock.now_ts(), b.action, b.minutes, b.source)
+        except NightNotRunning as ex:
+            raise HTTPException(409, str(ex)) from None
         return await refresh(pid)
 
     @r.post("/people/{pid}/context")
