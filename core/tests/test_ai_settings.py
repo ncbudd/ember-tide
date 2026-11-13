@@ -13,7 +13,7 @@ from embertide.config import Config
 
 H = {"X-Embertide": "1"}
 PW = "correct horse battery"
-KEY = "sk-secret-1234567890abcd"
+KEY = "test-not-a-real-key-abcd"  # gitleaks:allow (fake key for tests)
 
 
 _open: list = []

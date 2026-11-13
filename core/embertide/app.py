@@ -58,6 +58,7 @@ def load_driver_class(spec: str):
     if not (mod and sep and name):
         raise ValueError(f"ET_BED={spec!r}: use python:package.module:ClassName")
     try:
+        # nosemgrep: python.lang.security.audit.non-literal-import.non-literal-import -- the module comes from the operator's own ET_BED setting at startup, never from a request
         module = importlib.import_module(mod)
     except Exception as e:  # noqa: BLE001
         raise ValueError(f"ET_BED={spec!r}: can't import {mod!r} ({e.__class__.__name__}: {e}). "
