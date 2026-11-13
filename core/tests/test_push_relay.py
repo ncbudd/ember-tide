@@ -90,12 +90,12 @@ async def test_own_firebase_key_is_preferred(tmp_path):
 
     def handler(req: httpx.Request):
         seen.append(str(req.url))
-        if "oauth2" in str(req.url):
+        if req.url.host == "oauth2.googleapis.com":
             return httpx.Response(200, json={"access_token": "ya29.test", "expires_in": 3600})
         return httpx.Response(200, json={})
     n.c.notifier.fcm.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     assert await _push(n)
-    assert relay.calls == [] and any("fcm.googleapis.com" in u for u in seen)
+    assert relay.calls == [] and any(httpx.URL(u).host == "fcm.googleapis.com" for u in seen)
 
 
 async def test_relay_used_without_a_key_and_off_switch(tmp_path, monkeypatch):
