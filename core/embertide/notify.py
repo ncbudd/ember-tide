@@ -189,6 +189,8 @@ class Notifier:
         from pathlib import Path
         from .fcm import Fcm
         self.fcm = Fcm(Path(self.store.path).parent if self.store.path != ":memory:" else Path("."), client)
+        from .push_relay import PushRelay
+        self.relay = PushRelay(self.store, client)
         from .web_push import WebPushKeys
         self.webpush = WebPushKeys(Path(self.store.path).parent if self.store.path != ":memory:" else None)
         self._offline_since: float | None = None
@@ -1544,9 +1546,21 @@ class Notifier:
         self._log_delivery({"provider": name, "title": m.title, "ok": False, "error": err})
         return False
 
+    def push_path(self) -> str:
+        """How Google/phone-app pushes leave this server: "direct" (the owner's own Firebase key, always preferred),
+        "relay" (the Ember & Tide push relay, when there is no key and the relay isn't turned off) or "off"."""
+        if self.fcm.configured:
+            return "direct"
+        return "relay" if self.relay.enabled else "off"
+
+    @property
+    def fcm_ready(self) -> bool:
+        return self.push_path() != "off"
+
     async def _push_fcm(self, pid: str, d: dict, m: Message, body: bytes) -> bool:
         try:
-            res = await self.fcm.send(d["endpoint"], body, urgent=True, ios=d.get("platform") == "ios")   # deliver promptly
+            sender = self.relay if self.push_path() == "relay" else self.fcm
+            res = await sender.send(d["endpoint"], body, urgent=True, ios=d.get("platform") == "ios")   # deliver promptly
             if res == "gone":
                 self.remove_device(pid, endpoint=d["endpoint"])
                 log.info("fcm: %s is gone, removed", d.get("device"))

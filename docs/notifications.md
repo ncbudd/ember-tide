@@ -38,6 +38,29 @@ Apprise examples (use them as a saved config on the Apprise server, key e.g. `em
 | Discord | `discord://WEBHOOK_ID/WEBHOOK_TOKEN` |
 | Email | `mailtos://user:secret@smtp.example.com?to=you@example.com` |
 
+## The push relay
+
+The Google-push Android app can only receive pushes sent with the Firebase project it was built with. Rather than make
+every household create a Firebase project, a small relay (a Cloudflare Worker, source in `relay/`) holds that key and
+forwards pushes, the same idea Home Assistant, Nextcloud and Bitwarden use.
+
+- **Which path is used.** If this server has its own Firebase service-account file (`ET_FCM_CREDENTIALS` or
+  `fcm-service-account.json` in the data folder), pushes go straight to Google exactly as before and the relay is never
+  contacted. With no key, the relay is used. With `ET_PUSH_RELAY=off` and no key, the Google-push app has no push and
+  the app falls back to ntfy or Web Push. Studio, Notifications says which of the three is active.
+- **Nothing to set up.** The first push registers this server with the relay (`POST /v1/register`); the install id and
+  key are kept in the database, never shown in any screen or API, and never logged.
+- **Privacy.** Every push is encrypted on this server for the one phone it is for, before it leaves. The relay only
+  forwards those encrypted bytes, so it cannot read titles, text or buttons, and it never logs bodies, tokens or
+  payloads (only counts and error codes). To rate-limit sign-ups it keeps a hash of the registering address, not the
+  address itself. It does learn that some server sent some phone a message, and when, as Google does.
+- **Limits.** Each request carries at most 10 phones and 8 KB, is signed with your install key and must be within 5
+  minutes of the relay's clock (keep the server's clock right). Fair use is 500 messages a day per install and 5
+  registrations a day per address; a household's few notifications a night are far below that.
+- **Turn it off.** Set `ET_PUSH_RELAY=off` and restart. Web Push, ntfy, Home Assistant and webhooks keep working.
+- **Host your own.** Deploy `relay/` (see `relay/README.md`) with your own Firebase service-account key, then set
+  `ET_PUSH_RELAY_URL` to its address. The app build must use the same Firebase project's `google-services.json`.
+
 ## Inventory
 
 Pushes (from the server):

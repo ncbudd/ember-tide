@@ -41,7 +41,7 @@ Tick off what you can, and tell us about anything that confused you, not only th
 - [ ] **Rhythm editor:** change bedtime, wake time and a phase temperature; check the plan shown for tonight.
 - [ ] **A normal night:** get in bed, sleep, get up. Did the bed follow the plan? Anything odd when you got up in the night?
 - [ ] **Morning summary:** is the story of the night readable and roughly right?
-- [ ] **Notifications:** turn them on for your phone, check they arrive, and check that quiet hours behave.
+- [ ] **Notifications:** turn them on for your phone, check they arrive, and check that quiet hours behave. The Android app works out of the box through the push relay (no Firebase file needed; Studio, Notifications shows the path in use). iPhone uses Web Push and needs HTTPS.
 - [ ] **Android app:** sideload the APK from the release ([android.md](docs/android.md)); try the widget, the Hot flash tile, and the Wear OS app if you have a watch.
 - [ ] **iPhone web app:** open it in Safari over plain `http://` at home; notifications need HTTPS ([simplest way](docs/install.md#d-https-phones-away-from-home-and-iphone-notifications)), iOS 16.4 or newer.
 - [ ] **AI model page (optional):** Studio, Insights, if you have a model to point it at ([ai-models.md](docs/ai-models.md)).

@@ -18,7 +18,7 @@ export default function Notifications() {
   const { snap, say } = useApp();
   const auth = useAuth();
   const [items, setItems] = useState<Provider[]>([]);
-  const [pub, setPub] = useState<{ public_url: string | null; from_env: boolean; push_server?: string | null; push_token_saved?: boolean; fcm?: boolean; fcm_project?: string | null } | null>(null);
+  const [pub, setPub] = useState<{ public_url: string | null; from_env: boolean; push_server?: string | null; push_token_saved?: boolean; fcm?: boolean; fcm_project?: string | null; push_path?: "direct" | "relay" | "off" } | null>(null);
   const [pushEdit, setPushEdit] = useState("");
   const [pushTok, setPushTok] = useState("");
   const [pubEdit, setPubEdit] = useState("");
@@ -31,7 +31,7 @@ export default function Notifications() {
   const [confirm, setConfirm] = useState<string | null>(null);
   const load = () => {
     api.get<Provider[]>("/api/notify/providers").then(setItems).catch(() => {});
-    api.get<{ public_url: string | null; from_env: boolean; push_server?: string | null; push_token_saved?: boolean; fcm?: boolean; fcm_project?: string | null }>("/api/notify/settings")
+    api.get<{ public_url: string | null; from_env: boolean; push_server?: string | null; push_token_saved?: boolean; fcm?: boolean; fcm_project?: string | null; push_path?: "direct" | "relay" | "off" }>("/api/notify/settings")
       .then(p => { setPub(p); setPubEdit(p.public_url ?? ""); setPushEdit(p.push_server ?? ""); }).catch(() => {});
     api.get<{ sent: Sent[]; deliveries: Delivery[]; reach?: Record<string, number> }>("/api/notify/log").then(setLog).catch(() => {});
   };
@@ -107,9 +107,12 @@ export default function Notifications() {
 
           <div className="box">
             <span className="k">App notifications: Google push</span>
-            {pub?.fcm
-              ? <span style={{ fontSize: 13 }}>On (Firebase project <b>{pub.fcm_project}</b>). Phones with the app turn notifications on in More → Settings; nobody needs anything else installed. Messages are encrypted for each phone, so Google only carries ciphertext.</span>
-              : <span className="mute" style={{ fontSize: 13 }}>Off. To turn it on, put your Firebase project's service-account file on the server as <code>fcm-service-account.json</code> in the data folder (or point <code>ET_FCM_CREDENTIALS</code> at it); it's picked up without a restart. The app needs the same project's <code>google-services.json</code> when it's built.</span>}
+            {pub?.push_path === "direct"
+              ? <span style={{ fontSize: 13 }}>Direct: your own Firebase project <b>{pub.fcm_project}</b>. Phones with the app turn notifications on in More → Settings; nobody needs anything else installed. Messages are encrypted for each phone, so Google only carries ciphertext.</span>
+              : pub?.push_path === "relay"
+                ? <span style={{ fontSize: 13 }}>Ember &amp; Tide push relay (the default; nothing to set up). Phones with the app turn notifications on in More → Settings. Messages are encrypted for each phone before they leave this server, so the relay and Google only forward ciphertext. Prefer not to use it? Set <code>ET_PUSH_RELAY=off</code> on the server, or add your own Firebase file (<code>fcm-service-account.json</code> in the data folder) to send direct.</span>
+                : <span className="mute" style={{ fontSize: 13 }}>Off. The push relay is turned off (<code>ET_PUSH_RELAY=off</code>) and there is no Firebase file, so the Google-push app can't get notifications. Remove that setting to use the relay, or add your own <code>fcm-service-account.json</code> to the data folder.</span>}
+            <span className="faint" style={{ fontSize: 12 }}>Web Push, ntfy, Home Assistant and webhooks work the same whichever you choose.</span>
           </div>
 
           <div className="box">

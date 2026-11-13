@@ -188,7 +188,7 @@ def build_notify_router(state) -> APIRouter:
         ps = n().push_settings()
         return {"public_url": n().public_url, "from_env": bool(n().default_public_url),
                 "push_server": ps["server"], "push_token_saved": bool(ps["token"]),
-                "fcm": n().fcm.configured, "fcm_project": n().fcm.project}
+                "fcm": n().fcm_ready, "fcm_project": n().fcm.project, "push_path": n().push_path()}
 
     @r.get("/settings")
     async def get_settings():
@@ -221,7 +221,7 @@ def build_notify_router(state) -> APIRouter:
     @r.get("/me/push")
     async def my_push(request: Request, person: str | None = None):
         pid = _me(request, person)
-        return {"server": n().push_settings()["server"], "fcm": n().fcm.configured,
+        return {"server": n().push_settings()["server"], "fcm": n().fcm_ready,
                 "devices": [{"id": d["id"], "device": d["device"], "ts": d["ts"], "kind": d.get("kind", "up")} for d in n().devices(pid)]}
 
     @r.post("/me/push")
@@ -230,8 +230,8 @@ def build_notify_router(state) -> APIRouter:
         import re as _re
         pid = _me(request, b.person)
         if b.kind == "fcm":
-            if not n().fcm.configured:
-                raise HTTPException(422, "Google push isn't set up on this server yet. The owner adds the Firebase file (see Studio → Notifications).")
+            if not n().fcm_ready:
+                raise HTTPException(422, "Google push is turned off on this server. The owner can turn the push relay on, or add a Firebase file (see Studio → Notifications).")
             if not _re.fullmatch(r"[A-Za-z0-9_:\-]{100,400}", b.endpoint.strip()):
                 raise HTTPException(422, "That doesn't look like a push token.")
         else:
