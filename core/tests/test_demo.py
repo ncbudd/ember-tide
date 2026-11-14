@@ -16,9 +16,19 @@ from embertide.demo import DEMO_MUTATE_LIMIT, reset_demo_state
 H = {"X-EmberTide": "1"}
 
 
+def _night_tz() -> str:
+    """A fixed-offset zone where it is about 2 a.m. right now, so a night is always running."""
+    import time as _t
+    off = (2 - _t.gmtime().tm_hour) % 24
+    if off > 14:
+        off -= 24
+    return "Etc/GMT" + ("+" if off <= 0 else "-") + str(abs(off))
+
+
 def _demo_app(tmp_path: Path, **overrides):
     defaults = dict(
         data_dir=tmp_path,
+        tz=_night_tz(),
         demo=True,
         bed="orion-mqtt",
         mqtt_url="mqtt://127.0.0.1:1883",
