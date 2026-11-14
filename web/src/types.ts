@@ -78,11 +78,13 @@ export interface CareTask {
 /** The hardware profile's guide to the hub's light colours (the maker's own words). */
 export interface HubGuide { title: string; source: string; items: [string, string][]; note: string }
 export interface CareData { tasks: CareTask[]; today: string; since: string; hub_guide: HubGuide | null; can_add: boolean }
+export interface LeakHold { since: number; sensor: string; sensor_id: string; wet?: boolean }
 export interface Snapshot {
   now: number; tz: string; speed: number;
   system: { driver: string; name: string; online: boolean; detail: string; capabilities: string[]; firmware: string | null; quiet: boolean | null; brightness: number | null; rgb: number[] | null; system_state: string | null; serial?: string | null; age_s?: number | null; hub?: HubSummary | null };
   household: { user_min_c: number; user_max_c: number };
   guest?: Partial<Record<"left" | "right", GuestSide>>;
+  leak_hold?: LeakHold | null;
   zones?: Record<"left" | "right", { present: boolean | null; bed_present: boolean | null }>;
   people: PersonView[];
 }

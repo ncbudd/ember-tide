@@ -103,7 +103,7 @@ export default function Devices() {
   const sim = snap.system.driver === "sim";
   const side = (z: string) => people.find(p => p.zone === z);
   const fmt = (s: Source) => s.value == null || !s.enabled ? "—" : s.role === "room_temp" || s.role === "skin_temp" ? `${(units === "F" ? cToF(s.value) : s.value).toFixed(1)}°${units}`
-    : s.role === "light" ? ((s.value >= 0.5) !== !!s.tuning_resolved.invert ? "on" : "off") : s.role === "presence" ? ((s.value >= 0.5) !== !!s.tuning_resolved.invert ? "someone there" : "empty")
+    : s.role === "light" ? ((s.value >= 0.5) !== !!s.tuning_resolved.invert ? "on" : "off") : s.role === "leak" ? ((s.value >= 0.5) !== !!s.tuning_resolved.invert ? "wet" : "dry") : s.role === "presence" ? ((s.value >= 0.5) !== !!s.tuning_resolved.invert ? "someone there" : "empty")
     : s.role === "home" ? ((s.value >= 0.5) !== !!s.tuning_resolved.invert ? "at home" : "away") : s.role === "location" ? (s.value < 0.3 ? "home" : `${s.value.toFixed(1)} km away`)
     : s.role === "calendar" ? (s.value > 0 ? `event until ${clock(s.value, snap.tz)}` : "nothing this evening") : s.role === "weight" ? weight(s.value, wu)
     : `${Math.round(s.value * 10) / 10} ${(s.tuning_resolved.unit as string) || s.unit}`;
@@ -309,7 +309,7 @@ export default function Devices() {
             <small className="faint"> {issue.health!.why}</small>
             {issue.health!.status === "erratic" && !issue.health!.trusted && <button type="button" className="link" onClick={() => saveDevice(issue, { ...issue.tuning_resolved, ignore_health: true }).then(ok => ok && say(`${issue.name} will be used even when it acts up.`))}>Trust it anyway</button>}</span>}
           {err && <small style={{ color: "var(--bad)" }}>{err.error}</small>}</span>
-        <span className="devline-read"><span>{reading(s)}{s.enabled && s.tuning_resolved.invert && ["presence", "light", "home"].includes(s.role) ? <Tip text={REVERSED_TIP} label="What does reversed mean?" /> : null}</span>
+        <span className="devline-read"><span>{reading(s)}{s.enabled && s.tuning_resolved.invert && ["presence", "light", "home", "leak"].includes(s.role) ? <Tip text={REVERSED_TIP} label="What does reversed mean?" /> : null}</span>
           <small className="mute">{!s.enabled ? "paused" : ago(s)}</small></span>
         <span className="devline-who tag">{forText(s)}</span>
         <span className="devline-edit devline-acts">

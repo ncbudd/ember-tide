@@ -1,6 +1,7 @@
 import Icon from "../components/Icon";
 import TodayCard from "../components/TodayCard";
 import { GuestCard, GuestStart } from "../components/GuestCard";
+import LeakBanner from "../components/LeakBanner";
 import { useAuth } from "../auth";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { allow, fitGuard } from "../components/fitGuard";
@@ -242,6 +243,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         <div className="top">
           <span className="num"><span className="dot" style={{ background: !connected ? "var(--faint)" : snap.system.online ? "var(--good)" : "var(--bad)" }} />{clock(snap.now, snap.tz)}</span>
         </div>
+        <LeakBanner />
         {whoseSeg}
         <GuestCard person={target} />
       </div>
@@ -256,6 +258,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
         <span className="num"><span className="dot" style={{ background: !connected ? "var(--faint)" : snap.system.online ? "var(--good)" : "var(--bad)" }} />{clock(snap.now, snap.tz)}{snap.speed !== 1 && snap.system.driver === "sim" ? ` · sim ×${snap.speed}` : ""}</span>
         <button className="icon-btn" aria-label="Night screen: just the temperature and flashes" onClick={() => setSimple(true)}>Night screen</button>
       </div>
+      <LeakBanner />
       <div className="seg" role="group" aria-label="Whose night" data-cycle="v">
         {(["me", "both", "partner"] as View[]).map(k => (
           <button key={k} aria-pressed={v === k} onClick={() => setView(k)} disabled={k !== "me" && !partner}>

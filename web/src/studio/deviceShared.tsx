@@ -6,7 +6,7 @@ import { EFFECT, PURPOSE } from "./deviceInfo";
 export interface Field { key: string; label: string; type: "number" | "bool" | "select" | "text" | "map"; default?: number | boolean | string | Record<string, string>; unit?: string; help?: string; min?: number; max?: number; step?: number; options?: string[] }
 export interface DevType { id: string; label: string; role: string; roles?: string[]; votes: boolean | null; side: boolean; person?: boolean; custom?: boolean; blurb: string; examples: string; tuning: Field[] }
 export const ROLE_LABEL: Record<string, string> = { presence: "Presence", weight: "Weight", room_temp: "Room temperature", room_humidity: "Room humidity", wearable_hr: "Heart rate",
-  skin_temp: "Skin temperature", wearable_hrv: "HRV", light: "Light", home: "Phone at home", location: "Distance from home", calendar: "Calendar", other: "Other" };
+  skin_temp: "Skin temperature", wearable_hrv: "HRV", light: "Light", leak: "Water leak", home: "Phone at home", location: "Distance from home", calendar: "Calendar", other: "Other" };
 
 /** Type-specific tuning, drawn from the device type's own field list. */
 export function TuningFields({ fields, values, set, role, idPrefix = "tf", mapped = false, weightUnit = "kg" }: { fields: Field[]; values: Record<string, unknown>; set: (k: string, v: unknown) => void; role: string; idPrefix?: string;
@@ -14,7 +14,7 @@ export function TuningFields({ fields, values, set, role, idPrefix = "tf", mappe
   /** a ValueMap is shown next to these fields: it replaces the "Reading is reversed" switch */ mapped?: boolean }) {
   const presenceish = role === "presence" || role === "weight";
   const shown = fields.filter(f => f.type !== "map" && !(mapped && f.key === "invert")
-    && (presenceish || !["compare", "threshold", "min_on_s", "hold_s", "invert", "weight"].includes(f.key) || (role === "light" || role === "home") && f.key === "invert"));
+    && (presenceish || !["compare", "threshold", "min_on_s", "hold_s", "invert", "weight"].includes(f.key) || (role === "light" || role === "home" || role === "leak") && f.key === "invert"));
   const isKg = (f: Field) => f.type === "number" && f.unit === "kg";
   const show = (f: Field, v: unknown) => isKg(f) && typeof v === "number" ? Math.round(kgTo(v, weightUnit)) : v;   // kg fields in the viewer's unit
   const unitOf = (f: Field) => isKg(f) ? weightUnit : f.unit;
@@ -56,7 +56,7 @@ export function Purpose({ kind, compact }: { kind: string; compact?: boolean }) 
 
 /** What an on/off device's raw values mean, per kind: [meaning of "yes", meaning of "no"]. */
 const MEANINGS: Record<string, [string, string]> = {
-  presence: ["in bed", "empty"], light: ["lights on (awake)", "lights out (sleep)"], home: ["home", "away"],
+  presence: ["in bed", "empty"], light: ["lights on (awake)", "lights out (sleep)"], home: ["home", "away"], leak: ["wet (leak)", "dry"],
 };
 const YES = ["on", "home", "true", "detected", "occupied", "open", "1"];
 const NO = ["off", "not_home", "away", "false", "clear", "closed", "unoccupied", "0"];

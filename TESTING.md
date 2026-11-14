@@ -42,6 +42,7 @@ Tick off what you can, and tell us about anything that confused you, not only th
 - [ ] **A normal night:** get in bed, sleep, get up. Did the bed follow the plan? Anything odd when you got up in the night?
 - [ ] **Morning summary:** is the story of the night readable and roughly right?
 - [ ] **Notifications:** turn them on for your phone, check they arrive, and check that quiet hours behave. The Android app works out of the box through the push relay (no Firebase file needed; Studio, Notifications shows the path in use). iPhone uses Web Push and needs HTTPS.
+- [ ] **Leak sensors (optional):** wet a connected water leak sensor (or simulate it); check both sides turn off immediately, stay off after drying until cleared on Tonight or Studio, and send an urgent notification to the household.
 - [ ] **Android app:** sideload the APK from the release ([android.md](docs/android.md)); try the widget, the Hot flash tile, and the Wear OS app if you have a watch.
 - [ ] **iPhone web app:** open it in Safari over plain `http://` at home; notifications need HTTPS ([simplest way](docs/install.md#d-https-phones-away-from-home-and-iphone-notifications)), iOS 16.4 or newer.
 - [ ] **AI model page (optional):** Studio, Insights, if you have a model to point it at ([ai-models.md](docs/ai-models.md)).

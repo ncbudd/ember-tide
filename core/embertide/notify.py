@@ -43,7 +43,7 @@ LEFT_ON_AFTER_S = 20 * 60     # on by hand, nobody in it this long → ask to tu
 # and all capped kinds together per person per day. EXEMPT: things the person asked for themselves.
 IGNORED_AFTER_S = 20 * 60          # a side ignoring commands this long gets a "not taking changes" alert
 TICK_FAIL_AFTER = 120              # a person's update failing this many ticks in a row (~2 min) gets a "not updating" alert
-CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "not_started": 1, "left_on": 2, "problem": 3, "hub": 3, "maintenance": 1,
+CAPS = {"morning": 1, "digest": 1, "pet_question": 1, "away_precool": 1, "empty_side": 1, "not_started": 1, "left_on": 2, "problem": 3, "hub": 3, "leak": 5, "maintenance": 1,
         "account": 1, "reach": 2, "bridge": 1, "storage": 1, "wearable": 1, "bed_silent": 1, "sensor": 3, "target": 2, "review": 1}
 DAILY_MAX = 4
 DEDUP_S = 6 * 3600            # the same message (person, kind, title) again within this is dropped
@@ -141,7 +141,7 @@ class Action:
 # Where a tap on a notification goes when the message doesn't name a page itself (phone screens; Studio only where a
 # message asks for it). The front page is Tonight, where the pet and away questions are answered.
 DEFAULT_LINKS = {"review": "/", "morning": "/sleep", "digest": "/sleep", "pet_question": "/", "away_check": "/", "maintenance": "/settings#care",
-                 "hub": "/settings#hub", "problem": "/", "wearable": "/settings#watch", "account": "/settings"}
+                 "hub": "/settings#hub", "leak": "/", "problem": "/", "wearable": "/settings#watch", "account": "/settings"}
 # What a Studio page is for someone without an owner account (Studio's owner tools aren't theirs)
 PHONE_FOR_STUDIO = {"/studio/hub": "/settings#hub", "/studio/devices": "/", "/studio/notifications": "/settings",
                     "/studio/integrations": "/settings", "/studio/data": "/settings"}
@@ -470,6 +470,37 @@ class Notifier:
             return " The bed did report receiving the last change, so the connection is working."
         return ""
 
+    def _water_words(self) -> tuple[str, str]:
+        """Plain-English low-water guidance built from the active bed profile (light guide + add-water steps)."""
+        from .drivers import profiles
+        prof = getattr(getattr(self.c, "driver", None), "profile", None) or profiles.GENERIC
+        task = next((x for x in prof.get("tasks", []) if x.get("id") == "water"), {})
+        guide = (prof.get("light_guide") or {}).get("items") or []
+        pulse = next((desc for _, desc in guide if "water" in desc.lower()), "")
+        steps_txt = str(task.get("supplies", "")) + " " + " ".join(task.get("steps", []))
+        kind = "distilled water" if "distilled" in steps_txt.lower() else "the water the maker asks for"
+        why = (task.get("why") or "Low water means the topper cools and heats less well.").strip()
+        advice = f"Top up the hub with {kind} using Studio → Bed hub → Add water."
+        if pulse:
+            advice += f" ({pulse.rstrip('.')}.)"
+        if why and why.lower() not in advice.lower():
+            advice += f" {why}"
+        return "Water is low", advice
+
+    def _leak(self, snap: dict, now: float, out: list) -> None:
+        """Immediate household alert when a water leak sensor triggers an emergency hold (sent once per hold, even in quiet hours)."""
+        hold = snap.get("leak_hold")
+        if not hold:
+            return
+        sensor = hold.get("sensor") or "Leak sensor"
+        key = f"leak:{hold.get('sensor_id') or sensor}:{int(hold.get('since') or 0)}"
+        if not self._once(key):
+            return
+        body = (f"{sensor} detected water, so both sides of the bed were turned off. "
+                "Check around the mattress cover, hoses and hub for leaks, then clear the alert in the app before turning the bed back on.")
+        out.append(Message("leak", "Possible leak: bed turned off", body, None,
+                           priority=5, tags=["rotating_light", "warning"], urgent=True, link="/"))
+
     def _hub(self, snap: dict, now: float, out: list) -> None:
         """The bed's hub needs a look (system.hub): a fault appears, or the water needs checking. Once per problem per
         day. Quiet hours hold it for the morning like other non-urgent messages, except when the hub's safety check
@@ -481,10 +512,19 @@ class Notifier:
         day = self._day(now).isoformat()
         problems: list[tuple[str, str, str]] = []                    # (key, what, advice)
         for f in t.get("faults") or []:
-            what = f["name"] + (f" ({f['zone']} side)" if f.get("zone") else "")
-            problems.append((f"{f['code']}:{f.get('zone')}", what, tw.fault_advice(f["code"])))
+            code = f.get("code") or "unknown"
+            zone = f" ({f['zone']} side)" if f.get("zone") else ""
+            if code in tw.FAULTS or (f.get("name") and f.get("name") != tw.UNKNOWN_FAULT[0]):
+                # the hub (or our table) has a name for it: keep that, with the table's advice when there is any
+                what = (f.get("name") or tw.fault_name(code)) + zone
+                advice = tw.fault_advice(code) if code in tw.FAULTS else "Check the hub, hoses and vents."
+            else:
+                what = f"The hub reported a fault ({code}){zone}"
+                advice = "Check the hub, hoses and vents."
+            problems.append((f"{code}:{f.get('zone')}", what, advice))
         if t.get("water_ok") is False:
-            problems.append(("water", tw.STATUS_WATER, "The hub's water may be low. Have a look when you can, and follow the maker's instructions for adding water."))
+            what, advice = self._water_words()
+            problems.append(("water", what, advice))
         if t.get("safety_ok") is False:
             problems.append(("safety", "The hub's safety check isn't passing", "It protects itself. Restarting the hub may clear it; if it comes back, contact the maker."))
         running = any((pv.get("night") or {}).get("state") in RUNNING for pv in snap.get("people", []))
@@ -964,6 +1004,10 @@ class Notifier:
                 log.exception("notifications failed for %s", person.id)
         self._tick_errors(snap, now, out)
         try:
+            self._leak(snap, now, out)
+        except Exception:  # noqa: BLE001
+            log.exception("leak notification failed")
+        try:
             self._hub(snap, now, out)
         except Exception:  # noqa: BLE001
             log.exception("hub notifications failed")
@@ -1096,6 +1140,14 @@ class Notifier:
         if held:
             from . import voice
             extra.append(voice.say("overnight", {"lines": self._held_lines(held)}, day=self._day(now), store=self.store))
+        from .engine.summary import night_window
+        w = night_window(person, date.fromisoformat(night), self.c.clock.tz, now)
+        if w:
+            leaks = [e for e in self.store.events(since=w[0], limit=500)
+                     if e.get("kind") == "leak_detected" and w[0] <= e["ts"] <= w[1]]
+            if leaks:
+                sensors = ", ".join(dict.fromkeys((e.get("sensor") or "a leak sensor") for e in leaks))
+                extra.append(f"Possible leak detected overnight ({sensors}): the bed was turned off.")
         if person.settings.pet_questions and person.settings.notify.pet_question:
             from .engine import petq
             q = petq.open_for(self.store, person.id, now)
@@ -1240,7 +1292,9 @@ class Notifier:
         for p in self.providers:
             if not p.get("enabled", True):
                 continue
-            if m.person is None and p.get("person") in (None, "", "household"):
+            if m.kind == "leak" and m.person is None:
+                out.append(p)
+            elif m.person is None and p.get("person") in (None, "", "household"):
                 out.append(p)
             elif m.person is not None and p.get("person") == m.person:
                 out.append(p)
@@ -1306,6 +1360,8 @@ class Notifier:
     def push_targets(self, m: Message) -> list[tuple[str, dict]]:
         if m.person:
             pids = [m.person]
+        elif m.kind == "leak":
+            pids = [p.id for p in self.c.household.people]
         elif m.kind in GAP_KINDS_OWNER or m.kind == "reach":      # the owner's: people who want these and have an owner account (anyone, if none is linked)
             owners = self.owner_persons() if self.owner_persons else set()
             sw = GAP_KINDS_OWNER.get(m.kind, "reach")

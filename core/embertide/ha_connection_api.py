@@ -46,6 +46,7 @@ FITS: dict[str, list[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...
     "location": [("sensor", (), ("proximity", "distance"), ("km", "mi", "m", "ft")), ("device_tracker", (), (), ()),
                  ("person", (), (), ())],
     "calendar": [("calendar", (), (), ())],
+    "leak": [("binary_sensor", ("moisture",), (), ()), ("binary_sensor", (), ("leak", "water", "moisture", "flood", "wet"), ())],
 }
 
 
@@ -54,7 +55,7 @@ FITS: dict[str, list[tuple[str, tuple[str, ...], tuple[str, ...], tuple[str, ...
 NOT_FIT: dict[str, tuple[str, ...]] = {
     "wearable": ("embertide", "orion", "bed", "topper", "mattress", "eight_sleep", "sleep_number", "withings_sleep"),
     "radar": ("embertide",), "radar_single": ("embertide",), "motion": ("embertide",), "pad": ("embertide",), "scale": ("embertide",),
-    "room": ("embertide",), "light": ("embertide",),
+    "room": ("embertide",), "light": ("embertide",), "leak": ("embertide",),
 }
 
 
@@ -81,7 +82,7 @@ def fit_rank(kind: str, e: dict) -> int | None:
     return None
 
 
-GUESS_ORDER = ["calendar", "light", "scale", "room", "location", "phone", "radar", "motion", "pad", "wearable"]
+GUESS_ORDER = ["calendar", "leak", "light", "scale", "room", "location", "phone", "radar", "motion", "pad", "wearable"]
 
 
 def guess(e: dict) -> tuple[str, str]:
@@ -94,7 +95,7 @@ def guess(e: dict) -> tuple[str, str]:
     kind = best[0] if best else "custom"
     dc = (e.get("device_class") or "").lower()
     role = {"light": "light", "scale": "weight", "location": "location", "phone": "home", "radar": "presence", "motion": "presence",
-            "pad": "presence", "calendar": "calendar"}.get(kind)
+            "pad": "presence", "calendar": "calendar", "leak": "leak"}.get(kind)
     if kind == "room":
         role = "room_humidity" if dc == "humidity" or (e.get("unit") or "") == "%" else "room_temp"
     if kind == "wearable":

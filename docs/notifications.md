@@ -128,6 +128,7 @@ the "While you slept" note; "skipped" means it is dropped, not delayed. Every ro
 | Stale sensor | `problem` | household | one side's readings frozen 10 min during a night, bed online | none | once a night per side | held while anyone sleeps |
 | Bed ignoring commands | `problem` | household | online but unconfirmed for 20 min | none | once a night per side | held |
 | Side not updating | `problem` | household | person's update failed 120 ticks in a row | none | once a night per person | held |
+| Water leak detected | `leak` | everyone in the household | any enabled water leak sensor reads wet | none (clear hold in app after checking) | once per leak hold, up to 5 a day | urgent (priority 5): always sent immediately, bypasses quiet hours, and noted in morning summary if it happened overnight |
 | Hub fault, low water, safety check | `hub` | owner phones with `hub` on | the hub reports it | none | once per problem per day, 3 a day | held; a failing safety check while a night runs goes at once |
 | Care reminders | `maintenance` | owners and sleepers with `maintenance` on, not away | a job is due, 9 AM to 7 PM | It's done · Remind me next week | 1 a day, one follow-up after 7 days | skipped, never held |
 | Held overnight, no summary coming | `digest` | each person once | after wake | none | 1 a day | after wake only; each person's own switches still apply |
@@ -214,7 +215,7 @@ What we found:
   bring up a "your side is empty" from before you got in). Nothing is currently urgent enough to wake anyone: the bed keeps its
   last temperature when it can't be reached.
 - **Caps per day** (`notify.CAPS`): morning 1, digest 1, pet question 1, pre-condition 1, empty side 1, side-hasn't-started 1, left on 2,
-  household problems 3, hub 3, care 1, account 1, reach 2, bridge 1, storage 1, wearable 1, bed_silent 1, sensor 3 (household), target 2; and at most 4 capped pings per person per day all together. Tests and button confirmations
+  household problems 3, hub 3, leak 5, care 1, account 1, reach 2, bridge 1, storage 1, wearable 1, bed_silent 1, sensor 3 (household), target 2; and at most 4 capped pings per person per day all together. Tests and button confirmations
   are not capped.
 - **De-duplication**: the same message (person, type, title) within 6 hours is dropped, and every message uses one
   channel per person (above). Skipped and held messages are logged as `notification_skipped` / `notification_held`
@@ -245,3 +246,20 @@ Cheeky is playful but never rude, never sexual, never about weight or bodies, ne
 Adding a message type: add it to `voice.PHRASES` (every message a person reads, including not-started and the away check, is there) (3+ variants per tone, same slots; add it to `ALERTS` if it's about
 something going wrong), give it a cap in `notify.CAPS`, a switch in `NotifyPrefs` + `components/NotifyPrefs.tsx`,
 a row in the table above, and the tests in `test_voice.py` pick it up by themselves.
+
+## Leak sensors
+
+Water leak sensors protect the bed from pumping water if a cover or hose springs a leak:
+
+- **What it does:** When any enabled leak sensor reports wet, Ember & Tide immediately sends forced off commands to both
+  sides of the bed, records a `leak_detected` event, enables `leak_hold`, and sends an urgent (priority 5) notification
+  to everyone in the household even during quiet hours (`Possible leak: bed turned off`). If the leak happened at night,
+  the morning summary also mentions it.
+- **How to add one:** Open Studio → Devices → `+ Add a device` → `Water leak sensor`. You can connect a Home Assistant
+  `binary_sensor` (picker prioritizes `device_class: moisture`) or an MQTT topic (`wet`/`dry`, `on`/`off`, `true`/`false`).
+  Multiple leak sensors are supported (under the hub, behind the headboard, along hoses).
+- **Clearing the hold:** While `leak_hold` is active—even after the sensor dries—both sides stay off and flashes,
+  overrides, rhythms, guest mode, Home Assistant commands, dials and API turn-on calls are blocked with HTTP 409. After
+  checking for water and drying the sensor, tap **I've checked, turn the bed back on** in the banner on the Tonight
+  screen or Studio Overview (`POST /api/leak/clear`, available to owners and sleepers, not viewers). Home Assistant also
+  sees a `Leak hold` binary sensor (`binary_sensor.embertide_leak_hold`).

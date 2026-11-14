@@ -3,6 +3,17 @@
 All notable changes. The project follows [Semantic Versioning](https://semver.org/) loosely while it is 0.x: anything may change between
 minor versions, and each entry says what to check when upgrading.
 
+## Unreleased
+
+- **Water leak emergency off.** Added a `Water leak sensor` device type (`leak`, Home Assistant `binary_sensor` with
+  `device_class: moisture` or MQTT topic; multiple sensors supported). When any enabled leak sensor reports wet, both
+  sides turn off immediately without backoff and stay off under a persistent `leak_hold` (blocking rhythms, flashes,
+  overrides, guest mode, HA and API turn-on commands with 409) until checked and cleared in the app (`POST /api/leak/clear`,
+  owner and sleepers allowed; viewers 403).
+- **Urgent leak alert and clearer hub water/fault messages.** Added urgent priority-5 `leak` notifications (bypassing
+  quiet hours, sent to the household, and included in the morning summary if it occurred overnight), a Home Assistant
+  `Leak hold` binary sensor, and plain-English hub water/fault guidance.
+
 ## 0.1.9
 
 **Upgrade notes:** behind Cloudflare (tunnel or proxy) with `ET_TRUST_PROXY=on`, add `ET_PROXY_CLOUDFLARE=on` to keep

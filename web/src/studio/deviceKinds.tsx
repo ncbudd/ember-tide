@@ -11,7 +11,7 @@ export interface DevSource {
   device: string | null; params: Record<string, string>; enabled: boolean;
 }
 
-export type TileId = "wearable" | "phone" | "dials" | "presence" | "scale" | "room" | "light" | "calendar" | "other";
+export type TileId = "wearable" | "phone" | "dials" | "presence" | "scale" | "room" | "light" | "leak" | "calendar" | "other";
 export type PathId = "hc" | "ah" | "cloud" | "app" | "iosapp" | "ha" | "mqtt" | "ics" | "webhook" | "sim";
 
 export const ICONS = {
@@ -22,6 +22,7 @@ export const ICONS = {
   scale: <><rect x="4" y="7" width="16" height="10" rx="2" /><path d="M7 17v2.5M17 17v2.5M9.5 12h5" /></>,
   thermo: <><path d="M10 14.5V5.5a2 2 0 1 1 4 0v9a3.6 3.6 0 1 1-4 0Z" /><path d="M12 10v6" /></>,
   bulb: <><path d="M9 17h6M9.8 20h4.4M12 3.5a5.5 5.5 0 0 0-3.2 10c.7.5 1.2 1.3 1.2 2.1V17h4v-1.4c0-.8.5-1.6 1.2-2.1A5.5 5.5 0 0 0 12 3.5Z" /></>,
+  drop: <path d="M12 3.5C12 3.5 6 10.2 6 14.5a6 6 0 0 0 12 0C18 10.2 12 3.5 12 3.5Z" />,
   calendar: <><rect x="4" y="5.5" width="16" height="14" rx="2" /><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" /></>,
   plus: <><circle cx="12" cy="12" r="8" /><path d="M12 8.5v7M8.5 12h7" /></>,
 };
@@ -38,6 +39,7 @@ export const TILES: Tile[] = [
   { id: "scale", icon: "scale", title: "Bed scale", adds: "Weight under each side: the most reliable in-bed signal, and it tells sleepers and pets apart.", kinds: ["scale"] },
   { id: "room", icon: "thermo", title: "Room temperature", adds: "Lets Autopilot tell a warm bedroom from a rhythm that's set too warm.", kinds: ["room"] },
   { id: "light", icon: "bulb", title: "Bedroom light", adds: "Lights-off compared with your bedtime, in the tuning guide and the nights explorer.", kinds: ["light"] },
+  { id: "leak", icon: "drop", title: "Water leak sensor", adds: "Stops both sides pumping water immediately if a cover or hose leaks.", kinds: ["leak"] },
   { id: "calendar", icon: "calendar", title: "Calendar", adds: "Late evenings and early starts are known, so pre-condition waits and wake-ups fit.", kinds: ["calendar"] },
   { id: "other", icon: "plus", title: "Something else", adds: "Any Home Assistant entity, MQTT topic or web hook: you say what it measures.", kinds: ["custom"] },
 ];
@@ -55,7 +57,7 @@ export function whoChoices(tile: TileId, guideOnly: boolean): { both: false | st
   if (guideOnly || tile === "wearable" || tile === "phone") return { both: false, default: "person" };
   if (tile === "calendar") return { both: "Both of us (a shared calendar)", default: "person" };
   if (tile === "presence" || tile === "scale") return { both: "One part watches each side (radar zones, load cells per side)", default: "both" };
-  if (tile === "room" || tile === "light") return { both: "Both of us", default: "both" };
+  if (tile === "room" || tile === "light" || tile === "leak") return { both: "Both of us", default: "both" };
   return { both: "Both of us / the room", default: "both" };
 }
 

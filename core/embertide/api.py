@@ -116,6 +116,7 @@ def _dumps(s: dict) -> str:
 
 
 PRIVATE_PRESENCE = ("hr", "br", "status", "status_text")
+LEAK_HOLD_MSG = "The bed is off because a leak sensor went off. Check for water, then clear it in the app."
 
 
 def for_viewer(snap: dict | None, who) -> dict | None:
@@ -162,6 +163,10 @@ def build_router(app_state) -> APIRouter:
         if find(pid).zone in ctl().household.guest:
             raise HTTPException(409, "that side is lent to a guest: use the guest controls")
 
+    def not_leaking() -> None:
+        if ctl().leak_hold:
+            raise HTTPException(409, LEAK_HOLD_MSG)
+
     async def refresh(pid: str | None = None):
         return await ctl().tick(force={pid} if pid else None)
 
@@ -206,10 +211,21 @@ def build_router(app_state) -> APIRouter:
                 ctl().listeners.remove(push)
 
     # ---------- control ----------
+    @r.post("/leak/clear")
+    async def leak_clear(request: Request, source: str = Query("app", max_length=20, pattern=r"^[a-z_]{1,20}$")):
+        c = ctl()
+        who = request.scope.get("state", {}).get("principal")
+        actor = getattr(who, "person", None) or None
+        ok, err = c.clear_leak_hold(source=source, actor=actor)
+        if not ok:
+            raise HTTPException(409, err)
+        return await ctl().tick(force={p.id for p in c.household.people})
+
     @r.post("/people/{pid}/adjust")
     async def adjust(pid: str, b: AdjustBody):
         p = find(pid)
         not_guest(pid)
+        not_leaking()
         e = ctl().engine_for(pid)
         now = ctl().clock.now_ts()
         if b.until == "every_night":
@@ -241,6 +257,7 @@ def build_router(app_state) -> APIRouter:
     async def flash(pid: str, b: FlashBody):
         find(pid)
         not_guest(pid)
+        not_leaking()
         ctl().engine_for(pid).flash(b.kind, ctl().clock.now_ts(), b.minutes, b.source)
         return await refresh(pid)
 
@@ -248,6 +265,7 @@ def build_router(app_state) -> APIRouter:
     async def flash_extend(pid: str, minutes: int | None = Query(None, ge=1, le=60), source: str = Query("app", max_length=20, pattern=r"^[a-z_]{1,20}$")):
         find(pid)
         not_guest(pid)
+        not_leaking()
         ctl().engine_for(pid).extend_flash(ctl().clock.now_ts(), minutes, source)
         return await refresh(pid)
 
@@ -262,6 +280,8 @@ def build_router(app_state) -> APIRouter:
     async def tonight(pid: str, b: TonightBody):
         find(pid)
         not_guest(pid)
+        if b.action in ("resume", "start_now"):
+            not_leaking()
         try:
             ctl().engine_for(pid).tonight(ctl().clock.now_ts(), b.action, b.minutes, b.source)
         except NightNotRunning as ex:
@@ -382,6 +402,7 @@ def build_router(app_state) -> APIRouter:
     @r.post("/guest/{zone}/start")
     async def guest_start(zone: GuestZone, b: GuestStartBody):
         c = ctl()
+        not_leaking()
         if b.ends is not None and not c.clock.now_ts() < b.ends <= c.clock.now_ts() + 30 * 86400:
             raise HTTPException(422, "the end has to be within the next 30 days")
         zones = ["left", "right"] if zone == "both" else [zone]
@@ -400,6 +421,8 @@ def build_router(app_state) -> APIRouter:
     @r.post("/guest/{zone}/set")
     async def guest_set(zone: GuestZone, b: GuestSetBody):
         c = ctl()
+        if b.on is True or b.temp_c is not None:
+            not_leaking()
         zones = ["left", "right"] if zone == "both" else [zone]
         if not all(z in c.household.guest for z in zones):
             raise HTTPException(409, "that side isn't in guest mode")
@@ -612,6 +635,9 @@ def build_router(app_state) -> APIRouter:
 
     @r.post("/console")
     async def console(b: ConsoleBody):
+        # while a leak sensor has the bed off, nothing that moves water (filling, priming) runs from here either
+        if getattr(ctl(), "leak_hold", None) and any(w in b.command.upper() for w in ("FILL", "PRIME", "PUMP", "SET", "ON")):
+            raise HTTPException(409, "The bed is off because a leak sensor went off. Check for water, then clear it in the app.")
         try:
             out = await ctl().driver.command(b.command)
         except CommandError as e:

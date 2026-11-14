@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 log = logging.getLogger(__name__)
 
 Role = Literal["room_temp", "room_humidity", "presence", "weight", "wearable_hr", "skin_temp", "wearable_hrv", "light",
-               "home", "location", "calendar", "other"]
+               "home", "location", "calendar", "leak", "other"]
 
 ROLE_INFO = {
     "room_temp": {"label": "Room temperature", "unit": "°C", "lane": "temp"},
@@ -40,6 +40,7 @@ ROLE_INFO = {
     "home": {"label": "Phone at home", "unit": "", "lane": "context"},
     "location": {"label": "Distance from home", "unit": "km", "lane": "context"},
     "calendar": {"label": "Calendar event ends", "unit": "", "lane": "context"},
+    "leak": {"label": "Water leak", "unit": "", "lane": "env"},
     "other": {"label": "Other", "unit": "", "lane": "env"},
 }
 
@@ -132,6 +133,10 @@ DEVICE_TYPES: list[dict] = [
      "blurb": "Evening events. A late event moves the 'start on schedule' fallback and feeds the tuning guide.",
      "examples": "HA calendar entity (Google, iCloud, CalDAV), a shared family calendar",
      "tuning": [_t("travel_min", "Travel time home after an event", default=20, unit="min", min=0, max=180, step=5)]},
+    {"id": "leak", "label": "Water leak sensor", "role": "leak", "votes": False, "side": False,
+     "blurb": "Stops both sides pumping water immediately if a cover or hose leaks, and tells everyone at home.",
+     "examples": "Aqara or Sonoff water leak sensor, ESPHome moisture binary_sensor, any MQTT leak topic",
+     "tuning": [_t("invert", "Reading is reversed (on means dry)", "bool", default=False), _VMAP, _MAXAGE]},
     {"id": "custom", "label": "Custom device", "role": "other",
      "roles": ["presence", "weight", "room_temp", "room_humidity", "wearable_hr", "skin_temp", "wearable_hrv", "light", "other"],
      "votes": None, "side": True, "custom": True,
@@ -247,11 +252,11 @@ _LEGACY_KIND = {"presence": "radar", "weight": "scale", "room_temp": "room", "ro
 # role -> (store at least this often in seconds, a change of at least this much is stored at once)
 SAVE_EVERY: dict[str, tuple[float, float | None]] = {
     "room_temp": (300, 0.2), "room_humidity": (300, 2.0), "home": (600, 0.5), "location": (300, 0.2),
-    "calendar": (900, 60.0), "light": (600, 0.5),
+    "calendar": (900, 60.0), "light": (600, 0.5), "leak": (600, 0.5),
 }
 
 
-FAST_POLL_ROLES = ("light", "presence", "home", "weight")     # on/off things people notice lagging
+FAST_POLL_ROLES = ("light", "presence", "home", "weight", "leak")     # on/off things people notice lagging
 
 
 def poll_s(c) -> float:
@@ -427,9 +432,9 @@ def _to_value(state) -> float | None:
     if isinstance(state, (int, float)):
         return float(state) if math.isfinite(state) else None
     s = str(state).strip().lower()
-    if s in ("on", "home", "true", "detected", "occupied", "open"):
+    if s in ("on", "home", "true", "detected", "occupied", "open", "wet", "leak", "water_leak"):
         return 1.0
-    if s in ("off", "not_home", "away", "false", "clear", "closed", "unoccupied"):
+    if s in ("off", "not_home", "away", "false", "clear", "closed", "unoccupied", "dry", "no_leak"):
         return 0.0
     try:
         v = float(s)
@@ -558,7 +563,7 @@ class SourceManager:
             self.latest[c.id] = {**prev, "error": None, "seen": ts}             # it reported, but not something to use
             return
         self.latest[c.id] = {"value": value, "ts": ts, "error": None, "seen": ts, "note": note}
-        if value is not None and c.role in ("light", "presence", "home"):
+        if value is not None and c.role in ("light", "presence", "home", "leak"):
             self._note_activity(c, value >= 0.5, ts)
         if value is not None and c.kind == "scale":
             self._scale_update(c, t, value, ts)
@@ -1024,6 +1029,8 @@ class SourceManager:
                 zz = z[c.zone]
                 pad = zz.measured if getattr(zz, "measured", None) is not None else 22.0
                 v = round(33.6 + 0.22 * (pad - 20.0) + 0.15 * math.sin(now / 2400) + self._rand.uniform(-0.05, 0.05), 2)
+        elif kind == "leak":
+            v = 1.0 if c.params.get("wet") else 0.0
         return v
 
     # ---------- views ----------
@@ -1148,6 +1155,29 @@ class SourceManager:
             if v is not None:
                 out[f"{'weight' if c.role == 'weight' else 'presence'}:{c.id}"] = v
         return out
+
+    def is_wet(self, c: SourceConfig, now: float | None = None) -> bool:
+        """Whether an enabled leak sensor currently reads wet (honours invert and max_age_s; never waits for voting)."""
+        if not c.enabled or c.role != "leak":
+            return False
+        l = self.latest.get(c.id)
+        if not l or l.get("value") is None:
+            return False
+        now = now if now is not None else (self.clock.now_ts() if self.clock else time.time())
+        t = tuning_for(c.kind, c.tuning)
+        max_age = float(t.get("max_age_s", 0) or 0)
+        if max_age and now - (l.get("ts") or 0) > max_age:
+            return False
+        on = float(l["value"]) >= 0.5
+        return (not on) if t.get("invert") else on
+
+    def active_leak(self, now: float | None = None) -> SourceConfig | None:
+        """First enabled leak sensor reporting wet right now, or None."""
+        now = now if now is not None else (self.clock.now_ts() if self.clock else time.time())
+        for c in self.configs:
+            if self.is_wet(c, now):
+                return c
+        return None
 
 
 def _ago(s: float) -> str:

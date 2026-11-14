@@ -84,7 +84,7 @@ export default function AddDevice({ start, people, types, sources, sim, say, onD
   const two = split && tile === "presence" && layout === "two_sensors";
   const pickerKind = two && kind === "radar" ? "radar_single" : kind;      // two FP1E-style sensors: on/off occupancy only
   const person = people.find(p => p.id === who);
-  const skipWho = tile === "room" || tile === "light";
+  const skipWho = tile === "room" || tile === "light" || tile === "leak";
 
   const paths: PathInfo[] = useMemo(() => {
     if (!tile) return [];

@@ -77,6 +77,10 @@ class HaBridge:
         out: list[tuple[str, dict]] = []
         avail = {"availability_topic": f"{BASE}/status"}
         bed = {"identifiers": ["embertide_bed"], "name": "Ember & Tide · Bed", "manufacturer": "Ember & Tide", "sw_version": __version__}
+        out.append((f"{self.prefix}/binary_sensor/embertide_leak_hold/config", {
+            **avail, "device": bed, "name": "Leak hold", "unique_id": "embertide_leak_hold",
+            "object_id": "embertide_leak_hold", "state_topic": f"{BASE}/bed/leak_hold",
+            "device_class": "moisture", "payload_on": "ON", "payload_off": "OFF", "icon": "mdi:water-alert"}))
         for zone in ("left", "right"):
             out.append((f"{self.prefix}/sensor/embertide_{zone}_guest/config", {
                 **avail, "device": bed, "name": f"{zone.title()} side guest", "unique_id": f"embertide_{zone}_guest",
@@ -184,6 +188,7 @@ class HaBridge:
     # ---------- state ----------
     def states(self, snap: dict) -> dict[str, str]:
         out: dict[str, str] = {}
+        out[f"{BASE}/bed/leak_hold"] = "ON" if snap.get("leak_hold") else "OFF"
         for zone in ("left", "right"):
             out[f"{BASE}/bed/{zone}/guest"] = "on" if zone in self.c.household.guest else "off"
         from . import care as carelib
@@ -288,6 +293,15 @@ class HaBridge:
         to_c = (lambda v: f_to_c(float(v))) if f else (lambda v: float(v))
         what = parts[3]
         payload = payload.strip()
+        if self.c.leak_hold and (
+            (what == "mode" and payload in ("heat_cool", "auto", "cool", "heat"))
+            or what == "target"
+            or (what == "flash" and payload in ("hot", "cold", "extend"))
+            or (what == "tonight" and payload == "resume")
+        ):
+            # Refuse turn-on / setpoint commands while a leak hold is active (allow off/skip/pause/stop/feel).
+            log.warning("home assistant: refused %s (%s) while leak_hold is active", topic, payload)
+            return "refused: The bed is off because a leak sensor went off. Check for water, then clear it in the app."
         if p.zone in self.c.household.guest:
             # a guest's side: the climate entity (and the dial) is a plain on/off and temperature control
             try:

@@ -3,6 +3,7 @@ import GuestPage, { GuestBanner } from "./Guest";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api } from "../api";
 import ErrorBoundary from "../components/ErrorBoundary";
+import LeakBanner from "../components/LeakBanner";
 import ShowMore from "../components/ShowMore";
 import Horizon from "../components/Horizon";
 import { useApp } from "../ctx";
@@ -120,6 +121,7 @@ function Overview() {
   const name = (id: string | null) => snap.people.find(p => p.id === id)?.name ?? "";
   return (
     <>
+      <LeakBanner />
       <GuestBanner />
       <div><div className="k">Live</div><h1 style={{ fontSize: 34 }}>Tonight</h1></div>
       <div className="grid2">
@@ -282,7 +284,7 @@ function LiveSignals() {
   if (!snap) return null;
   const u = snap.people[0]?.settings.units ?? "F";
   const wu = weightUnit(me?.settings ?? snap.people[0]?.settings);
-  const fmt =(s: typeof src[number]) => s.value == null ? "—" : s.unit === "°C" ? `${(u === "F" ? cToF(s.value) : s.value).toFixed(1)}°` : s.role === "light" ? (s.value >= 0.5 ? "on" : "off") : s.role === "presence" ? (s.value >= 0.5 ? "someone there" : "empty")
+  const fmt =(s: typeof src[number]) => s.value == null ? "—" : s.unit === "°C" ? `${(u === "F" ? cToF(s.value) : s.value).toFixed(1)}°` : s.role === "light" ? (s.value >= 0.5 ? "on" : "off") : s.role === "leak" ? (s.value >= 0.5 ? "wet" : "dry") : s.role === "presence" ? (s.value >= 0.5 ? "someone there" : "empty")
     : s.role === "home" ? (s.value >= 0.5 ? "home" : "away") : s.role === "location" ? (s.value < 0.3 ? "home" : `${s.value.toFixed(1)} km`)
     : s.role === "calendar" ? (s.value > 0 ? `until ${clock(s.value, snap.tz)}` : "free") : s.role === "weight" ? weight(s.value, wu) : `${Math.round(s.value * 10) / 10} ${s.unit}`;
   const ctx = snap.people.map(p => ({ p, c: p.night.context })).filter(x => x.c && (x.c.home != null || x.c.event_end || x.c.heading_home));

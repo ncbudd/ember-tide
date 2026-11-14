@@ -607,6 +607,8 @@ def authorize(p: Principal, method: str, path: str, partner_shares) -> str | Non
                                                           # a ticket for the live feed shows only what you can read
     if p.role == "viewer":
         return "This account can only look."
+    if path == "/api/leak/clear":
+        return None                                       # anyone who can use the bed can acknowledge a leak check
     if path == "/api/household/swap-sides":
         return None
     if re.match(r"^/api/care/[A-Za-z0-9_-]{1,40}/(done|snooze)$", path):
