@@ -250,6 +250,7 @@ class Store:
     def clear_all(self) -> None:
         """Reset every table in place (demo hourly resets)."""
         with self._lock, self._db:
-            for tbl in ("kv", "events", "telemetry", "samples", "stages"):
-                self._db.execute(f"DELETE FROM {tbl}")
+            for stmt in ("DELETE FROM kv", "DELETE FROM events", "DELETE FROM telemetry",
+                         "DELETE FROM samples", "DELETE FROM stages"):
+                self._db.execute(stmt)
             self._sources = None
