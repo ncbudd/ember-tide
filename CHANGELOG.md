@@ -5,6 +5,10 @@ minor versions, and each entry says what to check when upgrading.
 
 ## Unreleased
 
+## 0.1.12
+
+**Upgrade note:** the half-degree °F option is gone; anyone who used it sees whole degrees, and a target saved at a half degree shows rounded.
+
 - **Easier first connection in the Android app.** The server address can be typed as it is, for example `192.168.1.20:8790`:
   for a home address the app tries `https://`, then plain `http://`, then port 8790 if the port was left out. The field
   no longer starts with `https://`, which a plain home server doesn't answer.
@@ -13,15 +17,6 @@ minor versions, and each entry says what to check when upgrading.
 - **For testers.** A beta tester feedback form and a link to Discussions for questions; install guide fixes (the broker
   on Portainer, Unraid, TrueNAS and CasaOS, Tailscale Serve with Docker, a live backup with nothing extra installed,
   the cloud option without Docker, the Home Assistant line).
-
-- **Water leak emergency off.** Added a `Water leak sensor` device type (`leak`, Home Assistant `binary_sensor` with
-  `device_class: moisture` or MQTT topic; multiple sensors supported). When any enabled leak sensor reports wet, both
-  sides turn off immediately without backoff and stay off under a persistent `leak_hold` (blocking rhythms, flashes,
-  overrides, guest mode, HA and API turn-on commands with 409) until checked and cleared in the app (`POST /api/leak/clear`,
-  owner and sleepers allowed; viewers 403).
-- **Urgent leak alert and clearer hub water/fault messages.** Added urgent priority-5 `leak` notifications (bypassing
-  quiet hours, sent to the household, and included in the morning summary if it occurred overnight), a Home Assistant
-  `Leak hold` binary sensor, and plain-English hub water/fault guidance.
 - **Nights start again in the demo and the fast Simulator.** The radar settle check needed eight readings over
   seven minutes, which a demo night (one reading every five minutes) or the Simulator at ×300 could never give,
   so those nights stayed "waiting" with a flat chart and a false pet question. The check now scales to how often
