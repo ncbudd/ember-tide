@@ -290,7 +290,7 @@ class Assistant:
 
     # ----- formatting -----
     def deg(self, c: float, delta: bool = False) -> str:
-        return fmt_delta(c, self.p.settings.units) if delta else fmt_temp(c, self.p.settings.units, half_f=getattr(self.p.settings, "step_f", 1) == 0.5)
+        return fmt_delta(c, self.p.settings.units) if delta else fmt_temp(c, self.p.settings.units)
 
     # ----- plans: summary + the API calls + the undo -----
     async def plan(self, name: str, args: BaseModel) -> Plan:

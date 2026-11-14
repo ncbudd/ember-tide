@@ -14,14 +14,11 @@ def clamp(v: float, lo: float, hi: float) -> float:
 
 
 # ---------- how a person wants to see numbers and times (settings: units, clock, language) ----------
-def fmt_temp(c: float, units: str = "C", half_f: bool = False) -> str:
-    """A temperature (given in °C) in the person's unit: "72°F" or "22°C" / "21.5°C" (halves, no false precision).
-    °F shows halves ("70.5°F") only for people who chose ½° steps (half_f)."""
+def fmt_temp(c: float, units: str = "C") -> str:
+    """A temperature (given in °C) in the person's unit: "72°F" (whole degrees) or "22°C" / "21.5°C" (halves, no
+    false precision)."""
     if units == "F":
-        if not half_f:
-            return f"{round(c_to_f(c))}°F"
-        h = round(c_to_f(c) * 2) / 2
-        return f"{h:.0f}°F" if h == int(h) else f"{h:.1f}°F"
+        return f"{round(c_to_f(c))}°F"
     h = round(c * 2) / 2
     return f"{h:.0f}°C" if h == int(h) else f"{h:.1f}°C"
 

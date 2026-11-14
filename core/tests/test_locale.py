@@ -22,7 +22,7 @@ H = {"X-Embertide": "1"}
 def test_temperature_formats():
     assert fmt_temp(22.0, "C") == "22°C" and fmt_temp(21.56, "C") == "21.5°C" and fmt_temp(21.8, "C") == "22°C"
     assert fmt_temp(20.0, "F") == "68°F"
-    assert "." not in fmt_temp((70.5 - 32) * 5 / 9, "F") and fmt_temp((70.5 - 32) * 5 / 9, "F", half_f=True) == "70.5°F" and fmt_temp((70.0 - 32) * 5 / 9, "F") == "70°F"
+    assert "." not in fmt_temp((70.5 - 32) * 5 / 9, "F") and fmt_temp((70.0 - 32) * 5 / 9, "F") == "70°F"
     assert fmt_delta(1.11, "F") == "+2°F" and fmt_delta(-0.5, "C") == "-0.5°C"
     assert fmt_gap(-1.7, "C") == "1.7°C" and fmt_gap(-1.7, "F") == "3°F"
 

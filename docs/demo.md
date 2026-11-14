@@ -35,7 +35,7 @@ Visitors can try interactive bed and schedule controls on the simulated bed:
 
 - Reading tonight, sleep history, rhythms, insights, and Studio views
 - `+ Warmer` / `- Cooler`, `Flash`, `I'm up`, `Guest`, `Away`, and sleep feedback
-- Editing rhythms, person settings (such as units and half-degree Fahrenheit steps), pets, and bed orientation
+- Editing rhythms, person settings (such as units and clock), pets, and bed orientation
 - Built-in local assistant queries (without an external AI provider)
 
 Anything that reaches outside the container, touches accounts or authentication, exports/imports data, or injects raw bed/simulator commands returns HTTP `403` (`Not available in the demo.`):

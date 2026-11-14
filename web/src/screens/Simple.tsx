@@ -17,7 +17,7 @@ export default function Simple({ person, partner, onExit, night }: { person: Per
   const off = n.target_c == null;
   const shown = f ? f.target_c : n.target_c;
   const base = `/api/people/${person.id}`;
-  const step = stepC(u, person.settings.step_f);
+  const step = stepC(u);
   const mine = personaColor(person);
 
   const R = 46, C = 50;

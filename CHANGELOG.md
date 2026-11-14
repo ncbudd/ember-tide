@@ -26,6 +26,9 @@ minor versions, and each entry says what to check when upgrading.
   seven minutes, which a demo night (one reading every five minutes) or the Simulator at ×300 could never give,
   so those nights stayed "waiting" with a flat chart and a false pet question. The check now scales to how often
   readings arrive; real nights (one reading a second) are unchanged.
+- **Removed the half-degree °F setting.** °F is now always whole degrees, and each step is 1 °F (°C is unchanged,
+  in 0.5 °C steps). The "Temperature steps" choice is gone from Settings and Studio, and Home Assistant shows
+  1 °F steps. A saved half-degree choice is ignored, and an older app that still sends it keeps working.
 
 ## 0.1.11
 

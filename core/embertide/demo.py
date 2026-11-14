@@ -247,7 +247,6 @@ def build_demo_household() -> Household:
     p2.name, p2.persona = "Sam", "tide"
     p2.settings.welcomed = True
     p2.settings.units = "F"
-    p2.settings.step_f = 0.5
     apply_persona_temps(p2)
 
     hh.pets = [Pet(id="demo_pet", name="Milo", kind="cat", weight_kg=4.5, sleeps_on_bed="yes")]

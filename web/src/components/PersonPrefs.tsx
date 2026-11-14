@@ -30,14 +30,6 @@ export function TempUnits({ s, onChange, width = 120 }: { s: PersonSettings; onC
   </div>;
 }
 
-/** 1° / ½° step size when using °F. */
-export function StepF({ s, onChange, width = 120 }: { s: PersonSettings; onChange: (v: 1 | 0.5) => void; width?: number }) {
-  const cur = s.step_f ?? 1;
-  return <div className="seg" style={{ width }} role="group" aria-label="Temperature steps">
-    {([[1, "1°"], [0.5, "½°"]] as const).map(([v, label]) => <button key={v} type="button" aria-pressed={cur === v} onClick={() => onChange(v)}>{label}</button>)}
-  </div>;
-}
-
 /** 12 h / 24 h clock. Automatic follows this device's own language settings. */
 export function ClockPick({ s, onChange, width = 190 }: { s: PersonSettings; onChange: (c: "auto" | "12" | "24") => void; width?: number }) {
   const cur = s.clock ?? "auto";

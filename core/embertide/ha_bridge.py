@@ -99,7 +99,6 @@ class HaBridge:
         for p in self.c.household.people:
             o = self.oid(p)
             f = p.settings.units == "F"
-            f_step = 0.5 if f and p.settings.step_f == 0.5 else 1
             dev = {"identifiers": [f"embertide_{p.id}"], "name": f"Ember & Tide · {p.name}", "manufacturer": "Ember & Tide",
                    "model": f"{p.zone.title()} side", "sw_version": __version__}
             common = {**avail, "device": dev}
@@ -108,7 +107,7 @@ class HaBridge:
                 "modes": ["off", "heat_cool"], "mode_state_topic": self.t(p, "mode"), "mode_command_topic": self.t(p, "set", "mode"),
                 "temperature_state_topic": self.t(p, "target"), "temperature_command_topic": self.t(p, "set", "target"),
                 "current_temperature_topic": self.t(p, "measured"), "action_topic": self.t(p, "action"),
-                "temperature_unit": "F" if f else "C", "temp_step": f_step if f else 0.5, "precision": (0.5 if f_step == 0.5 else 1.0) if f else 0.5,
+                "temperature_unit": "F" if f else "C", "temp_step": 1 if f else 0.5, "precision": 1.0 if f else 0.5,
                 "min_temp": 55 if f else 13, "max_temp": 110 if f else 43, "icon": "mdi:bed-king-outline"}))
             for kind, label, icon in (("hot", "Hot flash", "mdi:snowflake"), ("cold", "Cold flash", "mdi:fire"), ("stop", "Stop flash", "mdi:stop-circle-outline"),
                                       ("extend", "Flash +5 min", "mdi:timer-plus-outline")):
@@ -161,7 +160,7 @@ class HaBridge:
                 out.append((f"{self.prefix}/number/{o}_{ph.id}_temp/config", {
                     **common, "name": f"{ph.name} temperature", "unique_id": f"embertide_{p.id}_{ph.id}_temp", "object_id": f"{o}_{ph.id}_temp",
                     "state_topic": self.t(p, "phase_temp", ph.id), "command_topic": self.t(p, "set", "phase_temp", ph.id),
-                    "min": 55 if f else 13, "max": 95 if f else 35, "step": f_step if f else 0.5, "mode": "box",
+                    "min": 55 if f else 13, "max": 95 if f else 35, "step": 1 if f else 0.5, "mode": "box",
                     "unit_of_measurement": "°F" if f else "°C", "device_class": "temperature", "entity_category": "config"}))
         return [(t, {k: v for k, v in c.items() if k != "_oid"}) for t, c in self._ids(out)]
 
@@ -202,9 +201,7 @@ class HaBridge:
             except KeyError:
                 continue
             f = p.settings.units == "F"
-            if f and p.settings.step_f == 0.5:
-                conv = lambda c: (int(h) if (h := round(c_to_f(c) * 2) / 2) == int(h) else h)
-            elif f:
+            if f:
                 conv = lambda c: round(c_to_f(c))
             else:
                 conv = lambda c: round(c * 2) / 2
