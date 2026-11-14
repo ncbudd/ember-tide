@@ -229,3 +229,73 @@ def test_demo_outbound_send_paths_assert_and_never_hit_httpx(tmp_path: Path, mon
             c.portal.call(ai.OpenAICompatModel(eff).run, "sys", "hi", [], lambda *a: None)
 
     assert called is False
+
+
+def test_demo_refuses_large_bodies_and_hides_client_errors(tmp_path: Path):
+    with TestClient(_demo_app(tmp_path)) as c:
+        big = {"delta_c": 1.0, "until": "next_phase", "pad": "x" * (70 * 1024)}
+        r = c.post("/api/people/p1/adjust", json=big, headers=H)
+        assert r.status_code == 413
+
+        def chunks():
+            for _ in range(20):
+                yield b"x" * 8192
+        r = c.post("/api/people/p1/adjust", content=chunks(), headers={**H, "content-type": "application/json"})
+        assert r.status_code in (400, 413)       # reading stops at the cap; FastAPI reports a body it couldn't read as 400
+
+        assert c.post("/api/people/p1/adjust", json={"delta_c": 0.5, "until": "next_phase"}, headers=H).status_code == 200
+        assert c.get("/api/client-errors").status_code == 403
+        assert c.post("/api/client-error", json={"message": "hello"}, headers=H).status_code == 403
+
+
+def test_demo_hides_api_docs_and_caps_live_sockets(tmp_path: Path):
+    from starlette.websockets import WebSocketDisconnect
+    from embertide.demo import DEMO_WS_PER_IP
+    with TestClient(_demo_app(tmp_path)) as c:
+        for path in ("/openapi.json", "/docs", "/redoc"):
+            r = c.get(path)
+            assert r.status_code == 404 or "openapi" not in r.text.lower()
+        opened = []
+        try:
+            for _ in range(DEMO_WS_PER_IP):
+                ws = c.websocket_connect("/api/live")
+                opened.append(ws.__enter__())
+            with pytest.raises(WebSocketDisconnect):
+                with c.websocket_connect("/api/live") as extra:
+                    extra.receive_json()
+        finally:
+            for ws in opened:
+                ws.__exit__(None, None, None)
+        with c.websocket_connect("/api/live") as again:      # slots come back once sockets close
+            again.receive_json()
+
+
+def test_rhythm_count_and_name_limits(tmp_path: Path):
+    from embertide.api import MAX_RHYTHMS
+    with TestClient(_demo_app(tmp_path)) as c:
+        base = c.get("/api/people/p1/rhythms").json()
+        rh = (base["rhythms"] if isinstance(base, dict) else base)[0]
+        long = {**rh, "id": "x", "name": "n" * 81}
+        assert c.put("/api/people/p1/rhythms/x", json=long, headers=H).status_code == 422
+        have = len(base["rhythms"] if isinstance(base, dict) else base)
+        codes = [c.put(f"/api/people/p1/rhythms/r{i}", json={**rh, "id": f"r{i}"}, headers=H).status_code
+                 for i in range(MAX_RHYTHMS - have + 1)]
+        assert codes[:-1] == [200] * (MAX_RHYTHMS - have) and codes[-1] == 422
+        assert c.post("/api/people/p1/feedback", json={"date": "k1", "temp": "warm"}, headers=H).status_code == 422
+
+
+def test_demo_resets_early_when_the_database_grows(tmp_path: Path, monkeypatch):
+    import embertide.demo as demo
+    calls = []
+
+    async def fake_reset(state):
+        calls.append(1)
+    monkeypatch.setattr(demo, "reset_demo_state", fake_reset)
+    monkeypatch.setattr(demo, "_db_bytes", lambda state: 10**9)
+
+    async def run():
+        task = asyncio.create_task(demo.demo_reset_loop(object(), every_s=3600, check_s=0.01, max_bytes=1))
+        await asyncio.sleep(0.1)
+        task.cancel()
+    asyncio.run(run())
+    assert calls

@@ -254,3 +254,5 @@ class Store:
                          "DELETE FROM samples", "DELETE FROM stages"):
                 self._db.execute(stmt)
             self._sources = None
+        with self._lock:
+            self._db.execute("VACUUM")          # give the space back so the file shrinks (outside the transaction)

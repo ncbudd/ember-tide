@@ -16,6 +16,10 @@ services:
     read_only: true
     security_opt:
       - no-new-privileges:true
+    cap_drop: [ALL]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
     tmpfs:
       - /tmp:uid=1000,gid=1000
     ports:
@@ -25,8 +29,11 @@ services:
     environment:
       TZ: Etc/UTC
       ET_DEMO: "on"
-      # Put a reverse proxy with TLS and rate limiting in front before exposing this publicly.
+      # Put a reverse proxy with TLS and rate limiting in front before exposing this publicly, and tell the demo
+      # which proxy to believe so its per-visitor limits see real visitor addresses:
       # ET_TRUST_PROXY: "on"
+      # ET_TRUSTED_PROXIES: "172.18.0.1/32"   # the address your proxy connects from
+      # ET_PROXY_CLOUDFLARE: "on"             # behind a Cloudflare tunnel or proxy
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:$${ET_PORT:-8790}/healthz')\""]
       interval: 30s

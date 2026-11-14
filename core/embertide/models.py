@@ -22,7 +22,7 @@ class Anchor(BaseModel):
 
 class Phase(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,32}$")
-    name: str
+    name: str = Field(max_length=80)
     temp_c: float = Field(ge=10, le=45)
     start: Anchor
     ramp_min: int = Field(10, ge=0, le=180)           # linear transition from the previous phase's temperature
@@ -46,7 +46,7 @@ class Schedule(BaseModel):
 
 class Rhythm(BaseModel):
     id: str = Field(pattern=r"^[A-Za-z0-9_-]{1,32}$")
-    name: str
+    name: str = Field(max_length=80)
     days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5, 6], max_length=7)  # Monday = 0
     schedule: Schedule = Field(default_factory=Schedule)
     phases: list[Phase] = Field(min_length=1, max_length=12)
