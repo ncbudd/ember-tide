@@ -13,6 +13,10 @@ minor versions, and each entry says what to check when upgrading.
 - **Urgent leak alert and clearer hub water/fault messages.** Added urgent priority-5 `leak` notifications (bypassing
   quiet hours, sent to the household, and included in the morning summary if it occurred overnight), a Home Assistant
   `Leak hold` binary sensor, and plain-English hub water/fault guidance.
+- **Nights start again in the demo and the fast Simulator.** The radar settle check needed eight readings over
+  seven minutes, which a demo night (one reading every five minutes) or the Simulator at ×300 could never give,
+  so those nights stayed "waiting" with a flat chart and a false pet question. The check now scales to how often
+  readings arrive; real nights (one reading a second) are unchanged.
 
 ## 0.1.11
 
