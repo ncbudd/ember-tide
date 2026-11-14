@@ -14,6 +14,17 @@ minor versions, and each entry says what to check when upgrading.
   quiet hours, sent to the household, and included in the morning summary if it occurred overnight), a Home Assistant
   `Leak hold` binary sensor, and plain-English hub water/fault guidance.
 
+## 0.1.11
+
+**Upgrade note:** rhythm and phase names are now limited to 80 characters, with up to 12 rhythms per person.
+
+- **Try it in your browser.** A public demo with a simulated bed is linked from the README; nothing there controls a
+  real bed and changes reset every hour.
+- **Demo mode hardened for public hosting.** Small requests only, a per-visitor change limit, a cap on live
+  connections, an early reset if the database grows, no trace files or API docs pages, and app error reports are
+  neither stored nor shown. The example demo Compose file adds memory, CPU and process limits.
+- **Fixes.** Feedback dates must be real dates.
+
 ## 0.1.10
 
 - **Leak sensor emergency off.** If a leak sensor reports water, both sides switch off and stay off until someone
