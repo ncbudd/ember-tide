@@ -26,7 +26,8 @@ manager when Android asks. Or with USB debugging on: `adb install -r ember-tide-
 **Check it (optional).** In the folder with the downloads, `sha256sum -c SHA256SUMS.txt` (Windows PowerShell:
 `Get-FileHash <file>` and compare with the line in the file).
 
-Open the app, type your server's address (`http://192.168.1.20:8790` at home, or `https://sleep.example.com`), sign in. The app
+Open the app, type your server's address (`192.168.1.20:8790` at home, or `https://sleep.example.com`), sign in. You can leave out
+`http://`: for a home address the app tries `https://`, then plain `http://`, then the usual port 8790 if you left the port out. It
 accepts plain `http://` only for addresses on your home network; anything else must be `https://`.
 
 **Updates.** Nothing updates itself. When a new release comes out, download the newer APK and install it over the old one: your
