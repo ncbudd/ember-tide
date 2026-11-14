@@ -18,6 +18,10 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Major bumps (e.g. the MCP SDK 1 -> 2, which changed its API) are migrations, not updates: do them by hand.
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
     groups:
       python:
         patterns: ["*"]
