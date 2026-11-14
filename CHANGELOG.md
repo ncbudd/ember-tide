@@ -5,6 +5,15 @@ minor versions, and each entry says what to check when upgrading.
 
 ## Unreleased
 
+- **Easier first connection in the Android app.** The server address can be typed as it is, for example `192.168.1.20:8790`:
+  for a home address the app tries `https://`, then plain `http://`, then port 8790 if the port was left out. The field
+  no longer starts with `https://`, which a plain home server doesn't answer.
+- **Setup is easier to find on a computer.** Studio shows a "Finish setting up your side" banner with a Start setup
+  button until the short setup is done. The welcome card on a computer no longer repeats the text beside it.
+- **For testers.** A beta tester feedback form and a link to Discussions for questions; install guide fixes (the broker
+  on Portainer, Unraid, TrueNAS and CasaOS, Tailscale Serve with Docker, a live backup with nothing extra installed,
+  the cloud option without Docker, the Home Assistant line).
+
 - **Water leak emergency off.** Added a `Water leak sensor` device type (`leak`, Home Assistant `binary_sensor` with
   `device_class: moisture` or MQTT topic; multiple sensors supported). When any enabled leak sensor reports wet, both
   sides turn off immediately without backoff and stay off under a persistent `leak_hold` (blocking rhythms, flashes,

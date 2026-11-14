@@ -17,6 +17,7 @@ import Explorer from "./Explorer";
 import Insights from "./Insights";
 import Me from "./Me";
 import { sideWord } from "./deviceKinds";
+import { needsWelcome } from "../screens/Welcome";
 
 /** The bed's own state code ("SYSTEM_ON") in plain words; unknown codes in lower case without the prefix. */
 const bedState = (x?: string | null) => !x ? "—" : x === "SYSTEM_ON" ? "On" : x === "SYSTEM_OFF" ? "Off (standby)" : x.replace(/^SYSTEM_/, "").replace(/_/g, " ").toLowerCase();
@@ -124,6 +125,14 @@ function Overview() {
     <>
       <LeakBanner />
       <GuestBanner />
+      {!auth.state.demo && needsWelcome(me, auth.state.enabled, auth.me?.person) && (
+        <div className="box setup-banner" role="status" style={{ borderColor: "color-mix(in srgb, var(--acc) 55%, var(--line))", background: "color-mix(in srgb, var(--acc) 8%, var(--surf))", padding: "10px 16px" }}>
+          <div className="row" style={{ flexWrap: "wrap", gap: 10 }}>
+            <span><b style={{ fontWeight: 500 }}>Finish setting up your side</b> · 6 quick questions, about two minutes: your name, your side, bedtimes and how warm you like it.</span>
+            <NavLink to="/" className="btn pri">Start setup</NavLink>
+          </div>
+        </div>
+      )}
       <div><div className="k">Live</div><h1 style={{ fontSize: 34 }}>Tonight</h1></div>
       <div className="grid2">
         <div className="box"><span className="k">Both sides · rhythm (line), pad temperature (faint)</span>

@@ -281,6 +281,7 @@ html:not(.et-hidden) .wl-pcard[aria-checked=true] .pa *{animation-play-state:run
 .authcard>p.err{text-align:left}
 .au-go{margin-top:18px;border-radius:99px}
 .au-foot{font-size:13px;text-align:center}
+.au-step>p.au-desk{display:none}
 .au-steps{display:flex;align-items:center;justify-content:space-between;min-height:44px}
 .au-back{display:inline-flex;align-items:center;gap:2px;min-height:44px;padding:0 12px 0 4px;margin-left:-6px;border:0;background:none;color:var(--mute);font-size:15px;cursor:pointer;border-radius:99px}
 .au-title{font-size:26px;line-height:1.2;font-weight:400}
@@ -291,8 +292,9 @@ html:not(.et-hidden) .wl-pcard[aria-checked=true] .pa *{animation-play-state:run
   .authcard>.bm{display:none}
   .authcard.hero>.brand{display:none}
   .au-tag{display:none}
-  .au-step>p.au-lead{text-align:left;max-width:none;font-size:17px;color:var(--text)}
-  .au-foot{text-align:left}
+  /* the brand panel beside the card already says these; the card says what happens next instead */
+  .au-step>p.au-lead,.au-step>p.au-foot{display:none}
+  .au-step>p.au-desk{display:block;text-align:left;font-size:17px;line-height:1.55;color:var(--text)}
   .authside-waves path{stroke-dasharray:1;stroke-dashoffset:1;animation:fin-draw 2.6s var(--ease-calm) .3s forwards}
   .authside-waves path+path{animation-delay:.7s}
   .app.authapp>.wl-scene{left:55%}
