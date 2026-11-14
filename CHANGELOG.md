@@ -14,6 +14,18 @@ minor versions, and each entry says what to check when upgrading.
   quiet hours, sent to the household, and included in the morning summary if it occurred overnight), a Home Assistant
   `Leak hold` binary sensor, and plain-English hub water/fault guidance.
 
+## 0.1.10
+
+- **Leak sensor emergency off.** If a leak sensor reports water, both sides switch off and stay off until someone
+  clears the alert. Filling, priming, the pump and turning on are refused meanwhile, a banner says what happened, and
+  owners are told at once.
+- **Demo mode.** `ET_DEMO=on` runs a self-contained demo with a simulated bed and household: no network calls, only
+  safe changes allowed, and a fresh start every hour. See `docs/demo.md` and `docker-compose.demo.yml`.
+- **Half-degree steps in °F.** Each person can choose ½° steps in Fahrenheit (Settings, your preferences). Whole
+  degrees stay the default; the app and notifications show the same value.
+- **Screens.** The night screen fits short phones, and the Studio menu scrolls on short tablets.
+- **Fixes.** Hub faults keep the hub's own description.
+
 ## 0.1.9
 
 **Upgrade notes:** behind Cloudflare (tunnel or proxy) with `ET_TRUST_PROXY=on`, add `ET_PROXY_CLOUDFLARE=on` to keep
