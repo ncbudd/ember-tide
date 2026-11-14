@@ -836,7 +836,12 @@ class Controller:
         else:
             share = sum(1 for _, own, _o in seen if own >= 0.5) / len(seen)
             why = "the radar saw someone on this side" if share >= self.SETTLE_SHARE else "the radar hasn't seen anyone on this side"
-        if now - since < self.SETTLE_MIN_S or len(seen) < self.SETTLE_MIN_N or now - seen[0][0] < self.SETTLE_MIN_S - 60:
+        # one sample per tick: about a second apart in real use, minutes apart when the simulator runs fast (x300) or
+        # the demo seeds its history, so the count asked for follows the spacing (real use still needs SETTLE_MIN_N)
+        gap = (h[-1][0] - h[0][0]) / (len(h) - 1) if len(h) > 1 else 1.0
+        need = min(self.SETTLE_MIN_N, max(2, int(0.8 * self.SETTLE_MIN_S / max(gap, 1.0))))
+        slack = gap if gap > 5 else 0.0                  # sparse samples: the oldest one in the window can be a gap late
+        if now - since < self.SETTLE_MIN_S or len(seen) < need or now - seen[0][0] + slack < self.SETTLE_MIN_S - 60:
             # (the radar's samples are kept in memory only: after a restart they start afresh while presence_since comes
             # back, so a verdict waits until the radar has really watched for a while again)
             info[p.id] = {"gate": False, "why": "settling in", "share": round(share, 2)}

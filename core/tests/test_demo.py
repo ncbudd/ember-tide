@@ -299,3 +299,22 @@ def test_demo_resets_early_when_the_database_grows(tmp_path: Path, monkeypatch):
         task.cancel()
     asyncio.run(run())
     assert calls
+
+
+def test_seeded_demo_nights_start_and_finish(tmp_path: Path):
+    """Every seeded night really runs: the radar settle check needs several samples, so seeding at coarse steps used
+    to leave every night waiting, with a flat chart and a false "was the cat on the bed all night?" question."""
+    import time as _t
+
+    from embertide.demo import seed_demo_store
+    from embertide.store import Store
+
+    store = Store(tmp_path / "seed.db")
+    now = _t.time()
+    asyncio.run(seed_demo_store(store, "America/New_York", now, nights=3))
+    evs = store.events_between(now - 4 * 86400, now + 60)
+    for pid in ("p1", "p2"):
+        mine = [e for e in evs if e.get("person") == pid]
+        assert sum(e["kind"] == "rhythm_started" for e in mine) >= 2, pid
+        assert sum(e["kind"] == "night_done" for e in mine) >= 2, pid
+        assert not any(e["kind"] == "pet_question" for e in mine), pid
