@@ -15,7 +15,7 @@ import { CareFold } from "../components/Care";
 import Tip from "../components/Tip";
 import LeftOutNights from "../components/LeftOutNights";
 import PetsEditor from "../components/PetsEditor";
-import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, TempUnits, WeightUnits, ClockPick, LanguagePick } from "../components/PersonPrefs";
+import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, StepF, TempUnits, WeightUnits, ClockPick, LanguagePick } from "../components/PersonPrefs";
 import { FlashBlock, flashSummary, minFmt, Steps, TempSteps } from "../components/FlashPrefs";
 import HealthConnect from "./HealthConnect";
 import PhoneNotifications from "./PhoneNotifications";
@@ -177,6 +177,7 @@ export default function Settings() {
           </div></div>
         <SimpleScreenRows s={s} onChange={upd} />
         <div className="row"><span>Units</span><TempUnits s={s} onChange={k => upd({ units: k })} /></div>
+        {s.units === "F" && <div className="row"><span>Temperature steps</span><StepF s={s} onChange={v => upd({ step_f: v })} /></div>}
         <div className="row"><span>Weights<br /><span className="mute" style={{ fontSize: 12 }}>Pets and bed scales</span></span><WeightUnits s={s} onChange={k => upd({ weight_units: k })} /></div>
         <div className="row"><span>Clock</span><ClockPick s={s} onChange={k => upd({ clock: k })} /></div>
         <div className="row"><span>Assistant language<br /><span className="mute" style={{ fontSize: 12 }}>For Ask and reviews</span></span><LanguagePick s={s} onChange={k => upd({ language: k })} /></div>

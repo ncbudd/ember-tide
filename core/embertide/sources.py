@@ -447,10 +447,11 @@ _UNAVAILABLE = ("unavailable", "unknown", "none", "", "null")
 
 
 class SourceManager:
-    def __init__(self, store, clock, bed_getter) -> None:
+    def __init__(self, store, clock, bed_getter, demo: bool = False) -> None:
         self.store = store
         self.clock = clock
         self.bed = bed_getter                    # returns the bed driver (for sim sources)
+        self.demo = demo
         self.configs: list[SourceConfig] = [SourceConfig(**c) for c in store.get("sources", [])]
         self.calibration = Calibration(**store.get("calibration", {}))
         self.latest: dict[str, dict] = {}        # id → {value, ts, error}
@@ -488,7 +489,7 @@ class SourceManager:
     def _launch(self, c: SourceConfig) -> None:
         if c.id in self._tasks:
             self._tasks.pop(c.id).cancel()
-        if not c.enabled:
+        if not c.enabled or (self.demo and c.driver != "sim"):
             return
         runner = {"ha-entity": self._run_ha, "mqtt-topic": self._run_mqtt, "sim": self._run_sim, "ics": self._run_ics}[c.driver]
         self._tasks[c.id] = asyncio.create_task(self._guard(c, runner))
@@ -795,6 +796,7 @@ class SourceManager:
         return n
 
     async def _run_ha(self, c: SourceConfig) -> None:
+        assert not self.demo, "Home Assistant polling is disabled in demo mode"
         _, token = self.ha_creds(c)
         async with httpx.AsyncClient(timeout=10, headers={"Authorization": f"Bearer {token}"},
                                      transport=self.http_transport) as http:
@@ -851,6 +853,7 @@ class SourceManager:
     async def _run_ics(self, c: SourceConfig) -> None:
         """A calendar feed (Fastmail private link, iCloud public calendar, Google secret address): fetched
         every 15 minutes, read on this server; nothing is written back."""
+        assert not self.demo, "calendar polling is disabled in demo mode"
         url = ics_url(c.params.get("url", ""))
         # Refusing redirects prevents an HTTP 30x from carrying secret feed tokens off to another host.
         async with httpx.AsyncClient(timeout=20, follow_redirects=False, headers={"User-Agent": "EmberTide/1"},

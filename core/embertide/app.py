@@ -140,26 +140,32 @@ class _TooBig(Exception):
 
 def create_app(cfg: Config | None = None) -> FastAPI:
     cfg = cfg or Config()
+    from .demo import DemoMiddleware, apply_demo_config, demo_reset_loop, seed_demo_store
+    apply_demo_config(cfg)
     state = AppState()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        app.state.et_state = state
         clock = Clock(cfg.tz, speed=cfg.sim_speed if cfg.bed == "sim" else 1.0)
         store = Store(cfg.db_path)
-        saved = store.get("household")
-        household = load_household(saved, log) if saved else default_household()
-        if not saved:
-            store.put("household", household.model_dump())
+        if cfg.demo:
+            household = await seed_demo_store(store, cfg.tz, clock.now_ts())
+        else:
+            saved = store.get("household")
+            household = load_household(saved, log) if saved else default_household()
+            if not saved:
+                store.put("household", household.model_dump())
         driver = make_driver(cfg, clock)
         await driver.start()
         from .sources import SourceManager, default_sim_sources
         if cfg.bed == "sim" and store.get("sources") is None:
             store.put("sources", [c.model_dump() for c in default_sim_sources()])
-        sources = SourceManager(store, clock, lambda: driver)
+        sources = SourceManager(store, clock, lambda: driver, demo=cfg.demo)
         await sources.start()
         state.sources = sources
         state.cfg = cfg
-        state.controller = Controller(household, driver, store, clock, sources)
+        state.controller = Controller(household, driver, store, clock, sources, demo=cfg.demo)
         if sources.migrate(household.people):              # older setups → "who is it for" (sources.migrate)
             sources.save()
         from .auth import Auth
@@ -220,8 +226,11 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         housekeeping_task = _asyncio.get_running_loop().create_task(housekeeping())
         from . import trace as _trace                 # night trace for tuning (data dir/traces, ET_TRACE=off to stop)
         trace_task = _asyncio.get_running_loop().create_task(_trace.run(state.controller, cfg.data_dir))
-        log.info("Ember & Tide %s · bed driver %s · tz %s", __version__, driver.id, cfg.tz)
+        demo_reset_task = _asyncio.get_running_loop().create_task(demo_reset_loop(state)) if cfg.demo else None
+        log.info("Ember & Tide %s · bed driver %s · tz %s%s", __version__, driver.id, cfg.tz, " · DEMO" if cfg.demo else "")
         yield
+        if demo_reset_task is not None:
+            demo_reset_task.cancel()
         housekeeping_task.cancel()
         trace_task.cancel()
         await state.ha.stop()
@@ -261,6 +270,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
     parse_nets(cfg.trusted_proxies)                       # a typo in ET_TRUSTED_PROXIES stops the start with a clear message
     app.add_middleware(AuthMiddleware, state=state)
     app.add_middleware(mcp_endpoint.middleware)           # /mcp: its own bearer keys (before the SPA catch-all)
+    if cfg.demo:
+        app.add_middleware(DemoMiddleware, state=state)   # demo allow/deny list + rate-limit before auth & mcp
     app.add_middleware(BodyLimit)                         # outermost: refuse a huge body before anyone reads it
     from fastapi.middleware.cors import CORSMiddleware
     # The Android app's WebView origin. No cookies are used across origins: the app sends a bearer token.

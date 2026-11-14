@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
 import { useApp } from "../ctx";
 import { useOwnPerson } from "../auth";
-import { cToF, fToC, nightsText, personaColor } from "../format";
+import { cToF, fToC, nightsText, personaColor, stepC, temp } from "../format";
 import type { Phase, Rhythm } from "../types";
 import Tip from "../components/Tip";
 
@@ -72,8 +72,9 @@ export default function RhythmEditor() {
   const H = 340, L = 52, R = 18, T = 34, B = 54;
   const X = (m: number) => L + ((m - x0) / (x1 - x0)) * (w - L - R);
   const Y = (c: number) => T + (1 - (c - lo) / (hi - lo)) * (H - T - B);
+  const step = stepC(u, person.settings.step_f);
   const toUnits = (c: number) => (u === "F" ? cToF(c) : c);
-  const deg = (c: number, d = 0) => `${toUnits(c).toFixed(d)}°`;
+  const deg = (c: number, d = 0) => temp(c, u, d);
   const color = personaColor(person);
 
   // curve: hold then linear ramp into each phase
@@ -199,9 +200,9 @@ export default function RhythmEditor() {
             <tbody>{draft.phases.map((p, i) => (
               <tr key={p.id}>
                 <td><b style={{ fontWeight: 500 }}>{p.name}</b><br /><span className="faint" style={{ fontSize: 11.5 }}>{anchorWord(p)}</span></td>
-                <td><span className="stepper"><button aria-label="cooler" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c - (u === "F" ? 5 / 9 : 0.5)) * 100) / 100 })}>−</button>
+                <td><span className="stepper"><button aria-label="cooler" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c - step) * 100) / 100 })}>−</button>
                   <span className="num" style={{ minWidth: 36, textAlign: "center" }}>{deg(p.temp_c)}</span>
-                  <button aria-label="warmer" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c + (u === "F" ? 5 / 9 : 0.5)) * 100) / 100 })}>+</button></span></td>
+                  <button aria-label="warmer" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c + step) * 100) / 100 })}>+</button></span></td>
                 <td><select value={p.start.kind} onChange={e => setPhase(i, { start: { ...p.start, kind: e.target.value as Phase["start"]["kind"], time: e.target.value === "clock" ? p.start.time ?? "03:00" : null } })}>
                   <option value="bedtime">bedtime</option><option value="in_bed">getting in bed</option><option value="clock">clock time</option><option value="wake">wake</option></select></td>
                 <td>{p.start.kind === "clock" ? <input type="time" value={p.start.time ?? "03:00"} onChange={e => setPhase(i, { start: { ...p.start, time: e.target.value } })} />

@@ -97,6 +97,7 @@ function PhoneApp() {
       )}
       {/* one banner at a time, the most urgent: no connection > the bed isn't reporting > a bed hub problem. While one
           shows, Tonight's own notes (away, pet question, care) step aside (theme.css .app:has(> .banner) .notes). */}
+      {auth.state.demo && <div className="demo-banner" role="note">Demo: changes reset every hour; nothing here controls a real bed</div>}
       {lostServer ? <div className="banner" role="status">Lost the connection. Trying again… What you see may be out of date.</div>
         : !snap.system.online ? <div className="banner" role="status">The bed isn't answering right now. What you see may be out of date.</div>
         : snap.system.hub && !snap.system.hub.ok && (easy || simpleOn || loc.pathname === "/") ? <div className="banner" role="status">

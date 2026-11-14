@@ -29,8 +29,9 @@ def sched_confirm(p: Person, e: NightEngine) -> float:
 
 
 class Controller:
-    def __init__(self, household: Household, driver: BedDriver, store: Store, clock: Clock, sources=None) -> None:
+    def __init__(self, household: Household, driver: BedDriver, store: Store, clock: Clock, sources=None, demo: bool = False) -> None:
         self.sources = sources
+        self.demo = demo
         self.household = household
         self.driver = driver
         self.store = store

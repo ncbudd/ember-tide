@@ -1,0 +1,37 @@
+# Public read-safe demo of Ember & Tide using the built-in bed simulator.
+#
+#   docker compose -f docker-compose.demo.yml up -d
+#   open http://localhost:8790
+#
+# Forces ET_BED=sim, seeds a sample two-sleeper household with a pet and ~7 past nights, blocks external
+# notifications/AI/integrations/auth/export/console endpoints with 403, disables all outbound network calls,
+# and resets all visitor changes every hour. Never share a real household's data directory with the demo.
+
+services:
+  embertide-demo:
+    image: ghcr.io/ncbudd/ember-tide:latest
+    # build: .                                 # or build from this checkout instead of pulling
+    container_name: ember-tide-demo
+    restart: unless-stopped
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000
+    ports:
+      - "8790:8790"
+    volumes:
+      - demo-data:/data
+    environment:
+      TZ: Etc/UTC
+      ET_DEMO: "on"
+      # Put a reverse proxy with TLS and rate limiting in front before exposing this publicly.
+      # ET_TRUST_PROXY: "on"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request;urllib.request.urlopen('http://localhost:$${ET_PORT:-8790}/healthz')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  demo-data:

@@ -38,10 +38,11 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_LLM_KEY` | none | API key for the endpoint, if it needs one. |
 | `ET_LLM_PROVIDER` | `openai` | `openai` (any OpenAI-compatible server) or `anthropic` (needs `pip install "embertide[claude]"`; key from `ET_LLM_KEY` or the SDK's own credentials). |
 | `ET_SIM_SPEED` | `1` | Clock speed for the simulator only (`ET_BED=sim`). For example `60` runs a minute per second. Also changeable in Studio, Simulator. |
+| `ET_DEMO` | `off` | Interactive public demo mode (`docs/demo.md`): forces `ET_BED=sim`, seeds a simulated household and past nights, blocks external/account/security routes with `403`, blocks all outbound network requests, and resets state every hour. Never point a demo instance at a real bed. |
 | `ET_TRACE` | `on` | A compact JSON line every 15 seconds in `<data dir>/traces/`, kept 14 days, for tuning presence on real nights (no names). `off`, `0` or `false` disables it. |
 | `TZ` | none | Standard time-zone variable; used by the container and as the fallback for `ET_TZ`. |
 
-That is 32 variables (31 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_LLM_KEY`, URLs with passwords) are best
+That is 33 variables (32 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_LLM_KEY`, URLs with passwords) are best
 kept in a `.env` file next to your Compose file with restricted permissions, which is git-ignored here (`.env.example` lists every variable to copy from):
 
 ```yaml

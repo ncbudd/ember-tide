@@ -45,9 +45,10 @@ def build_message(token: str, e: str, urgent: bool, ios: bool = False, now: floa
 
 
 class Fcm:
-    def __init__(self, data_dir: Path, client: httpx.AsyncClient | None = None):
+    def __init__(self, data_dir: Path, client: httpx.AsyncClient | None = None, demo: bool = False):
         self.data_dir = Path(data_dir)
         self.client = client
+        self.demo = demo
         self._creds: dict | None = None
         self._creds_mtime = 0.0
         self._token: tuple[str, float] | None = None
@@ -92,6 +93,7 @@ class Fcm:
         return f"{head}.{claim}.{_b64u(sig)}"
 
     async def _access_token(self, http: httpx.AsyncClient) -> str:
+        assert not self.demo, "FCM is disabled in demo mode"
         if self._token and self._token[1] > time.time() + 60:
             return self._token[0]
         c = self.creds()
@@ -110,6 +112,7 @@ class Fcm:
 
     async def send(self, token: str, encrypted: bytes, urgent: bool, ios: bool = False) -> str:
         """Returns "ok", "gone" (the phone's registration no longer exists) or raises."""
+        assert not self.demo, "FCM is disabled in demo mode"
         http = self.client or httpx.AsyncClient(timeout=10)
         try:
             at = await self._access_token(http)

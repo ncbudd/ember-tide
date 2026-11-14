@@ -40,6 +40,8 @@ class CloudAccounts:
         await self.generic.tick()
 
     def start(self) -> None:
+        if getattr(self.c, "demo", False):
+            return
         async def loop():
             while True:
                 try:
