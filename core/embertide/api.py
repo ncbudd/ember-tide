@@ -98,8 +98,11 @@ class ProfileBody(BaseModel):
     persona_temps: bool = False          # first-time setup: also start the rhythms from that persona's temperatures
 
 
+MAX_RHYTHMS = 12
+
+
 class FeedbackBody(BaseModel):
-    date: str | None = None          # the night (evening date); left out = the night that just ended (a notification button)
+    date: str | None = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")         # the night (evening date); left out = the night that just ended (a notification button)
     temp: Literal["cold", "right", "warm"] | None = None
     note: str | None = Field(None, max_length=2000)       # "how do you feel", in their own words
     rested: int | None = Field(None, ge=1, le=5)
@@ -478,6 +481,8 @@ def build_router(app_state) -> APIRouter:
             want = work_nights(p.settings.work_days) if rh.nights == "work" else off_nights(p.settings.work_days)
             if rh.days != want:
                 rh.nights = ""                   # days picked by hand: this rhythm no longer follows work days
+        if not any(x.id == rid for x in p.rhythms) and len(p.rhythms) >= MAX_RHYTHMS:
+            raise HTTPException(422, f"a person can have up to {MAX_RHYTHMS} rhythms; delete one first")
         p.rhythms = [rh if x.id == rid else x for x in p.rhythms]
         if not any(x.id == rid for x in p.rhythms):
             p.rhythms.append(rh)

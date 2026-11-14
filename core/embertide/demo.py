@@ -31,8 +31,13 @@ log = logging.getLogger("embertide.demo")
 DEMO_BANNER = "Demo: changes reset every hour; nothing here controls a real bed"
 DEMO_DENY_MSG = "Not available in the demo."
 DEMO_RESET_S = 3600
-DEMO_MUTATE_LIMIT = 60
+DEMO_MUTATE_LIMIT = 20
 DEMO_MUTATE_WINDOW_S = 60
+DEMO_MAX_BODY = 16 * 1024        # visitors only send small JSON; refuse anything bigger before it is read into memory
+DEMO_WS_PER_IP = 4               # live-update sockets one visitor may hold open
+DEMO_WS_TOTAL = 100
+DEMO_DB_MAX_BYTES = 50 * 1024 * 1024   # reset early if visitors grow the database past this
+DEMO_CHECK_S = 60
 
 
 def apply_demo_config(cfg) -> None:
@@ -82,6 +87,8 @@ DEMO_BLOCKED_ROUTES: list[tuple[str | None, re.Pattern[str]]] = [
     ("POST", re.compile(r"^/api/people/[^/]+/phone-context$")),
     ("DELETE", re.compile(r"^/api/people/[^/]+/phone-context$")),
     ("DELETE", re.compile(r"^/api/client-errors$")),
+    ("GET", re.compile(r"^/api/client-errors$")),          # one visitor's text is not shown to the next
+    ("POST", re.compile(r"^/api/client-error$")),
 ]
 
 DEMO_ALLOWED_MUTATIONS: list[tuple[str, re.Pattern[str]]] = [
@@ -107,7 +114,6 @@ DEMO_ALLOWED_MUTATIONS: list[tuple[str, re.Pattern[str]]] = [
     ("POST", re.compile(r"^/api/people/[^/]+/insights/(dismiss|apply)$")),
     ("POST", re.compile(r"^/api/assistant/(ask|proposals/[^/]+/(apply|dismiss)|changes/[^/]+/undo)$")),
     ("POST", re.compile(r"^/api/ai/ask$")),
-    ("POST", re.compile(r"^/api/client-error$")),
 ]
 
 
@@ -127,12 +133,32 @@ def demo_allowed(method: str, path: str) -> bool:
     return any(am == m and rx.match(p) for am, rx in DEMO_ALLOWED_MUTATIONS)
 
 
+class _BodyTooLarge(Exception):
+    pass
+
+
+def _capped_receive(receive, limit: int):
+    """Wrap an ASGI receive so a body without (or lying about) Content-Length still stops at `limit` bytes."""
+    seen = 0
+
+    async def wrapped():
+        nonlocal seen
+        msg = await receive()
+        if msg.get("type") == "http.request":
+            seen += len(msg.get("body", b""))
+            if seen > limit:
+                raise _BodyTooLarge()
+        return msg
+    return wrapped
+
+
 class DemoMiddleware:
     """Enforces the demo route policy and polite visitor mutation throttles."""
 
     def __init__(self, app, state) -> None:
         self.app = app
         self.state = state
+        self.ws_open: dict[str, int] = {}
 
     async def __call__(self, scope, receive, send):
         cfg = getattr(self.state, "cfg", None)
@@ -142,6 +168,15 @@ class DemoMiddleware:
         method = scope.get("method", "GET") if scope["type"] == "http" else "GET"
         if not demo_allowed(method, path):
             return await self._deny(scope, receive, send, 403, DEMO_DENY_MSG)
+        if scope["type"] == "http":
+            headers_raw = dict(scope.get("headers", []))
+            try:
+                declared = int(headers_raw.get(b"content-length", b"0") or 0)
+            except ValueError:
+                declared = DEMO_MAX_BODY + 1
+            if declared > DEMO_MAX_BODY:
+                return await self._deny(scope, receive, send, 413, "That request is too large for the demo.")
+            receive = _capped_receive(receive, DEMO_MAX_BODY)
         if scope["type"] == "http" and path.startswith("/api") and method not in ("GET", "HEAD", "OPTIONS"):
             auth = getattr(self.state, "auth", None)
             if auth is not None:
@@ -153,7 +188,33 @@ class DemoMiddleware:
                 if auth.throttled(key, now, limit=DEMO_MUTATE_LIMIT, window=DEMO_MUTATE_WINDOW_S):
                     return await self._deny(scope, receive, send, 429, "Slow down a little — try again in a minute.")
                 auth.failed(key, now)
-        return await self.app(scope, receive, send)
+        if scope["type"] != "http":
+            from .auth_api import peer_ip
+            headers = {k.decode().lower(): v.decode("latin-1") for k, v in scope.get("headers", [])}
+            ip = peer_ip(headers, (scope.get("client") or (None,))[0], cfg)
+            if self.ws_open.get(ip, 0) >= DEMO_WS_PER_IP or sum(self.ws_open.values()) >= DEMO_WS_TOTAL:
+                return await self._deny(scope, receive, send, 429, "Too many open connections.")
+            self.ws_open[ip] = self.ws_open.get(ip, 0) + 1
+            try:
+                return await self.app(scope, receive, send)
+            finally:
+                left = self.ws_open.get(ip, 1) - 1
+                if left > 0:
+                    self.ws_open[ip] = left
+                else:
+                    self.ws_open.pop(ip, None)
+        started = False
+
+        async def send_tracked(msg):
+            nonlocal started
+            if msg.get("type") == "http.response.start":
+                started = True
+            await send(msg)
+        try:
+            return await self.app(scope, receive, send_tracked)
+        except _BodyTooLarge:
+            if not started:
+                await self._deny(scope, receive, send, 413, "That request is too large for the demo.")
 
     @staticmethod
     async def _deny(scope, receive, send, code: int, msg: str):
@@ -317,10 +378,28 @@ async def reset_demo_state(state) -> None:
     log.info("demo state reset cleanly (household %s + seeded nights)", ", ".join(p.name for p in hh.people))
 
 
-async def demo_reset_loop(state, every_s: float = DEMO_RESET_S) -> None:
-    """Periodic background task resetting all visitor changes every hour."""
+def _db_bytes(state) -> int:
+    path = getattr(getattr(state.controller, "store", None), "path", None)
+    if not path or path == ":memory:":
+        return 0
+    from pathlib import Path
+    total = 0
+    for suffix in ("", "-wal", "-shm"):
+        f = Path(str(path) + suffix)
+        if f.exists():
+            total += f.stat().st_size
+    return total
+
+
+async def demo_reset_loop(state, every_s: float = DEMO_RESET_S, check_s: float = DEMO_CHECK_S,
+                          max_bytes: int = DEMO_DB_MAX_BYTES) -> None:
+    """Background task resetting all visitor changes every hour, or sooner if the database grows too large."""
+    last = time.monotonic()
     while True:
-        await asyncio.sleep(every_s)
+        await asyncio.sleep(min(check_s, every_s))
+        if time.monotonic() - last < every_s and _db_bytes(state) < max_bytes:
+            continue
+        last = time.monotonic()
         try:
             await reset_demo_state(state)
         except asyncio.CancelledError:

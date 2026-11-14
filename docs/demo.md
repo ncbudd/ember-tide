@@ -27,6 +27,7 @@ Put a TLS reverse proxy with per-IP rate limiting in front if you expose the dem
 - **Simulated household and history:** forces `ET_BED=sim` even if another driver is set in environment variables, seeds two sample sleepers (`Alex` and `Sam`), a pet (`Milo`), and 7 past nights of telemetry and sleep stages, and resets all database and simulator state back to that baseline every hour.
 - **Zero outbound network:** disables the push relay, Home Assistant MQTT bridge, external AI endpoints, cloud wearable polling, ICS calendars, ntfy, web push, and FCM. Send helpers assert demo mode is off before making any HTTP call.
 - **No sign-in, visitor rate limit:** serves `/api/auth/state` as a read-safe visitor (`demo: true`, no password setup or login screen) and limits visitor mutations politely per client IP.
+- **Small requests only:** request bodies over 64 KB are refused before they are read, and app error reports are neither stored nor shown, so one visitor's text never reaches the next.
 
 ## What is allowed and what is blocked
 
@@ -44,4 +45,5 @@ Anything that reaches outside the container, touches accounts or authentication,
 - Home Assistant connection settings and source tests (`/api/ha/*`, `/api/sources*`)
 - External webhooks, polls, cloud wearable accounts, dial beacons, and MCP keys/endpoint (`/api/integrations/*`, `/api/hooks/*`, `/api/cloud/*`, `/api/oura/*`, `/mcp`)
 - Sign-in, users, invites, tokens, and password changes (`/api/auth/*` except `/api/auth/state`)
+- App error reports (`/api/client-error`, `/api/client-errors`)
 - Data export, wearable/stage imports, hub/care configuration, raw bed console, and simulator clock/fault triggers (`/api/export`, `/api/console`, `/api/sim`, `/api/hub/*`, `/api/care/*`)

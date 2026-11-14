@@ -225,14 +225,15 @@ def create_app(cfg: Config | None = None) -> FastAPI:
                 await _asyncio.sleep(6 * 3600)
         housekeeping_task = _asyncio.get_running_loop().create_task(housekeeping())
         from . import trace as _trace                 # night trace for tuning (data dir/traces, ET_TRACE=off to stop)
-        trace_task = _asyncio.get_running_loop().create_task(_trace.run(state.controller, cfg.data_dir))
+        trace_task = None if cfg.demo else _asyncio.get_running_loop().create_task(_trace.run(state.controller, cfg.data_dir))
         demo_reset_task = _asyncio.get_running_loop().create_task(demo_reset_loop(state)) if cfg.demo else None
         log.info("Ember & Tide %s · bed driver %s · tz %s%s", __version__, driver.id, cfg.tz, " · DEMO" if cfg.demo else "")
         yield
         if demo_reset_task is not None:
             demo_reset_task.cancel()
         housekeeping_task.cancel()
-        trace_task.cancel()
+        if trace_task is not None:
+            trace_task.cancel()
         await state.ha.stop()
         state.cloud.stop()
         state.notifier.stop()
@@ -248,7 +249,8 @@ def create_app(cfg: Config | None = None) -> FastAPI:
         async with lifespan(app), mcp_endpoint.running():
             yield
 
-    app = FastAPI(title="Ember & Tide", version=__version__, lifespan=lifespan_with_mcp)
+    app = FastAPI(title="Ember & Tide", version=__version__, lifespan=lifespan_with_mcp,
+                  **({"openapi_url": None, "docs_url": None, "redoc_url": None} if cfg.demo else {}))
 
     from fastapi.exceptions import RequestValidationError
     from fastapi.responses import JSONResponse
