@@ -202,7 +202,6 @@ def person_color(p: Person) -> str:
 
 class PersonSettings(BaseModel):
     units: Literal["F", "C"] = "F"
-    step_f: float | int = 1                              # °F step on controls and dial: 1 or 0.5
     weight_units: Literal["auto", "lb", "kg"] = "auto"   # pets, bed scales; "auto" = lb with °F, kg with °C
     clock: Literal["auto", "12", "24"] = "auto"          # times in server text: auto = 24 h with °C, 12 h with °F
     # BCP-47 ("en", "de", "pt-BR"); "auto" = the AI replies in the language you write in (English for reviews)
@@ -236,13 +235,6 @@ class PersonSettings(BaseModel):
     # bed before it counts as getting up (shorter trips, like the bathroom, are left out of the story)
     in_bed_after_min: int | None = Field(None, ge=0, le=30)
     up_after_min: int | None = Field(None, ge=1, le=30)
-
-    @field_validator("step_f", mode="before")
-    @classmethod
-    def _step_f(cls, v: object) -> float | int:
-        if isinstance(v, bool) or not isinstance(v, (int, float)) or v not in (1, 1.0, 0.5):
-            raise ValueError("step_f must be 1 or 0.5")
-        return 0.5 if v == 0.5 else 1
 
     @field_validator("work_days")
     @classmethod

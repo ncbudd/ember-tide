@@ -103,7 +103,7 @@ export default function RhythmScreen() {
                 const t = e.target as HTMLElement;
                 if (t.tagName === "INPUT" || t.tagName === "SELECT") return;
                 e.preventDefault();
-                setPhase(i, { temp_c: Math.round((p.temp_c + (e.key === "ArrowRight" ? 1 : -1) * stepC(u, me.settings.step_f)) * 100) / 100 });
+                setPhase(i, { temp_c: Math.round((p.temp_c + (e.key === "ArrowRight" ? 1 : -1) * stepC(u)) * 100) / 100 });
               }}>
               <button onClick={() => setOpen(isOpen ? null : p.id)} aria-expanded={isOpen}
                 style={{ all: "unset", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", width: "100%", gap: 10 }}>
@@ -114,9 +114,9 @@ export default function RhythmScreen() {
               {isOpen && (
                 <div style={{ display: "grid", gap: 12, paddingTop: 12 }}>
                   <div className="row"><span className="mute">Temperature</span>
-                    <span className="stepper"><button aria-label="Cooler" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c - stepC(u, me.settings.step_f)) * 100) / 100 })}>−</button>
+                    <span className="stepper"><button aria-label="Cooler" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c - stepC(u)) * 100) / 100 })}>−</button>
                       <span className="v num">{tempNum(p.temp_c, u)}°</span>
-                      <button aria-label="Warmer" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c + stepC(u, me.settings.step_f)) * 100) / 100 })}>+</button></span></div>
+                      <button aria-label="Warmer" onClick={() => setPhase(i, { temp_c: Math.round((p.temp_c + stepC(u)) * 100) / 100 })}>+</button></span></div>
                   {p.start.kind === "clock" ? (
                     <TimeStep label="Starts at" value={p.start.time ?? "03:00"} onChange={v => setPhase(i, { start: { ...p.start, time: v } })} />
                   ) : (

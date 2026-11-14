@@ -209,20 +209,16 @@ async def test_ha_phase_temp_clamps_to_household_limits(tmp_path):
     assert deep.temp_c == n.hh.user_max_c
 
 
-async def test_half_degree_fahrenheit_step_on_climate_and_states(tmp_path):
+async def test_fahrenheit_uses_whole_degree_steps_on_climate_and_numbers(tmp_path):
     n = Night(tmp_path, "2026-11-05T22:20")
     n.p1.settings.units = "F"
-    n.p1.settings.step_f = 0.5
     n.present("left", True)
     await n.until("2026-11-06T00:30")
     b = HaBridge(n.c, "mqtt://x")
     clim = next(c for t, c in b.discovery() if t.endswith("climate/embertide_left/config"))
     deep_num = next(c for t, c in b.discovery() if t.endswith("number/embertide_left_deep_temp/config"))
-    assert clim["temp_step"] == 0.5 and clim["precision"] == 0.5
-    assert deep_num["step"] == 0.5
-    assert await b.handle("embertide/p1/set/target", "70.5") == "target 70.5"
-    assert await b.handle("embertide/p1/set/phase_temp/deep", "63.5") == "Deep = 63.5"
+    assert clim["temp_step"] == 1 and clim["precision"] == 1.0
+    assert deep_num["step"] == 1
+    assert await b.handle("embertide/p1/set/target", "70") == "target 70"
     await n.step(1)
-    st = b.states(n.c.snapshot())
-    assert st["embertide/p1/target"] == "70.5"
-    assert st["embertide/p1/phase_temp/deep"] == "63.5"
+    assert b.states(n.c.snapshot())["embertide/p1/target"] == "70"

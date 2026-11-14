@@ -55,7 +55,6 @@ Studio, the power tools on a computer or tablet:
 
 **Flashes and quick controls**
 - **Hot flash and cold flash** with sensible defaults (13 °C / 55 °F or 30 °C / 86 °F for 15 minutes, easing back), tunable per person.
-- Whole or half-degree steps in °F, chosen per person.
 - A **Simple screen for 3 AM**: one temperature, big buttons, deep-red night colours. Optionally a **Simple app** for the less technical
   sleeper: temperature, flashes and an easy schedule, with the detail left in Studio.
 

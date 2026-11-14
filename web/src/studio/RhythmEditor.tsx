@@ -72,7 +72,7 @@ export default function RhythmEditor() {
   const H = 340, L = 52, R = 18, T = 34, B = 54;
   const X = (m: number) => L + ((m - x0) / (x1 - x0)) * (w - L - R);
   const Y = (c: number) => T + (1 - (c - lo) / (hi - lo)) * (H - T - B);
-  const step = stepC(u, person.settings.step_f);
+  const step = stepC(u);
   const toUnits = (c: number) => (u === "F" ? cToF(c) : c);
   const deg = (c: number, d = 0) => temp(c, u, d);
   const color = personaColor(person);

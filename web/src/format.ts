@@ -4,20 +4,11 @@ import { sideLower } from "./components/BedSidePicker";
 export const cToF = (c: number) => c * 9 / 5 + 32;
 export const fToC = (f: number) => (f - 32) * 5 / 9;
 
-/** Format a °F value to half degrees when not whole (e.g. 70 or 70.5) unless explicit digits are requested. */
+/** Format a °F value in whole degrees unless explicit digits are requested. */
 function fmtF(c: number, digits = 0): string {
-  const v = cToF(c);
-  if (digits > 0) return v.toFixed(digits);
-  if (!halfF) return v.toFixed(0);                     // whole degrees unless this person chose ½° steps
-  const h = Math.round(v * 2) / 2;
-  return Number.isInteger(h) ? h.toFixed(0) : h.toFixed(1);
+  return cToF(c).toFixed(digits);
 }
 
-let halfF = false;
-/** ½ °F display follows the signed-in person's "Temperature steps" choice (set alongside the clock preference). */
-export function setHalfF(s?: { step_f?: 1 | 0.5 } | null) {
-  halfF = s?.step_f === 0.5;
-}
 export function temp(c: number | null | undefined, units: "F" | "C" = "F", digits = 0): string {
   if (c == null) return "—";
   return `${units === "F" ? fmtF(c, digits) : c.toFixed(digits)}°`;
@@ -42,8 +33,8 @@ export function weight(kg: number | null | undefined, u: WeightUnit, digits = 0)
   return `${kgTo(kg, u).toFixed(digits)} ${u}`;
 }
 
-/** One step on the controls: 1 or 0.5 °F, or 0.5 °C, returned in °C. */
-export const stepC = (units: "F" | "C", stepF: 1 | 0.5 = 1) => (units === "F" ? (stepF === 0.5 ? 5 / 18 : 5 / 9) : 0.5);
+/** One step on the controls: 1 °F or 0.5 °C, returned in °C. */
+export const stepC = (units: "F" | "C") => (units === "F" ? 5 / 9 : 0.5);
 
 /** Units for a brand-new person, from the browser's region: °F in the US (and its territories), Liberia and Myanmar, °C elsewhere. */
 const F_REGIONS = new Set(["US", "LR", "MM", "PR", "GU", "VI", "AS", "MP", "UM", "BS", "BZ", "KY", "PW", "FM", "MH"]);

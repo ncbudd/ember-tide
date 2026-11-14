@@ -154,7 +154,7 @@ def test_demo_allows_interactive_controls_and_resets_state(tmp_path: Path):
         assert c.post("/api/people/p1/flash", json={"kind": "cold"}, headers=H).status_code == 200
         assert c.post("/api/people/p1/flash/stop", json={}, headers=H).status_code == 200
         assert c.post("/api/people/p1/feedback", json={"temp": "warm", "rested": 4}, headers=H).status_code == 200
-        assert c.patch("/api/people/p1/settings", json={"step_f": 0.5}, headers=H).status_code == 200
+        assert c.patch("/api/people/p1/settings", json={"units": "C"}, headers=H).status_code == 200
         orig_rhythm = dict(c.get("/api/people/p1/rhythms").json()[0])
         edited_rhythm = dict(orig_rhythm)
         edited_rhythm["name"] = "Demo Edited Rhythm"
@@ -173,7 +173,7 @@ def test_demo_allows_interactive_controls_and_resets_state(tmp_path: Path):
 
         after_snap = c.get("/api/snapshot").json()
         after_alex = next(p for p in after_snap["people"] if p["id"] == "p1")
-        assert after_alex["settings"]["step_f"] == 1
+        assert after_alex["settings"]["units"] == "F"
         assert c.get("/api/people/p1/rhythms").json()[0]["name"] == orig_rhythm["name"]
         assert abs(after_alex["night"]["target_c"] - orig_target) < 0.05
         assert after_alex["night"]["state"] == orig_alex["night"]["state"]
