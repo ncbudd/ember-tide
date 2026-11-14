@@ -51,6 +51,7 @@ class Controller:
         self.listeners: list[Callable[[dict], None]] = []
         self.last_snapshot: dict = {}
         self.fused: dict[str, dict] = {}
+        self.leak_hold: dict | None = None
         self.notifier = None          # set by the app; tests run without one
         from .autopilot import Autopilot
         self.autopilot = Autopilot(self)
@@ -63,6 +64,7 @@ class Controller:
         out-of-bed hold (someone up when the power went is not "gone for good" when it comes back), and the bed's
         presence is judged afresh; until it reports, a running night carries on on the clock."""
         saved = dict(self.store.get("nights", {}) or {})
+        self.leak_hold = dict(lh) if isinstance((lh := self.store.get("leak_hold")), dict) else None
         saved_at = saved.pop("_saved_at", None)
         down = max(0.0, self.clock.now_ts() - saved_at) if isinstance(saved_at, (int, float)) else 0.0
         from .night import Flash, NightState, Override
@@ -593,6 +595,9 @@ class Controller:
             self._settle_sample(now)
         except Exception:  # noqa: BLE001
             log.exception("settle sample failed")
+        if self._check_leak(now):
+            # Force both sides off immediately on the tick a leak starts, bypassing command backoff.
+            force = {p.id for p in self.household.people}
         for p in self.household.people:
             # one person's failure (a bad setting, a broken source) must not stop the other side's update
             try:
@@ -644,9 +649,13 @@ class Controller:
         e = self.engines[p.id]
         present = self.fuse(p.zone)
         if p.zone in guest_zones:
-            target = self._guest_tick(p, e, present, now)
+            target = None if self.leak_hold else self._guest_tick(p, e, present, now)
+            if self.leak_hold:
+                e.s.target_c = None
             if frame:
-                await self._apply(p, target, frame, forced=bool(force and p.id in force))
+                z = frame.zones.get(p.zone)
+                forced = bool((force and p.id in force) or (self.leak_hold and z and z.on))
+                await self._apply(p, target, frame, forced=forced)
             return
         # the extras (phone/calendar context, alarm, room) are optional: if one breaks, the night still runs on
         # what is left instead of the side being stuck at its last setting
@@ -690,6 +699,12 @@ class Controller:
             log.exception("sleep signs failed for %s", p.id)
         e.personal = self._personal_signals(p.zone)
         target = e.tick(now, present, home, active=self.active_since)
+        if self.leak_hold:
+            # Keep both sides off during leak_hold regardless of rhythms, flashes, overrides or Autopilot.
+            e.s.flash = None
+            e.s.override = None
+            e.s.target_c = None
+            target = None
         try:
             self._room_shortfall(p, e, now, frame)
         except Exception:  # noqa: BLE001
@@ -704,7 +719,47 @@ class Controller:
             except Exception:  # noqa: BLE001
                 log.exception("could not record %s for %s", ev.get("kind"), p.id)
         if frame:
-            await self._apply(p, target, frame, forced=bool(force and p.id in force))
+            z = frame.zones.get(p.zone)
+            forced = bool((force and p.id in force) or (self.leak_hold and z and z.on))
+            await self._apply(p, target, frame, forced=forced)
+
+    def _check_leak(self, now: float) -> bool:
+        """Trip an emergency hold on both sides if any enabled leak sensor reads wet; returns True when newly triggered."""
+        c = la(now) if (la := getattr(self.sources, "active_leak", None)) else None   # source managers without leak sensors
+        if self.leak_hold:
+            wet = c is not None
+            if bool(self.leak_hold.get("wet")) != wet:
+                self.leak_hold["wet"] = wet
+                self.store.put("leak_hold", self.leak_hold)
+            return False
+        if c is None:
+            return False
+        self.leak_hold = {"since": float(now), "sensor": c.name, "sensor_id": c.id, "wet": True}
+        self.store.put("leak_hold", self.leak_hold)
+        self.store.event(now, "leak_detected", None, c.id, sensor=c.name, sensor_id=c.id)
+        for e in self.engines.values():
+            e.s.flash = None
+            e.s.override = None
+            e.s.target_c = None
+        for g in self.household.guest.values():
+            g.on = False
+        self._persist()
+        return True
+
+    def clear_leak_hold(self, source: str = "app", actor: str | None = None) -> tuple[bool, str | None]:
+        """Clear leak_hold once acknowledged by a person, unless an enabled leak sensor is still reading wet."""
+        now = self.clock.now_ts()
+        c = la(now) if (la := getattr(self.sources, "active_leak", None)) else None   # source managers without leak sensors
+        if c is not None:
+            return False, f"{c.name} still reports water. Dry or disable the sensor before turning the bed back on."
+        hold = self.leak_hold
+        if not hold:
+            return True, None
+        self.leak_hold = None
+        self.store.put("leak_hold", None)
+        self.store.event(now, "leak_cleared", actor, source, sensor=hold.get("sensor"), sensor_id=hold.get("sensor_id"))
+        self._persist()
+        return True, None
 
     # ---------- settling in: who is really in bed (radar zones + the phone going on the charger) ----------
     SETTLE_S = 600               # the first ~10 minutes after lying down decide whether this side's night starts
@@ -978,6 +1033,11 @@ class Controller:
         z = frame.zones.get(p.zone)
         if z is None:
             return
+        if self.leak_hold:
+            # Safety interlock: never send want_on=True while a leak hold is active.
+            target = None
+            if z.on:
+                forced = True
         hh = self.household
         e = self.engines[p.id]
         if target is not None:
@@ -1162,6 +1222,7 @@ class Controller:
                        "tick_errors": dict(self._person_errors)},
             "household": {"user_min_c": self.household.user_min_c, "user_max_c": self.household.user_max_c},
             "guest": {z: g.model_dump() for z, g in self.household.guest.items()},
+            "leak_hold": dict(self.leak_hold) if self.leak_hold else None,
             # each side of the bed as the bed names it, whoever sleeps there (setup's "check your side" uses it)
             "zones": {z: {"present": self.fused.get(z, {}).get("present", self.presence.present(z)),
                           "bed_present": self.presence.present(z)} for z in ("left", "right")},

@@ -1,3 +1,4 @@
+import LeakBanner from "../components/LeakBanner";
 import Icon from "../components/Icon";
 import { useApp } from "../ctx";
 import { clock, deltaText, fToC, mmss, personaColor, stepC, tempNum } from "../format";
@@ -43,6 +44,7 @@ export default function Simple({ person, partner, onExit, night }: { person: Per
 
   return (
     <div className="simple">
+      <LeakBanner />
       <div className="top">
         <span className="num">{clock(snap.now, snap.tz)}</span>
         <span>{person.name}{partner && partner.night.target_c != null ? <span className="faint"> · {partner.name} {tempNum(partner.night.target_c, u)}°</span> : null}</span>

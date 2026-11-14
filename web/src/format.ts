@@ -191,6 +191,8 @@ export function eventText(e: { kind: string; source?: string | null; [k: string]
     case "guest_side_off": return `Guest side turned off`;
     case "sides_swapped": return "Sides swapped";
     case "device_health": return `${typeof e.name === "string" ? e.name : "A device"}: ${e.status === "ok" ? "working normally again" : "acting oddly"}`;
+    case "leak_detected": return `Leak detected (${typeof e.sensor === "string" && e.sensor ? e.sensor : "water sensor"}): bed turned off`;
+    case "leak_cleared": return "Leak hold cleared";
     case "account_created": return "Account created";
     case "console": return "Bed console command";
     case "care": return ({ done: "Care job marked done", snooze: "Care job put off", edit: "Care job changed", add: "Care job added", delete: "Care job removed" } as Record<string, string>)[String(e.action)] ?? "Care list changed";
