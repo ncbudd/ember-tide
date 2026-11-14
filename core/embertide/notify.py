@@ -183,14 +183,15 @@ def _h(code: str) -> str:
 class Notifier:
     def __init__(self, controller, public_url: str | None = None, client: httpx.AsyncClient | None = None) -> None:
         self.c = controller
+        self.demo = bool(getattr(controller, "demo", False))
         self.store = controller.store
         self.default_public_url = public_url
         self.client = client
         from pathlib import Path
         from .fcm import Fcm
-        self.fcm = Fcm(Path(self.store.path).parent if self.store.path != ":memory:" else Path("."), client)
+        self.fcm = Fcm(Path(self.store.path).parent if self.store.path != ":memory:" else Path("."), client, demo=self.demo)
         from .push_relay import PushRelay
-        self.relay = PushRelay(self.store, client)
+        self.relay = PushRelay(self.store, client, demo=self.demo)
         from .web_push import WebPushKeys
         self.webpush = WebPushKeys(Path(self.store.path).parent if self.store.path != ":memory:" else None)
         self._offline_since: float | None = None
@@ -1303,6 +1304,8 @@ class Notifier:
     def send(self, m: Message) -> bool:
         """Send now, or hold it for the morning (quiet hours), or drop it (a duplicate, or over today's cap).
         True when it went out."""
+        if self.demo:
+            return False          # demo mode: never dispatch or queue outbound notifications
         now = self.c.clock.now_ts()
         why = self._allowed(m, now)
         if why == "held":
@@ -1324,6 +1327,8 @@ class Notifier:
             self.store.event(now, "notification_undelivered", m.person, "notify", title=m.title, about=m.kind,
                              why="no phone or channel set up for notifications")
             return True
+        if self.demo:
+            return False          # demo mode: never dispatch outbound notifications
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -1420,6 +1425,7 @@ class Notifier:
         return int(time.time() + (end - self.c.clock.now_ts())) if end else None
 
     async def push(self, pid: str, d: dict, m: Message) -> bool:
+        assert not self.demo, "outbound push is disabled in demo mode"
         if d.get("kind") == "web":
             return await self._push_web(pid, d, m)
         from . import webpush
@@ -1461,6 +1467,7 @@ class Notifier:
 
     async def deliver(self, p: dict, m: Message) -> dict:
         """Send one message through one provider. Returns {"ok": bool, "error"?: str} (used by the Test button)."""
+        assert not self.demo, "outbound notifications are disabled in demo mode"
         try:
             if p["kind"] == "ntfy":
                 await self._ntfy(p, m)
@@ -1493,6 +1500,7 @@ class Notifier:
 
     async def _post_out(self, url: str, headers: dict, **kw) -> None:
         """One short POST for the generic targets (webhook, Apprise). Raises on a non-2xx answer; never follows redirects."""
+        assert not self.demo, "outbound webhook POST is disabled in demo mode"
         c = self.client or httpx.AsyncClient(timeout=8, follow_redirects=False)
         try:
             r = await c.post(url, headers=headers, timeout=8, **kw)
@@ -1521,6 +1529,7 @@ class Notifier:
         await self._post_out(f"{base}/notify/{key}" if key else f"{base}/notify", {str(k): str(v) for k, v in (s.get("headers") or {}).items()}, json=body)
 
     async def _ntfy(self, p: dict, m: Message) -> None:
+        assert not self.demo, "ntfy send is disabled in demo mode"
         s = p.get("settings", {})
         base = (s.get("url") or "https://ntfy.sh").rstrip("/")
         body: dict[str, Any] = {"topic": s["topic"], "title": m.title, "message": m.body, "priority": m.priority, "tags": m.tags}
@@ -1540,6 +1549,7 @@ class Notifier:
                 await c.aclose()
 
     async def _ha(self, p: dict, m: Message) -> None:
+        assert not self.demo, "Home Assistant notify is disabled in demo mode"
         s = p.get("settings", {})
         service = s["service"].removeprefix("notify.")
         data: dict[str, Any] = {}
@@ -1565,6 +1575,7 @@ class Notifier:
 
     async def _push_web(self, pid: str, d: dict, m: Message) -> bool:
         """A browser / iPhone Home Screen web app subscription (Web Push with VAPID)."""
+        assert not self.demo, "web push is disabled in demo mode"
         from . import web_push
         pub = self.public_url
         acts = []
@@ -1614,6 +1625,7 @@ class Notifier:
         return self.push_path() != "off"
 
     async def _push_fcm(self, pid: str, d: dict, m: Message, body: bytes) -> bool:
+        assert not self.demo, "FCM push is disabled in demo mode"
         try:
             sender = self.relay if self.push_path() == "relay" else self.fcm
             res = await sender.send(d["endpoint"], body, urgent=True, ios=d.get("platform") == "ios")   # deliver promptly
@@ -1632,6 +1644,8 @@ class Notifier:
     # ---------- Home Assistant button presses ----------
     def sync_ha_listeners(self) -> None:
         """One listener per Home Assistant used for notifications. Called at start and whenever targets change."""
+        if self.demo:
+            return
         want = {}
         for p in self.providers:
             if p.get("kind") == "ha" and p.get("enabled", True):

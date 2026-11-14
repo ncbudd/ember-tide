@@ -82,6 +82,7 @@ export default function Studio() {
         </div>
       </nav>
       <main className="smain">
+        {auth.state.demo && <div className="demo-banner" role="note">Demo: changes reset every hour; nothing here controls a real bed</div>}
         <PageBoundary>
         <Routes>
           <Route index element={<Overview />} />

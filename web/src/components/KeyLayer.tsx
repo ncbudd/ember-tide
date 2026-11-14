@@ -99,7 +99,7 @@ export default function KeyLayer({ compact, easy, setSimpleOn, welcome = false }
     const base = `/api/people/${p.id}`;
     const n = p.night;
     const flashOn = !!(n.flash && s.now < n.flash.end);
-    const step = stepC(p.settings.units);
+    const step = stepC(p.settings.units, p.settings.step_f);
     const g = n.guest;
     if (g) {
       // a side lent to a guest: only its temperature and on/off; flashes, pause and the rest don't apply

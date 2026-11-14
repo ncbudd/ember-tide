@@ -183,6 +183,7 @@ class Generic:
         self.store.put("cloud_polls", [x for x in self.polls if x["id"] != pid_])
 
     async def poll(self, src: dict) -> dict:
+        assert not getattr(self.c, "demo", False), "cloud polling is disabled in demo mode"
         now = self.c.clock.now_ts()
         c = self.client or httpx.AsyncClient(timeout=15, follow_redirects=False)
         try:

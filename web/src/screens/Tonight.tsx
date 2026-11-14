@@ -178,7 +178,7 @@ export default function Tonight({ setSimpleOn }: { setSimpleOn: (v: boolean) => 
   const canFlash = target.id === me.id || target.settings.partner_can_flash;
   const base = `/api/people/${target.id}`;
   const n = target.night;
-  const step = stepC(u);
+  const step = stepC(u, me.settings.step_f);
   const whose = target.id === me.id ? "your" : `${target.name}'s`;
   const run = (path: string, body?: unknown) => { setSheet(false); return act(path, body); };
   const manualOn = !!(n.override?.manual && n.target_c != null);

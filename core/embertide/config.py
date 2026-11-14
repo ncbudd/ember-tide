@@ -93,6 +93,14 @@ class Config:
     push_relay: bool = field(default_factory=push_relay_enabled)               # phone pushes via the Ember & Tide relay when there is no own Firebase key
     push_relay_url: str = field(default_factory=push_relay_url)
     web_dir: Path | None = field(default_factory=lambda: Path(p) if (p := _env("ET_WEB_DIR")) else None)
+    demo: bool = field(default_factory=lambda: (_env("ET_DEMO", "off") or "off").lower() in ("on", "1", "true", "yes"))
+
+    def __post_init__(self) -> None:
+        if self.demo:
+            self.bed = "sim"
+            self.push_relay = False
+            self.ha_mqtt_url = None
+            self.llm_url = None
 
     @property
     def db_path(self) -> Path:

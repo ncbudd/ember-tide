@@ -246,3 +246,10 @@ class Store:
     def delete_keys(self, prefix: str) -> int:
         with self._lock, self._db:
             return self._db.execute("DELETE FROM kv WHERE substr(key, 1, ?)=?", (len(prefix), prefix)).rowcount
+
+    def clear_all(self) -> None:
+        """Reset every table in place (demo hourly resets)."""
+        with self._lock, self._db:
+            for tbl in ("kv", "events", "telemetry", "samples", "stages"):
+                self._db.execute(f"DELETE FROM {tbl}")
+            self._sources = None

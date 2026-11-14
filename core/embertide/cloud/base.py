@@ -171,6 +171,7 @@ class CloudConnector:
 
     # ---------- HTTP ----------
     def _http(self):
+        assert not getattr(self.c, "demo", False), "cloud requests are disabled in demo mode"
         if self.client is not None:
             class _Keep:                     # an injected client (tests) is reused, not closed
                 def __init__(s, c): s.c = c

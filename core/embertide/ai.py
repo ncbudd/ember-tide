@@ -99,6 +99,7 @@ class Effective:
     preset: str = "custom"
     off: bool = False
     source: str = "env"            # "app" (saved in Studio) | "env"
+    demo: bool = False
 
 
 def saved_settings(store) -> dict | None:
@@ -109,6 +110,8 @@ def saved_settings(store) -> dict | None:
 def effective(cfg, store=None) -> Effective:
     """The one place that decides which model is in use. Saved app settings win; with nothing saved, the environment
     (ET_LLM_*) applies unchanged."""
+    if getattr(cfg, "demo", False):
+        return Effective("openai", None, "", None, preset="custom", off=True, source="demo", demo=True)
     s = saved_settings(store)
     if s is None:
         envp = "anthropic" if getattr(cfg, "llm_provider", "openai") == "anthropic" else "openai"
@@ -282,6 +285,7 @@ class OpenAICompatModel:
     async def run(self, system: str, user: str, tools: list[dict], on_call: OnCall, max_tokens: int = 1200,
                   timeout: float = 120) -> Reply:
         cfg = self.cfg
+        assert not getattr(cfg, "demo", False), "AI requests are disabled in demo mode"
         msgs: list[dict] = [{"role": "system", "content": system}, {"role": "user", "content": user}]
         out = Reply("", model=model_name(cfg))
         headers = {"Authorization": f"Bearer {cfg.llm_key}"} if cfg.llm_key else {}
@@ -364,6 +368,7 @@ class AnthropicModel:
 
     async def run(self, system: str, user: str, tools: list[dict], on_call: OnCall, max_tokens: int = 16000,
                   timeout: float = 240) -> Reply:
+        assert not getattr(self.cfg, "demo", False), "AI requests are disabled in demo mode"
         model = model_name(self.cfg)
         out = Reply("", model=model)
         messages: list[dict] = [{"role": "user", "content": user}]

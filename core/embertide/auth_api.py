@@ -286,6 +286,10 @@ def build_auth_router(state) -> APIRouter:
     @r.get("/state")
     async def get_state(request: Request):
         a = auth()
+        if state.cfg.demo:
+            return {"enabled": False, "setup_needed": False, "demo": True,
+                    "me": {"kind": "open", "id": "", "name": "Demo", "role": "viewer", "person": None},
+                    "proxy_denied": None, "people": None}
         h = {k.lower(): v for k, v in request.headers.items()}
         p = a.principal(h)
         denied = None
@@ -295,7 +299,7 @@ def build_auth_router(state) -> APIRouter:
                 denied = NOT_KNOWN_HERE
             else:
                 p = who
-        return {"enabled": a.enabled, "setup_needed": a.setup_needed(), "me": me_view(p), "proxy_denied": denied,
+        return {"enabled": a.enabled, "setup_needed": a.setup_needed(), "demo": False, "me": me_view(p), "proxy_denied": denied,
                 "people": [{"id": x.id, "name": x.name, "taken": any(u["person"] == x.id for u in a.users())}
                            for x in state.controller.household.people] if a.setup_needed() else None}
 

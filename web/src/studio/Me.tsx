@@ -5,7 +5,7 @@ import { useAuth } from "../auth";
 import BedSidePicker, { peopleHalves, type Side, SideCheck, sideTitle, useBedFromFoot } from "../components/BedSidePicker";
 import Fold, { FoldLock } from "../components/Fold";
 import { NOTIFY_TYPES, NotifyToggles, notifyOnCount, TonePicker } from "../components/NotifyPrefs";
-import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, TempUnits, WeightUnits, ClockPick, LanguagePick, RegionRows } from "../components/PersonPrefs";
+import { AppearancePicker, appearanceShort, ColorSwatches, PERSONA_TIP, PersonaPicker, SharingRows, sharingSummary, SimpleScreenRows, StepF, TempUnits, WeightUnits, ClockPick, LanguagePick, RegionRows } from "../components/PersonPrefs";
 import { FlashBlock, flashSummary } from "../components/FlashPrefs";
 import Tip from "../components/Tip";
 import WorkDays, { workDaysText } from "../components/WorkDays";
@@ -90,6 +90,7 @@ export default function Me() {
             <Fold id="studio.me.units" className="box" title="Units" keepSummary defaultOpen summary={`°${s.units} · ${weightUnit(s)} · ${(s.clock ?? "auto") === "auto" ? "auto clock" : `${s.clock} h`}`}>
               <div className="list">
                 <div className="row"><span>Temperature</span><TempUnits s={s} onChange={u => save({ units: u })} /></div>
+                {s.units === "F" && <div className="row"><span>Temperature steps</span><StepF s={s} onChange={v => save({ step_f: v })} /></div>}
                 <div className="row"><span>Weight<br /><small className="mute">Pets, bed scales and body weight</small></span><WeightUnits s={s} onChange={w => save({ weight_units: w })} /></div>
                 <div className="row"><span>Clock<br /><small className="mute">Times in the app and in messages. Auto follows this device.</small></span><ClockPick s={s} onChange={k => save({ clock: k })} /></div>
                 <div className="row"><span>Assistant language<br /><small className="mute">Ask and night reviews answer in it. Buttons and screens are English for now.</small></span><LanguagePick s={s} onChange={k => save({ language: k })} /></div>

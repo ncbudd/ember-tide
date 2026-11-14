@@ -28,13 +28,14 @@ def _b64u(b: bytes) -> str:
 
 
 class PushRelay:
-    def __init__(self, store, client: httpx.AsyncClient | None = None):
+    def __init__(self, store, client: httpx.AsyncClient | None = None, demo: bool = False):
         self.store = store
         self.client = client
+        self.demo = demo
 
     @property
     def enabled(self) -> bool:
-        return config.push_relay_enabled()
+        return not self.demo and config.push_relay_enabled()
 
     @property
     def url(self) -> str:
@@ -45,6 +46,7 @@ class PushRelay:
 
     async def _install(self, http: httpx.AsyncClient) -> dict:
         """The saved {install_id, install_key, url}; registers on first use (or when the relay address changed)."""
+        assert not self.demo, "push relay is disabled in demo mode"
         saved = self.store.get(KV_KEY)
         if saved and saved.get("install_id") and saved.get("install_key") and saved.get("url") == self.url:
             return saved
@@ -62,6 +64,7 @@ class PushRelay:
 
     async def send_many(self, tokens: list[str], encrypted: bytes, urgent: bool, ios: bool = False) -> dict[str, str]:
         """{token: "ok" | "gone" | "error"}. Raises if the relay itself can't be reached or refuses us."""
+        assert not self.demo, "push relay is disabled in demo mode"
         out: dict[str, str] = {}
         http = self._http()
         try:

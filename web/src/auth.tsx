@@ -6,7 +6,7 @@ import { BrandMark, PersonaScene, useKeyboardRoom, usePauseWhenHidden } from "./
 import { nativeBars, nativeSignedOut, pushBeforeSignOut } from "./native";
 
 interface Principal { kind: "user" | "token" | "open"; id: string; name: string; role: "owner" | "sleeper" | "viewer"; person: string | null }
-interface AuthState { enabled: boolean; setup_needed: boolean; me: Principal | null; people: { id: string; name: string; taken: boolean }[] | null }
+interface AuthState { enabled: boolean; setup_needed: boolean; demo?: boolean; me: Principal | null; people: { id: string; name: string; taken: boolean }[] | null }
 interface AuthCtx { state: AuthState; me: Principal | null; isOwner: boolean; signOut: () => Promise<void>; refresh: () => Promise<void> }
 
 const A = createContext<AuthCtx | null>(null);

@@ -68,7 +68,7 @@ function Home() {
   const base = `/api/people/${me.id}`;
   const f = n.flash && snap.now < n.flash.end ? n.flash : null;
   const d = describe(me, snap);
-  const step = stepC(u);
+  const step = stepC(u, me.settings.step_f);
   const resumable = n.state === "paused" || n.state === "skipped";
   const idle = n.target_c == null && !resumable && !f;
   const first = me.phases[0]?.temp_c ?? fToC(70);
@@ -143,7 +143,7 @@ function withBedtime(rh: Rhythm, bed: string): Rhythm {
   return { ...rh, schedule: s };
 }
 
-function ScheduleCard({ rh, units, onSave }: { rh: Rhythm; units: "F" | "C"; onSave: (r: Rhythm) => Promise<boolean> }) {
+function ScheduleCard({ rh, units, stepF, onSave }: { rh: Rhythm; units: "F" | "C"; stepF?: 1 | 0.5; onSave: (r: Rhythm) => Promise<boolean> }) {
   const [cur, setCurState] = useState(rh);
   const latest = useRef(rh);                                  // quick taps build on each other, not on a stale render
   const setCur = (r: Rhythm) => { latest.current = r; setCurState(r); };
@@ -170,7 +170,7 @@ function ScheduleCard({ rh, units, onSave }: { rh: Rhythm; units: "F" | "C"; onS
     document.addEventListener("visibilitychange", hide);
     return () => { document.removeEventListener("visibilitychange", hide); flushRef.current(); };
   }, []);
-  const step = units === "F" ? 5 / 9 : 0.5;
+  const step = stepC(units, stepF);
   const coolest = Math.min(...cur.phases.map(p => p.temp_c));
   const shift = (sign: number) => { const c = latest.current; save({ ...c, phases: c.phases.map(p => ({ ...p, temp_c: Math.round((p.temp_c + sign * step) * 100) / 100 })) }, 900); };
   return (
@@ -209,7 +209,7 @@ function Schedule() {
       <p className="mute">Your side cools down before bed and warms up gently before you wake. It starts when you get into bed.</p>
       {rhythms === null ? <p className="mute">Loading…</p>
         : rhythms.length === 0 ? <p className="mute">No schedule yet. Ask the person who set up Ember &amp; Tide to add one in Studio.</p>
-        : <div className="sa-sched-list">{rhythms.map(r => <ScheduleCard key={r.id} rh={r} units={me.settings.units} onSave={onSave} />)}</div>}
+        : <div className="sa-sched-list">{rhythms.map(r => <ScheduleCard key={r.id} rh={r} units={me.settings.units} stepF={me.settings.step_f} onSave={onSave} />)}</div>}
       <p className="faint" style={{ fontSize: 12.5 }}>The exact temperatures through the night can be fine-tuned in Studio.</p>
     </div>
   );

@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode 
 import { api, useLive } from "./api";
 import { useAuth } from "./auth";
 import { nativeSignedIn, nativeSnapshot } from "./native";
-import { setClockPref } from "./format";
+import { setClockPref, setHalfF } from "./format";
 import type { PersonView, Snapshot } from "./types";
 
 interface Ctx {
@@ -42,7 +42,8 @@ export function Provider({ children }: { children: ReactNode }) {
   const me = snap?.people.find(p => p.id === meId);
   useEffect(() => { nativeSignedIn(auth.me?.person ?? meId); }, [auth.me?.person, meId]);
   useEffect(() => { if (snap) nativeSnapshot(snap, auth.me?.person ?? meId); }, [snap, auth.me?.person, meId]);
-  setClockPref(me?.settings);                       // times in the app follow this person's clock choice
+  setClockPref(me?.settings);
+  setHalfF(me?.settings);                           // ½ °F shown only for people who chose ½° steps                       // times in the app follow this person's clock choice
   const partner = snap?.people.find(p => p.id !== meId);
   const act = async (path: string, body?: unknown) => {
     try { apply(await api.post<Snapshot>(path, body)); } catch (e) { say(`Couldn't do that: ${(e as Error).message}`); }

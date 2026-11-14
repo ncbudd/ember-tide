@@ -384,7 +384,7 @@ def test_room_and_pad_words():
     from embertide.autopilot_api import _pad_words, _room_words
     r = _room_words({"temp_c": {"min": 20.0, "max": 20.4, "avg": 20.2}, "humidity": {"min": 61, "max": 65, "avg": 63}})
     assert r["average"] == "20°C" and r["reads_as"] == "a cool bedroom"
-    assert _room_words({"temp_c": {"min": 20.0, "max": 20.4, "avg": 20.2}}, "F")["average"] == "68°F"
+    assert _room_words({"temp_c": {"min": 20.0, "max": 20.4, "avg": 20.2}}, "F")["average"] == "68.5°F"
     assert _room_words(None) == "no room sensor"
     assert "below its setting" in _pad_words([-0.8] * 10) and "cool room" in _pad_words([-0.8] * 10)
     assert _pad_words([0.1] * 10) == "the pad stayed at its setting" and _pad_words([]) == "not known"
