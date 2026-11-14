@@ -1,0 +1,56 @@
+name: Beta tester feedback
+description: How your install and first nights went, including anything that confused you
+labels: ["feedback", "status:triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing. Anything that confused you counts, not only things that broke. For one clear bug, the bug form is quicker.
+        Please remove passwords, tokens, serial numbers, real addresses and domains from anything you paste.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Studio → Help shows it (so does /healthz on your server).
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Where you installed it
+      options: [Synology, Unraid, TrueNAS, Proxmox, Raspberry Pi or Linux, Windows or Mac (Docker Desktop), Portainer or CasaOS, Home Assistant host, Bare metal (no Docker), Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: bed
+    attributes:
+      label: Bed driver
+      options: [Simulator only so far (sim), Orion cloud (orion-cloud), Orion local MQTT (orion-mqtt)]
+    validations:
+      required: true
+  - type: checkboxes
+    id: done
+    attributes:
+      label: What you tried (from TESTING.md)
+      options:
+        - label: Install
+        - label: First-run setup
+        - label: Rhythm editor
+        - label: At least one real night
+        - label: Morning summary
+        - label: Notifications
+        - label: Android app
+        - label: Wear OS app
+        - label: iPhone web app
+        - label: Home Assistant
+  - type: textarea
+    id: confusing
+    attributes:
+      label: What was confusing, slow or surprising?
+      description: The step, the screen, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: good
+    attributes:
+      label: What worked well (optional)

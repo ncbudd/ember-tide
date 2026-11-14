@@ -106,7 +106,7 @@ For a plain yes or no, open `http://<server-ip>:8790/healthz`; you should see a 
 
 **Why the broker matters.** The bed's hub can only talk to a broker on port **1883**, and it cannot log in.
 So the Compose file publishes the broker on the machine's own port 1883, and allows anonymous connections, but only on
-the bed's two topics (`orion/<serial>/in` and `orion/<serial>/out`, set in `deploy/mosquitto/acl`).
+the bed's two topics (`orion/<serial>/in` and `orion/<serial>/out`, set in `deploy/mosquitto/acl`, which matches any serial number, so you never edit it).
 Two rules follow from that:
 
 - **The machine's port 1883 must be free.** Another broker already using it is the most common problem
@@ -126,6 +126,7 @@ firmware does not like, and the bed drops off now and then. The example file alr
 | Advanced: the real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`, then `docker compose --profile local-bed up -d` |
 | A bed of your own | `ET_BED: python:package.module:ClassName` ([drivers.md](drivers.md)) |
 | A different web port | change the **left** number in `"8790:8790"`, for example `"8791:8790"` |
+| Home Assistant | `ET_HA_MQTT_URL: mqtt://user:pass@<home-assistant-ip>:1883` ([details](#home-assistant)) |
 | Secrets out of the file | put them in a `.env` file and add `env_file: .env` ([details](configuration.md#environment-variables)) |
 
 Every setting is described in [configuration.md](configuration.md).
@@ -151,7 +152,8 @@ The bed still needs a listener on port 1883 without a login; copy the two `topic
 2. Create the **owner** account (a username and a password). This only works from your home network, on the server's own
    address, never through a proxy or tunnel. That is on purpose.
 3. Follow the short setup: one question per screen, each skippable and changeable later (name, how you sleep, units, work days,
-   bedtime and wake time, Autopilot, notifications, watch or ring). **Settings, Run first-time setup again** brings it back.
+   bedtime and wake time, Autopilot, notifications, watch or ring). On a phone it starts by itself; on a computer, the app opens
+   Studio, where a **Start setup** button takes you there. **Settings, Run first-time setup again** brings it back.
 4. Invite the other sleeper: **Studio, People & access** makes a one-time link. Nothing to install on their side.
 5. Add things you own (radar, scales, room sensors, calendar, bedside dial) in **Studio, Devices & calibration**, whenever you like.
 
@@ -173,7 +175,7 @@ It checks the bed about every 10 seconds, so it is a little slower.
 **Option 2, advanced: fully local.** Faster and works without the internet, but it needs a local DNS record, and the maker's cloud features stop while it is in place.
 
 1. In `docker-compose.yml`, switch to the bed lines: `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`. Then run `docker compose --profile local-bed up -d` so the bundled broker starts too.
-   (On a pasted-in stack, edit the stack and redeploy.)
+   (On a pasted-in stack such as Portainer, Unraid, TrueNAS or CasaOS, there is no profile option: delete the line `profiles: ["local-bed"]` from the `mosquitto` service, then redeploy, or the broker never starts.)
 2. Add one local DNS record so the bed's usual name points at your server, and power-cycle the bed.
 
 For option 2, [Bed cutover](bed-cutover.md) shows both steps for UniFi, Pi-hole, AdGuard Home, dnsmasq, OpenWrt and OPNsense, how to check it
@@ -189,7 +191,7 @@ may work as a shortcut (it then opens like a website, without notifications). Yo
 then open the server's Tailscale address. That reaches the app away from home over `http://`. For notifications you also need `https://`, which Tailscale may
 provide with its **Serve** feature (see Tailscale's own guide for `tailscale serve`). Then set `ET_PUBLIC_URL` to the `https://` address it shows. The options below are for people who already run a web server or a domain.
 
-Whatever you choose, set two things on the server (in the `environment:` part of the Compose file):
+If you reach it through an `https://` address (Tailscale Serve, a reverse proxy or a tunnel), set two things on the server (in the `environment:` part of the Compose file). Plain `http://` over a VPN needs neither:
 
 - `ET_PUBLIC_URL: https://sleep.example.com`, which is how phones reach it. Notification buttons call back to this address.
 - `ET_TRUST_PROXY: "on"`, so sign-in limits see the visitor's real address.
@@ -268,7 +270,7 @@ as a fallback. Make sure your proxy removes any copy of the header the visitor s
 | Authelia (forward auth) | `ET_AUTH_HEADER: Remote-User` (also sends `Remote-Email`, `Remote-Name`, `Remote-Groups`); copy them with `authResponseHeaders` / `auth_request_set`. |
 | Authentik (proxy outpost) | `ET_AUTH_HEADER: X-Authentik-Username` (and `X-Authentik-Email`). |
 | Cloudflare Access | Email only: `ET_AUTH_HEADER_EMAIL: Cf-Access-Authenticated-User-Email` (plus `ET_PROXY_CLOUDFLARE: "on"` and `ET_TRUSTED_PROXIES`). The account's username must be that email address. |
-| Tailscale Serve | `ET_AUTH_HEADER_EMAIL: Tailscale-User-Login` (a login such as `alex@example.com`); only present on tailnet traffic that `tailscale serve` proxies to `127.0.0.1`, so set `ET_TRUSTED_PROXIES: "127.0.0.1"` and make the server listen only on loopback (`ET_HOST: 127.0.0.1`). |
+| Tailscale Serve | `ET_AUTH_HEADER_EMAIL: Tailscale-User-Login` (a login such as `alex@example.com`); only present on tailnet traffic that `tailscale serve` proxies to `127.0.0.1`, so set `ET_TRUSTED_PROXIES: "127.0.0.1"` and keep the web port on loopback only: with Docker, publish it as `"127.0.0.1:8790:8790"` (do not set `ET_HOST` inside the container); without Docker, `ET_HOST: 127.0.0.1`. |
 
 Usernames in Ember & Tide are plain words; if yours differ from what the portal calls people, make the account name match
 (or use a portal that can send the name you want). The app itself (phones with the Android app, dials, watches) keeps using
@@ -306,7 +308,7 @@ cp -a data data-backup-$(date +%F)
 docker compose start embertide
 ```
 
-A live copy also works: `sqlite3 data/embertide.db ".backup 'backup.db'"`. Studio, Data export gives you your nights as files too.
+A live copy also works, with nothing extra installed: `docker exec ember-tide python -c "import sqlite3; sqlite3.connect('/data/embertide.db').backup(sqlite3.connect('/data/backup.db'))"` writes `data/backup.db`. Studio, Data export gives you your nights as files too.
 
 **Restore:** stop the container, replace the contents of `./data` with the backup (including any `-wal` and `-shm` files that were copied
 with it), start it again. Phones stay signed in. Keep one copy on another machine; the database holds sleep data, so treat the copy like the original.
@@ -646,9 +648,10 @@ without one, skip step 1's service user and the systemd steps and use "Try it in
 
    Use your own time zone for `ET_TZ` (for example `Europe/London`). Without `ET_WEB_DIR` pointing at the built `web/dist`, the API runs but `/` has no web app.
 
-5. Open `http://<machine>:8790` and continue with [B. First-run setup](#b-first-run-setup-in-the-app). For the real bed you still need an
-   MQTT broker on port 1883 (install Mosquitto from your distribution and use `deploy/mosquitto/` as the model) and the DNS step from
-   [bed-cutover.md](bed-cutover.md).
+5. Open `http://<machine>:8790` and continue with [B. First-run setup](#b-first-run-setup-in-the-app). For the real bed, the easy way is
+   the maker's cloud: add `ET_BED=orion-cloud` and `ET_ORION_API_KEY=<your key>` to the service ([C, option 1](#c-point-the-bed-at-your-server)).
+   The fully local way needs an MQTT broker on port 1883 (install Mosquitto from your distribution and use `deploy/mosquitto/` as the model)
+   and the DNS step from [bed-cutover.md](bed-cutover.md).
 
 Locked out of the owner account? Run `/opt/embertide/venv/bin/python -m embertide reset-password <username>` with the same `ET_DATA_DIR` set; it prints a one-time link.
 

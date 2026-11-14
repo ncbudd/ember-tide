@@ -145,6 +145,7 @@ function Setup({ people, done }: { people: { id: string; name: string }[]; done:
       <div className="au-step" data-dir={dir} key="hello">
         <p className="au-tag">Two sides of the bed.<br />One calm night.</p>
         <p className="mute au-lead">Each of you gets your own temperature through the night, starting when you get into bed.</p>
+        <p className="au-desk">Setting up takes a few minutes: make your account, then answer six quick questions. You can change any of it later.</p>
         <button type="button" className="btn pri big au-go" onClick={() => go(1)}>Get started</button>
         <p className="faint au-foot">Runs on your own server at home.</p>
       </div>
@@ -236,33 +237,47 @@ function ActPage() {
 
 /** The app's first screen: where is your Ember & Tide server? */
 function ServerPick({ done }: { done: () => void }) {
-  const [v, setV] = useState("https://");
+  const [v, setV] = useState("");
   const { busy, err, submit } = useSubmit(async () => {
-    let url = v.trim().replace(/\/+$/, "");
-    if (!/^https?:\/\//.test(url)) url = "https://" + url;
+    const typed = v.trim().replace(/\/+$/, "");
+    if (!typed) throw new Error("Type your server's address first.");
+    const bare = !/^https?:\/\//i.test(typed);
     let host = "";
-    try { host = new URL(url).hostname; } catch { throw new Error("That doesn't look like an address."); }
+    try { host = new URL(bare ? "http://" + typed : typed).hostname; } catch { throw new Error("That doesn't look like an address."); }
     // plain http only inside the home: anywhere else your password and session would cross the internet unencrypted
     const home = /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$)/.test(host) || host.endsWith(".local") || host.endsWith(".lan") || host.endsWith(".home.arpa");
-    if (url.startsWith("http://") && !home) throw new Error("Use https:// for an address outside your home network, so your password is encrypted.");
-    let ok = false;
-    try {
-      const r = await fetch(url + "/healthz", { credentials: "omit" });
-      const j = r.ok ? await r.json() : null;
-      ok = !!(j && j.ok === true && typeof j.version === "string");     // it really is an Ember & Tide server
-      if (ok) { forgetAppServer(); rememberServerId(j.id); }               // the server the person chose
-    } catch { ok = false; }
-    if (!ok) throw new Error("Couldn't reach Ember & Tide there. Check the address (and that your phone is on the same network for a home address).");
-    setAppSession(url, null);
-    done();                                                    // a home http address is offered its https one next
+    if (/^http:\/\//i.test(typed) && !home) throw new Error("Use https:// for an address outside your home network, so your password is encrypted.");
+    // An address typed without http:// or https:// (or a home address typed with https://, which a plain home
+    // server doesn't answer) is tried both ways: https first, then plain http for a home address.
+    const rest = typed.replace(/^https?:\/\//i, "");
+    const tries = bare || (home && /^https:\/\//i.test(typed))
+      ? (home ? [`https://${rest}`, `http://${rest}`] : [`https://${rest}`])
+      : [typed];
+    // a home address without a port: the server's usual port is worth one more try
+    if (home && !/:\d+(\/|$)/.test(rest.replace(/^\[[^\]]*\]/, ""))) tries.push(`http://${rest}:8790`);
+    for (const url of tries) {
+      try {
+        const r = await fetch(url + "/healthz", { credentials: "omit", signal: AbortSignal.timeout(8000) });
+        const j = r.ok ? await r.json() : null;
+        if (j && j.ok === true && typeof j.version === "string") {    // it really is an Ember & Tide server
+          forgetAppServer(); rememberServerId(j.id);                     // the server the person chose
+          setAppSession(url, null);
+          done();                                                  // a home http address is offered its https one next
+          return;
+        }
+      } catch { /* try the next way, then say so below */ }
+    }
+    throw new Error(home
+      ? "Couldn't reach Ember & Tide there. Check the address and port (usually 8790), that the server is running, and that your phone is on your home Wi-Fi."
+      : "Couldn't reach Ember & Tide there. Check the address, and that it opens in your phone's browser.");
   });
   return (
     <Shell>
       <p className="mute">Where is your Ember &amp; Tide? The same address you open in a browser.</p>
-      <form className="authform" onSubmit={submit} onKeyDown={nextField}>
-        <Field label="Server address" type="url" value={v} set={setV} auto="url" hint="For example https://sleep.example.com or http://192.168.1.20:8790" />
+      <form className="authform" noValidate onSubmit={submit} onKeyDown={nextField}>
+        <Field label="Server address" type="url" value={v} set={setV} auto="url" hint="For example 192.168.1.20:8790 at home, or https://sleep.example.com" />
         {err && <p className="err" role="alert">{err}</p>}
-        <button className="btn pri big" disabled={busy || v.length < 10}>{busy ? "Checking…" : "Continue"}</button>
+        <button className="btn pri big" disabled={busy || v.trim().length < 4}>{busy ? "Checking…" : "Continue"}</button>
       </form>
     </Shell>
   );
