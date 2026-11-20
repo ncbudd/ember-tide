@@ -6,7 +6,7 @@ RUN npm ci --no-audit --no-fund
 COPY web/ ./
 RUN npm run build
 
-FROM python:3.12-slim
+FROM python:3.15-slim
 LABEL org.opencontainers.image.title="Ember & Tide" \
       org.opencontainers.image.description="Local-first controller for a dual-zone mattress topper" \
       org.opencontainers.image.source="https://github.com/Ncbudd/ember-tide" \
