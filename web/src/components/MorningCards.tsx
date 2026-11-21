@@ -61,7 +61,7 @@ export default function MorningCards({ person, name, state, units, phases }: {
       <div className="mcards-head"><span className="mcards-t">This morning</span><span className="faint">Swipe a card away when you're done</span></div>
       {feed.cards.map(c => (
         <MCard key={c.id} card={c} onAway={() => away(c.id)}>
-          {c.kind === "night" && <NightBody c={c} name={name} person={person} night={feed.night} onFeel={f => patch(c.id, { feel: f })} />}
+          {c.kind === "night" && <NightBody c={c} name={name} person={person} night={feed.night} onFeel={f => patch(c.id, { feel: f })} onDone={() => away(c.id)} />}
           {c.kind === "review" && <ReviewBody c={c} person={person} units={units} phases={phases} />}
           {c.kind === "sugg" && <SuggBody c={c} person={person} units={units} onLeft={items => (items.length ? patch(c.id, { items }) : away(c.id))} />}
         </MCard>
@@ -87,12 +87,13 @@ function MCard({ card, onAway, children }: { card: Card; onAway: () => void; chi
   );
 }
 
-function NightBody({ c, name, person, night, onFeel }: { c: Card; name: string; person: string; night: string; onFeel: (f: string) => void }) {
+function NightBody({ c, name, person, night, onFeel, onDone }: { c: Card; name: string; person: string; night: string; onFeel: (f: string) => void; onDone: () => void }) {
   const { say } = useApp();
   const feel = async (f: string) => {
     onFeel(f);
     try { await api.post(`/api/people/${person}/feedback`, { date: night, temp: f }); }
-    catch { say("Couldn't save that"); }
+    catch { say("Couldn't save that"); return; }       // the card stays so it can be tried again
+    setTimeout(onDone, 1500);                          // a moment to read the thanks, then the card goes away (Sleep, Review keeps it)
   };
   return <>
     <h2 className="mc-h">Good morning, {name}</h2>

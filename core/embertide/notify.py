@@ -1292,7 +1292,9 @@ class Notifier:
             except (KeyError, carelib.CareError):
                 pass
         elif a["act"].startswith("feel_"):
-            save_feel(self.c, a["person"], a["act"][5:], now, source="notification")
+            d = save_feel(self.c, a["person"], a["act"][5:], now, source="notification")
+            from .engine import morning   # answered: Tonight's "Last night" card has nothing left to ask
+            morning.dismiss(self.c, a["person"], f"night-{d}", now)
         elif a["act"].startswith("away_"):
             from .engine import away
             try:                          # the question may already be answered in the app (then nothing)

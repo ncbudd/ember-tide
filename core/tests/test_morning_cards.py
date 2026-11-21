@@ -127,3 +127,14 @@ def test_applied_changes_read_in_the_persons_units_and_clock(tmp_path):
         assert t == f"{rh.name} · {ph.name}: 81°F → 85°F"
         p.settings.clock = "12"
         assert mo.change_text(p, {"proposal": {"rhythm_id": rh.id, "schedule": "bedtime", "to": "00:00"}, "before": "23:00"}) == f"{rh.name}: bedtime 11:00 PM → 12:00 AM"
+
+
+async def test_a_check_in_from_the_notification_puts_the_night_card_away(tmp_path, monkeypatch):
+    from embertide.notify import Action
+    n = await morning(tmp_path)
+    monkeypatch.setattr(mo, "waiting_suggestions", lambda *a, **k: [])
+    n.p1.settings.autopilot.ai_review = False
+    nt = n.c.notifier
+    nt.use_action(nt.new_action(n.p1.id, Action("Too warm", "feel_warm")))
+    assert n.store.get(f"feedback:{n.p1.id}:2026-11-05")["temp"] == "warm"
+    assert mo.feed(n.c, n.p1, n.clock.now_ts())["cards"] == []                # answered: nothing left to ask on Tonight
