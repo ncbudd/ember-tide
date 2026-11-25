@@ -5,6 +5,18 @@ minor versions, and each entry says what to check when upgrading.
 
 ## Unreleased
 
+## 0.1.24
+
+BedJet support, for testing. Update the server; the phone apps need no update for this one.
+
+- **BedJet and other beds through Home Assistant (new, not yet tried on a real unit).** A new bed option,
+  `ET_BED=ha-climate`, runs the night on a bed that Home Assistant shows as a thermostat, one per side. First up is
+  the BedJet 3: warm phases heat to the planned temperature, cool phases run its fan (a faster fan for a cooler
+  setting), and when its heat switches off by itself, Ember & Tide turns it back on. It's all local, over Bluetooth
+  through Home Assistant. Setup is in docs/drivers.md. If you try it, please tell us how it goes.
+- **Your bedside dial can be the BedJet's Bluetooth bridge.** An optional add-on file for the dial connects it to a
+  BedJet 3 next to it, so you don't need another board. The dial setup in Studio offers it.
+
 ## 0.1.23
 
 A small follow-up. Update the server; the apps need no changes for this one.
