@@ -46,8 +46,23 @@ def _sim(cfg: Config, clock: Clock):
     return SimBed(clock)
 
 
+def _ha_climate(cfg: Config, clock: Clock):
+    if not cfg.ha_url:
+        raise SystemExit("ET_HA_URL is required for the ha-climate driver")
+    if not cfg.ha_token:
+        raise SystemExit("ET_HA_TOKEN is required for the ha-climate driver")
+    if not cfg.bed_entities:
+        raise SystemExit("ET_BED_ENTITIES is required for the ha-climate driver")
+    from .drivers.ha_climate import HaClimateBed, parse_entities
+    try:
+        entities = parse_entities(cfg.bed_entities)
+        return HaClimateBed(cfg.ha_url, cfg.ha_token, entities, kind=cfg.bed_kind, neutral_c=cfg.ha_neutral_c)
+    except ValueError as e:
+        raise SystemExit(str(e)) from None
+
+
 # ET_BED value -> factory(cfg, clock) returning a driver (see docs/drivers.md). Add a built-in driver by adding a line here.
-DRIVERS = {"sim": _sim, "orion-mqtt": _orion_mqtt, "orion-cloud": _orion_cloud}
+DRIVERS = {"sim": _sim, "orion-mqtt": _orion_mqtt, "orion-cloud": _orion_cloud, "ha-climate": _ha_climate}
 
 
 def load_driver_class(spec: str):

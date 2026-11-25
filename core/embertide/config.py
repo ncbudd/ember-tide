@@ -65,10 +65,15 @@ class Config:
     data_dir: Path = field(default_factory=lambda: Path(_env("ET_DATA_DIR", "./data")))
     tz: str = field(default_factory=lambda: resolve_tz()[0])
     tz_source: str = field(default_factory=lambda: resolve_tz()[1])
-    bed: str = field(default_factory=lambda: _env("ET_BED", "sim"))               # sim | orion-mqtt | orion-cloud
+    bed: str = field(default_factory=lambda: _env("ET_BED", "sim"))               # sim | orion-mqtt | orion-cloud | ha-climate
     mqtt_url: str = field(default_factory=lambda: _env("ET_MQTT_URL", "mqtt://localhost:1883"))
     orion_serial: str | None = field(default_factory=lambda: _env("ET_ORION_SERIAL"))
     orion_api_key: str | None = field(default_factory=lambda: _env("ET_ORION_API_KEY"))
+    ha_url: str | None = field(default_factory=lambda: _env("ET_HA_URL"))
+    ha_token: str | None = field(default_factory=lambda: _env("ET_HA_TOKEN"))
+    bed_entities: str | None = field(default_factory=lambda: _env("ET_BED_ENTITIES"))
+    bed_kind: str = field(default_factory=lambda: (_env("ET_BED_KIND", "auto") or "auto").lower())
+    ha_neutral_c: float = field(default_factory=lambda: float(_env("ET_HA_NEUTRAL_C", "26.0")))
     sim_speed: float = field(default_factory=lambda: float(_env("ET_SIM_SPEED", "1")))
     host: str = field(default_factory=lambda: _env("ET_HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_env("ET_PORT", "8790")))

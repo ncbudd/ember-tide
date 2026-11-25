@@ -124,6 +124,7 @@ firmware does not like, and the bed drops off now and then. The example file alr
 | The simulator (the default) | leave `ET_BED: sim` |
 | The real bed, with a personal key from the maker's web app (easiest) | `ET_BED: orion-cloud` and `ET_ORION_API_KEY` (no broker needed) |
 | Advanced: the real bed, fully local | `ET_BED: orion-mqtt` and `ET_MQTT_URL: mqtt://mosquitto:1883`, then `docker compose --profile local-bed up -d` |
+| A BedJet or another bed that Home Assistant controls (new, not yet tried on a real unit) | `ET_BED: ha-climate`, `ET_HA_URL`, `ET_HA_TOKEN` and `ET_BED_ENTITIES` ([drivers.md](drivers.md#home-assistant-climate-bedjet-and-others)) |
 | A bed of your own | `ET_BED: python:package.module:ClassName` ([drivers.md](drivers.md)) |
 | A different web port | change the **left** number in `"8790:8790"`, for example `"8791:8790"` |
 | Home Assistant | `ET_HA_MQTT_URL: mqtt://user:pass@<home-assistant-ip>:1883` ([details](#home-assistant)) |

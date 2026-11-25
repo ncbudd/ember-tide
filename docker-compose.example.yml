@@ -42,7 +42,7 @@ services:
       # America/Denver, America/Los_Angeles, Europe/London, Australia/Sydney. Studio -> Your settings shows the zone in use.
       TZ: Etc/UTC
 
-      # --- Which bed? Pick ONE of A, B or C. ---
+      # --- Which bed? Pick ONE of A, B, C or D. ---
       # A line that starts with "#" is switched off. To switch to another choice:
       #   1. Put "# " (a hash and a space) in front of the lines you are using now.
       #   2. Remove the "# " (just those two characters, keep the spaces before them) from the lines you want.
@@ -56,6 +56,11 @@ services:
       # ET_BED: orion-mqtt
       # ET_MQTT_URL: mqtt://mosquitto:1883
       # ET_ORION_SERIAL: OSCTXXXXXXXX          # optional; auto-detected from the first bed that reports
+      # D) New, not yet tried on a real unit: a bed that Home Assistant controls, such as a BedJet (docs/drivers.md).
+      # ET_BED: ha-climate
+      # ET_HA_URL: http://homeassistant.local:8123
+      # ET_HA_TOKEN: your-long-lived-token     # from your HA profile, Security
+      # ET_BED_ENTITIES: left=climate.bedjet_left,right=climate.bedjet_right
 
       # --- Optional ---
       # ET_PUBLIC_URL: https://sleep.example.com              # how phones reach the server; makes notification buttons work

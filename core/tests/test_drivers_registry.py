@@ -17,7 +17,7 @@ def cfg(tmp_path, bed):
 
 
 def test_registry_has_the_builtins():
-    assert set(DRIVERS) == {"sim", "orion-mqtt", "orion-cloud"}
+    assert set(DRIVERS) == {"sim", "orion-mqtt", "orion-cloud", "ha-climate"}
     c = Config()
     c.bed = "sim"
     assert make_driver(c, Clock("UTC")).id == "sim"
@@ -28,6 +28,23 @@ def test_registry_has_the_builtins():
     c.orion_api_key = None
     with pytest.raises(SystemExit, match="ET_ORION_API_KEY"):
         make_driver(c, Clock("UTC"))
+    c.bed = "ha-climate"
+    c.ha_url = None
+    c.ha_token = "tok"
+    c.bed_entities = "climate.bed"
+    with pytest.raises(SystemExit, match="ET_HA_URL"):
+        make_driver(c, Clock("UTC"))
+    c.ha_url = "http://ha.local:8123"
+    c.ha_token = None
+    with pytest.raises(SystemExit, match="ET_HA_TOKEN"):
+        make_driver(c, Clock("UTC"))
+    c.ha_token = "tok"
+    c.bed_entities = None
+    with pytest.raises(SystemExit, match="ET_BED_ENTITIES"):
+        make_driver(c, Clock("UTC"))
+    c.bed_entities = "climate.bed"
+    d = make_driver(c, Clock("UTC"))
+    assert d.id == "ha-climate" and d.zones == ["left"]
 
 
 def test_unknown_driver_names_the_choices():
