@@ -239,6 +239,12 @@ export default function DialSetup({ people, onClose, onBack, embedded = false }:
           {pkg && <button type="button" className="pill" onClick={() => copyText(pkg.h, say)}>Copy et_dial.h</button>}</div>
         <small className="faint">No passwords in them: Wi-Fi comes from your ESPHome secrets. The dial shows each person's name and colour from Ember &amp; Tide.</small>
       </Fold>
+      <Fold id="devices.dials.bedjet" className="fold-sub" title="Using a BedJet? The dial can be its Bluetooth bridge" summary="new, not tried on a real BedJet yet">
+        <p style={{ fontSize: 13.5 }}>A BedJet 3 next to this dial can connect to it over Bluetooth, so Home Assistant can control it without another board. Save this file next to the others as <code>.embertide-dial-bedjet.yaml</code>, then add these lines under <code>packages:</code> in that dial's file, with your BedJet's Bluetooth address:</p>
+        <pre className="codeblock">{["  bedjet: !include", "    file: .embertide-dial-bedjet.yaml", "    vars:", "      bedjet_mac: \"AA:BB:CC:DD:EE:FF\""].join("\n")}</pre>
+        <div className="pills"><a className="pill" href="/api/dials/files/embertide-dial-bedjet.yaml" download=".embertide-dial-bedjet.yaml">Download .embertide-dial-bedjet.yaml</a></div>
+        <small className="faint">While the dial is connected, the BedJet phone app can't connect: switch "BedJet connection" off in Home Assistant to use the app. How to find the address and set up the bed: see the BedJet section of docs/drivers.md.</small>
+      </Fold>
       {notes}
       {nav(() => setMode("count"), <button type="button" className="btn pri" onClick={() => { known.current = new Set(info.dials.map(x => x.id)); setFound(null); setMode("wait"); }}>I've installed it</button>)}
     </>}

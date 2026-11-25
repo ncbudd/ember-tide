@@ -33,7 +33,9 @@ TEMPLATE = ("{% for e in integration_entities('esphome') %}{% set d = device_id(
             "{{ (as_timestamp(states[e].last_changed) | int(0)) if states[e] else 0 }}\n{% endif %}{% endfor %}")
 OFFLINE = ("unavailable", "unknown", "none", "")
 # the shared dial firmware package (no secrets: Wi-Fi comes from the ESPHome secrets file), served for the setup wizard
-FILES = {"embertide-dial-common.yaml": ".embertide-dial-common.yaml", "et_dial.h": "et_dial.h"}
+# (plus the optional BedJet bridge package, for a dial that also connects to a BedJet over Bluetooth)
+FILES = {"embertide-dial-common.yaml": ".embertide-dial-common.yaml", "et_dial.h": "et_dial.h",
+         "embertide-dial-bedjet.yaml": ".embertide-dial-bedjet.yaml"}
 DIAL_DIR = Path(__file__).parent / "dial"
 
 

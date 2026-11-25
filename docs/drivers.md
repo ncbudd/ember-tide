@@ -49,6 +49,35 @@ ET_HA_NEUTRAL_C: "26.0"
 - **What it reports**: the temperature a BedJet reports is the air coming out of it, not the bed surface. There's no in-bed sensor, so the night starts from your other presence sensors (Studio, Devices) or the schedule.
 - **One Bluetooth connection**: a BedJet accepts one Bluetooth connection at a time, so close its phone app while Home Assistant is connected.
 
+### Getting a BedJet into Home Assistant
+
+Only the BedJet 3 works with ESPHome's BedJet component. Pick one way to bridge it over Bluetooth:
+
+- **Your bedside dial** (new, not yet tried on a real BedJet). The Ember & Tide dial is an ESP32-S3 running ESPHome,
+  so it can hold the BedJet connection too, with no extra board. Save `core/embertide/dial/embertide-dial-bedjet.yaml`
+  (Studio, Devices, Bedside dials offers it as a download) next to the shared dial file as `.embertide-dial-bedjet.yaml`,
+  then add it under `packages:` in that dial's own file:
+
+  ```yaml
+  packages:
+    embertide: !include .embertide-dial-common.yaml
+    bedjet: !include
+      file: .embertide-dial-bedjet.yaml
+      vars:
+        bedjet_mac: "AA:BB:CC:DD:EE:FF"
+  ```
+
+  It uses the BedJet's extended heat (up to 10 hours instead of 4), reports the outlet air temperature, and adds a
+  **BedJet connection** switch: turn it off to let the BedJet phone app connect, on to hand control back. Home Assistant
+  then shows `climate.<dial name>_bedjet`; put that in `ET_BED_ENTITIES`. With two BedJets, give each side's dial its own.
+  If the dial gets slow or restarts once the BedJet is connected, tell us and use one of the options below instead.
+- **A separate ESP32** near the bed with ESPHome's BedJet component (the same blocks as in the dial package).
+- **A community Home Assistant integration** that uses HA's own Bluetooth or a Bluetooth proxy.
+
+**Finding the BedJet's Bluetooth address:** close the BedJet phone app first (it holds the connection). Home Assistant's
+Bluetooth integration lists nearby devices with their addresses; on a phone, a Bluetooth scanner app works too. Look for
+a device named like `BEDJET`. The address looks like `AA:BB:CC:DD:EE:FF`.
+
 ## No bed yet? Run it on the simulator
 
 `ET_BED=sim` is a supported way to run Ember & Tide, not only a test mode. You get the whole app: rhythms, the phone app and

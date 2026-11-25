@@ -1,0 +1,61 @@
+########################################################################
+# Ember & Tide bedside dial · OPTIONAL BedJet bridge
+# Lets the dial on a BedJet owner's side also connect to that BedJet over Bluetooth, so Home Assistant gets a
+# climate entity for it (and Ember & Tide's ha-climate driver can run the night). No extra board needed.
+#
+# NEW and not yet tried on a real BedJet. Only the BedJet 3 works (ESPHome's BedJet component supports nothing else).
+# A BedJet takes one Bluetooth connection at a time: while the dial is connected, the BedJet phone app can't connect.
+# Switch "BedJet connection" off in Home Assistant when you want to use the app.
+#
+# Use it from your dial's own file, next to the shared package:
+#
+#   packages:
+#     dial: !include .embertide-dial-common.yaml
+#     bedjet: !include
+#       file: .embertide-dial-bedjet.yaml
+#       vars:
+#         bedjet_mac: "AA:BB:CC:DD:EE:FF"     # your BedJet's Bluetooth address (see docs/drivers.md)
+#
+# Home Assistant then shows climate.<dial name>_bedjet. Put that in ET_BED_ENTITIES, e.g.
+#   ET_BED_ENTITIES: left=climate.embertide_dial_left_bedjet
+########################################################################
+
+substitutions:
+  bedjet_mac: "00:00:00:00:00:00"
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false        # the BedJet is found by its address; no need for active scans
+
+ble_client:
+  - mac_address: ${bedjet_mac}
+    id: bedjet_ble
+
+bedjet:
+  - id: bedjet_hub
+    ble_client_id: bedjet_ble
+    time_id: ha_time       # keeps the BedJet's own clock right
+
+climate:
+  - platform: bedjet
+    id: bedjet_climate
+    name: "BedJet"
+    bedjet_id: bedjet_hub
+    heat_mode: extended          # EXT HEAT runs up to 10 hours instead of 4, which suits a whole night
+    temperature_source: outlet   # report the air coming out of the BedJet, not the room
+
+fan:
+  - platform: bedjet
+    id: bedjet_fan
+    name: "BedJet fan"
+    bedjet_id: bedjet_hub
+
+switch:
+  # Off = let go of the BedJet so its phone app can connect. On = the dial (and Ember & Tide) control it again.
+  - platform: ble_client
+    id: bedjet_connection
+    ble_client_id: bedjet_ble
+    name: "BedJet connection"
+    icon: mdi:bluetooth-connect
+    restore_mode: RESTORE_DEFAULT_ON   # after a restart, connect again (unless it was switched off on purpose)
+

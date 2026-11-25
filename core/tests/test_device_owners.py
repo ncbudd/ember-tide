@@ -175,6 +175,8 @@ def test_dials_from_home_assistant_and_bluetooth(tmp_path):
         pkg = c.get("/api/dials/files/embertide-dial-common.yaml")
         assert pkg.status_code == 200 and "beacon_minor" in pkg.text and "!secret wifi_ssid" in pkg.text
         assert c.get("/api/dials/files/..%2Fapp.py").status_code == 404
+        bj = c.get("/api/dials/files/embertide-dial-bedjet.yaml")
+        assert bj.status_code == 200 and "platform: bedjet" in bj.text and "!secret" not in bj.text
 
 
 @pytest.mark.parametrize("kind,e,fits", [
