@@ -98,3 +98,19 @@ ORION: Profile = {
         "note": "The hub's light colour and brightness can also be changed from this page, so a colour you chose yourself is not a status.",
     },
 }
+
+# ---------- air-based bed climate units (BedJet and similar) ----------
+AIR: Profile = {
+    "name": "air",
+    "tasks": [
+        {"id": "hub_check", "title": "Check the unit, hose and air intake", "interval_days": 90, "source": "default",
+         "reminder": "Time for a quick check of the bed unit",
+         "why": "A few minutes keeps the air intake clear and spots a kinked hose early.",
+         "steps": ["Dust the unit's air intake and vents.",
+                   "Check the hose isn't kinked or squashed under the mattress.",
+                   "Make sure nothing is blocking the air intake, like bedding or a wall.",
+                   "Follow the maker's instructions for cleaning or replacing any filter."],
+         "note": "No schedule comes from the maker; every 3 months is a suggestion."},
+    ],
+    "light_guide": None,
+}

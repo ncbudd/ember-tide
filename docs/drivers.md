@@ -11,7 +11,43 @@ Built in:
 | `sim` | The built-in simulator (the default). A pretend two-person bed with a scripted night, thermal lag and sensor noise. |
 | `orion-mqtt` | The Orion topper through your own MQTT broker (see [bed-cutover.md](bed-cutover.md)). |
 | `orion-cloud` | The maker's cloud API (`ET_ORION_API_KEY`). |
+| `ha-climate` | A bed controlled through Home Assistant `climate` entities, such as a BedJet (`ET_HA_URL`, `ET_HA_TOKEN`, `ET_BED_ENTITIES`). |
 | `python:package.module:ClassName` | Your own driver, loaded from any installed Python package (below). |
+
+## Home Assistant climate (BedJet and others)
+
+> **New driver:** `ha-climate` has not yet been tried on a real BedJet. If you run it on real hardware, please open an issue and report how it goes.
+
+This driver lets Ember & Tide control any bed exposed in Home Assistant as one or two `climate` entities, starting with the BedJet (connected over Bluetooth through ESPHome or a community Home Assistant integration).
+
+### What it needs
+
+- A reachable Home Assistant instance (`ET_HA_URL`)
+- A Home Assistant long-lived access token (`ET_HA_TOKEN`, kept secret in `.env`)
+- One or two `climate.*` entities in Home Assistant (`ET_BED_ENTITIES`)
+
+```yaml
+ET_BED: ha-climate
+ET_HA_URL: http://homeassistant.local:8123
+ET_HA_TOKEN: your-long-lived-access-token
+ET_BED_ENTITIES: left=climate.bedjet_left,right=climate.bedjet_right
+ET_BED_KIND: auto
+ET_HA_NEUTRAL_C: "26.0"
+```
+
+### Mapping sides to entities
+
+- Set `ET_BED_ENTITIES` to `left=climate.a,right=climate.b` for a two-sided setup, or a single `climate.a` (which maps to `left` only). Only the configured sides appear as zones.
+- Ember & Tide reads Home Assistant's unit system (`°C` or `°F`) from `/api/config` and converts temperatures automatically (rounding sent temperatures to `0.5` °C or `1` °F and clamping to the entity's `min_temp` / `max_temp`).
+- This driver provides temperature control and measured temperature only (no bed occupancy or bio sensors). Add presence sensors in Studio, Devices if you want occupancy detection.
+
+### BedJet notes
+
+- **`ET_BED_KIND=auto`** (default) uses `bedjet` whenever `bedjet` appears in the entity ID or `friendly_name`, and `thermostat` otherwise. Set `bedjet` or `thermostat` explicitly if needed.
+- **Warm vs cool (`ET_HA_NEUTRAL_C`, default `26.0`)**: Requests warmer than `ET_HA_NEUTRAL_C` set `heat` with the target temperature. Requests at or below `ET_HA_NEUTRAL_C` set `cool` (room-air fan on a BedJet) and scale the fan speed linearly from `ET_HA_NEUTRAL_C` (~30% of `fan_modes`) up to the fastest fan speed at `16.0` °C or below, without sending a target temperature.
+- **Heat timer**: a BedJet ends heat by itself after about 4 hours. Ember & Tide sees that side switch off while the plan still wants it on and turns it back on, the same way it does for any bed. To stop it for the night, use Off tonight in the app rather than the BedJet's remote, or it will be switched back on.
+- **What it reports**: the temperature a BedJet reports is the air coming out of it, not the bed surface. There's no in-bed sensor, so the night starts from your other presence sensors (Studio, Devices) or the schedule.
+- **One Bluetooth connection**: a BedJet accepts one Bluetooth connection at a time, so close its phone app while Home Assistant is connected.
 
 ## No bed yet? Run it on the simulator
 
