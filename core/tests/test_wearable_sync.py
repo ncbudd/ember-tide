@@ -166,7 +166,103 @@ def test_nights_endpoint_says_what_is_there_and_what_is_missing(tmp_path):
         assert st[0]["kind"] == "wearable" and st[0]["label"].startswith("Samsung Health")
 
 
-# ---------- the one-off repair ----------
+
+def test_whoop_stage_totals_are_not_reported_as_missing(tmp_path, monkeypatch):
+    from embertide.engine import compare as compare_engine
+
+    selected_stages = []
+    real_lean_on = compare_engine.lean_on
+
+    def capture_stages(summary, cmp, stages, now):
+        selected_stages.append(stages)
+        return real_lean_on(summary, cmp, stages, now)
+
+    monkeypatch.setattr(compare_engine, "lean_on", capture_stages)
+    with make(tmp_path) as c:
+        c.post("/api/sim", json={"jump_to": "2026-11-06T11:00"}, headers=H)
+        start = A.parse_time("2026-11-05T22:20", TZ)
+        assert start is not None
+        bed = bed_night(c, start)
+        end = bed[-1][0] + 15
+        store = c.app.state.notifier.c.store
+        store.put("sleeps:p1", [{
+            "id": "whoop:synthetic-night-1", "source": "whoop", "device": "WHOOP", "kind": "night",
+            "start": start, "end": end, "asleep_min": 420, "deep_min": 90, "rem_min": 90,
+            "light_min": 240, "awake_min": 30, "segments": [],
+        }])
+
+        selected = c.get("/api/people/p1/night?date=2026-11-05", headers=H).json()
+        assert selected["stages"]["kind"] == "estimate"
+
+        n = next(x for x in c.get("/api/people/p1/wearable/nights", headers=H).json() if x["date"] == "2026-11-05")
+        assert n["stages"] == ["WHOOP · stage summary"]
+        assert "WHOOP stage totals arrived" in n["text"]
+        assert "no sleep stages" not in n["text"]
+
+        selected_stages.clear()
+        trend = c.get("/api/people/p1/nights?count=7", headers=H).json()
+        trend_night = next(x for x in trend if x["date"] == "2026-11-05")
+        assert trend_night["stage_totals"] == {"awake": 30, "rem": 90, "light": 240, "deep": 90}
+        assert selected_stages and any(x and x.get("kind") == "estimate" for x in selected_stages)
+        assert all(not x or x.get("kind") != "summary" for x in selected_stages)
+
+        person = next(x for x in getattr(c.app, "state").notifier.c.household.people if x.id == "p1")
+        person.settings.autopilot.trust_more = "bed"
+        selected_stages.clear()
+        c.get("/api/people/p1/nights?count=7", headers=H)
+        assert selected_stages and all(not x or x.get("kind") != "summary" for x in selected_stages)
+
+        store.put("away:p1", {"since": start - 3600, "by": "p1", "until": None})
+        hidden = c.get("/api/people/p1/nights?count=7", headers=H).json()
+        away_night = next(x for x in hidden if x["date"] == "2026-11-05")
+        assert away_night["away"] is True
+        assert away_night.get("stage_totals") is None
+
+
+
+def test_away_night_without_bed_rows_hides_whoop_summary(tmp_path):
+    with make(tmp_path) as c:
+        c.post("/api/sim", json={"jump_to": "2026-11-06T11:00"}, headers=H)
+        start = A.parse_time("2026-11-05T22:20", TZ)
+        assert start is not None
+        store = c.app.state.notifier.c.store
+        store.put("sleeps:p1", [{
+            "id": "whoop:away-night", "source": "whoop", "device": "WHOOP", "kind": "night",
+            "start": start, "end": start + 8 * 3600, "asleep_min": 420,
+            "deep_min": 90, "rem_min": 90, "light_min": 240, "awake_min": 30, "segments": [],
+        }])
+        store.put("away:p1", {"since": start - 3600, "by": "p1", "until": None})
+
+        night = c.get("/api/people/p1/night?date=2026-11-05", headers=H).json()
+        assert night.get("away") is True
+        assert night["has_data"] is False
+        assert "stages" not in night and "stage_sources" not in night
+        assert "night_asleep_min" not in night and "compare" not in night and "series" not in night
+
+        nights = c.get("/api/people/p1/nights?count=7", headers=H).json()
+        hidden = next(x for x in nights if x["date"] == "2026-11-05")
+        assert hidden.get("away") is True and hidden.get("stage_totals") is None
+
+
+def test_nights_api_matches_overlapping_whoop_summary_to_bed_window(tmp_path):
+    with make(tmp_path) as c:
+        c.post("/api/sim", json={"jump_to": "2026-11-06T11:00"}, headers=H)
+        start = A.parse_time("2026-11-05T22:20", TZ)
+        assert start is not None
+        bed = bed_night(c, start)
+        end = bed[-1][0] + 15
+        c.app.state.notifier.c.store.put("sleeps:p1", [
+            {"id": "whoop:short-overlap", "source": "whoop", "device": "WHOOP", "kind": "night",
+             "start": start + 600, "end": start + 1200, "deep_min": 5, "rem_min": 0, "light_min": 0, "awake_min": 0},
+            {"id": "whoop:full-night", "source": "whoop", "device": "WHOOP", "kind": "night",
+             "start": start - 120, "end": end + 120, "deep_min": 90, "rem_min": 90, "light_min": 240, "awake_min": 30},
+        ])
+
+        nights = c.get("/api/people/p1/nights?count=7", headers=H).json()
+        night = next(x for x in nights if x["date"] == "2026-11-05")
+        assert night["stage_totals"] == {"awake": 30, "rem": 90, "light": 240, "deep": 90}
+
+
 def test_repair_forgets_wrongly_shifted_readings_once(tmp_path):
     with make(tmp_path) as c:
         c.post("/api/sim", json={"jump_to": "2026-11-07T09:00"}, headers=H)

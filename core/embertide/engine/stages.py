@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from math import isfinite
 from statistics import median, pstdev
 
 STAGES = ("awake", "rem", "light", "deep")
@@ -128,16 +129,19 @@ def parse_orion_hypnogram(hyp) -> list[dict]:
 
 
 def collect(store, person, start: float, end: float) -> list[dict]:
-    """All stage timelines for a person's night: imported/device sources first, the bed estimate last."""
+    """All imported timelines and provider summaries for a night, then the bed estimate."""
     rows = store.history(person.zone, start, end, person=person.id)
     out = []
     for src, d in store.get_stages(person.id, start, end).items():
         kind = "orion" if src == "orion" else "wearable"
         out.append({"id": src, "label": d["label"] or src, "kind": kind, "segments": d["segments"], "totals": totals(d["segments"])})
+    # WHOOP publishes stage durations but not the time of each stage; show totals without inventing a timeline.
+    from .sleeps import stage_summaries_for
+    out.extend(stage_summaries_for(store, person.id, start, end))
     est = estimate(rows)
     if est:
         out.append({"id": "estimate", "label": "Ember & Tide estimate · bed heart rate + movement", "kind": "estimate", "segments": est, "totals": totals(est)})
-    rank = {"wearable": 0, "orion": 1, "estimate": 2}
+    rank = {"wearable": 0, "summary": 1, "orion": 2, "estimate": 3}
     out.sort(key=lambda x: rank[x["kind"]])
     ref = out[0]["segments"] if out else []
     for x in out[1:]:

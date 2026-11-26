@@ -1,0 +1,11 @@
+# Keep local development state out of the Docker build context
+.git
+**/.venv/
+**/node_modules/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+web/dist/
+core/uv.lock

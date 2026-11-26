@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
+import SleepStageBar, { STAGE_COLORS, STAGE_ORDER, stageLabel, stageTotal, type SleepStage, type StageTotals } from "./SleepStageBar";
 
 interface HNight {
   date: string; label: string; in_progress: boolean; has_data: boolean; away?: boolean; in_bed_min?: number; time_to_settle_min?: number | null;
-  times_up?: number; feedback: { temp?: string } | null; reviewed?: boolean; applied?: number;
+  times_up?: number; feedback: { temp?: string } | null; reviewed?: boolean; applied?: number; stage_totals?: StageTotals | null;
 }
 
 const FEEL: Record<string, [string, string]> = { cold: ["Too cold", "tide"], right: ["Just right", "good"], warm: ["Too warm", "ember"] };
@@ -21,11 +22,32 @@ export default function SleepHistory({ pid, onOpen }: { pid: string; onOpen: (da
   const done = nights.filter(n => !n.in_progress);
   const week = done.slice(0, 7).filter(n => n.has_data && n.in_bed_min && !n.away);
   const avg = week.length ? week.reduce((a, n) => a + (n.in_bed_min ?? 0), 0) / week.length : null;
+  const stageNights = done.filter(n => !n.away).slice(0, 14).reverse();
+  const maxStage = Math.max(1, ...stageNights.map(n => stageTotal(n.stage_totals)));
+  const hasStageTotals = stageNights.some(n => stageTotal(n.stage_totals) > 0);
   const shown = done.filter(n => f === "all" || (f === "applied" && (n.applied ?? 0) > 0) || (f === "feel" && !!n.feedback?.temp));
   const filters: [Filter, string][] = [["all", "All nights"], ["feel", "Checked in"], ["applied", "With changes"]];
   return (
     <div className="shist">
       {avg != null && <p className="mute" style={{ margin: 0 }}>Last {week.length} nights: {hm(avg)} in bed on average.</p>}
+      {hasStageTotals && <div className="card stage-history-chart">
+        <div className="row"><b>WHOOP stage totals</b><span className="mute">14 most recent non-away nights</span></div>
+        <div className="stage-history-bars" role="group" aria-label="WHOOP sleep-stage totals by night">
+          {stageNights.map(n => {
+            const d = new Date(n.date + "T12:00:00");
+            const totals = n.stage_totals ?? {};
+            const title = stageTotal(totals) > 0 ? `${n.label} · ${stageLabel(totals)}` : `${n.label} · no WHOOP stage totals`;
+            return <div key={n.date} className="stage-history-night" title={title}>
+              <span className="stage-history-track"><SleepStageBar totals={n.stage_totals} vertical scale={maxStage} /></span>
+              <small>{d.getDate()}</small>
+            </div>;
+          })}
+        </div>
+        <div className="stagekey">
+          {STAGE_ORDER.map((stage: SleepStage) => <span key={stage}><i style={{ backgroundColor: STAGE_COLORS[stage] }} />{stage === "rem" ? "REM" : stage[0].toUpperCase() + stage.slice(1)}</span>)}
+        </div>
+        <p className="stage-history-note">Nightly duration totals only; WHOOP does not provide stage timing for this chart.</p>
+      </div>}
       <div className="chips" role="group" aria-label="Show">
         {filters.map(([id, l]) => <button key={id} className="chip" aria-pressed={f === id} onClick={() => setF(id)}>{l}</button>)}
       </div>

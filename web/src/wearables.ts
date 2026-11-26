@@ -60,7 +60,8 @@ export const BRANDS: Brand[] = [
   { id: "whoop", name: "Whoop", icon: "▭",
     hc: { stages: "some", hr: "yes", hrv: "no", temp: "some", resp: "some" },
     ah: { stages: "some", hr: "yes", hrv: "no", temp: "no", resp: "some" },
-    cloud: { stages: "no", hr: "no", hrv: "yes", temp: "yes", resp: "yes" }, cloudId: "whoop",
+    // WHOOP exposes per-night totals, not the times of individual stages.
+    cloud: { stages: "some", hr: "no", hrv: "yes", temp: "yes", resp: "yes" }, cloudId: "whoop",
     hcHow: "In the Whoop app: Profile → Settings → Integrations → Health Connect.",
     ahHow: "In the Whoop app: Profile → Settings → Integrations → Apple Health." },
   { id: "withings", name: "Withings", icon: "◇",

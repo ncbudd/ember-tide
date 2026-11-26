@@ -335,9 +335,9 @@ def lean_summary(store, p, s: dict, tz, now: float) -> dict:
         return s
     cmp = {"available": True, "has_wearable": bool(ctx["wear"]), "trust": ctx["trust"], "times": ctx["times"]}
     st = collect(store, p, *ctx["win"])
-    stages = st[0] if st else None
-    if st and ctx["trust"] == "bed":
-        stages = next((x for x in st if x["kind"] == "estimate"), stages)
+    stages = next((x for x in st if x.get("kind") != "summary"), None)
+    if ctx["trust"] == "bed":
+        stages = next((x for x in st if x.get("kind") == "estimate"), stages)
     return lean_on(s, cmp, stages, now)
 
 

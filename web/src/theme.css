@@ -234,13 +234,28 @@ select,input[type=text],input[type=password],input[type=search],input[type=numbe
 .week{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
 .week button{display:grid;justify-items:center;gap:4px;border:1px solid transparent;background:none;border-radius:14px;padding:8px 2px;cursor:pointer;color:var(--mute)}
 .week button.on{border-color:var(--acc);background:color-mix(in srgb,var(--acc) 8%,transparent);color:var(--text)}
-.week .bar{height:44px;width:12px;border-radius:6px;background:var(--surf);display:flex;align-items:flex-end;overflow:hidden}
-.week .bar i{display:block;width:100%;background:var(--acc);border-radius:6px;opacity:.75}
+.week .bar{height:44px;width:14px;border-radius:6px;background:var(--surf);display:flex;align-items:flex-end;overflow:hidden;position:relative}
+.week .bar i.week-bed{position:absolute;left:0;bottom:0;display:block;width:100%;background:var(--acc);border-radius:0;opacity:.22}
+.week .bar .stage-stack.vertical{position:absolute;inset-inline:0;bottom:0}
 .week .d{font-size:12.5px;font-weight:500}
 .week .h{font-size:10.5px;font-variant-numeric:tabular-nums}
+.stage-stack{display:flex;overflow:hidden;border-radius:3px}
+.stage-stack.horizontal{width:100%;height:7px}
+.stage-stack.vertical{position:absolute;left:0;right:0;bottom:0;flex-direction:column-reverse}
+.stage-stack>span{flex-basis:0;min-width:1px;min-height:1px}
+.stage-stack.horizontal>span{height:100%}
+.stage-stack.vertical>span{width:100%}
 .stagekey{display:flex;flex-wrap:wrap;gap:10px 16px;font-size:12.5px;color:var(--mute)}
 .stagekey i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px}
 .stagekey b{color:var(--text);font-weight:500;margin-left:6px}
+.stage-week-key{margin-top:6px;font-size:11px;gap:6px 12px}
+.stage-week-key .inbed-key{background:var(--acc);opacity:.45}
+.stage-history-chart{display:grid;gap:10px}
+.stage-history-bars{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:4px;align-items:end}
+.stage-history-night{display:grid;grid-template-rows:86px auto;justify-items:center;gap:4px;min-width:0}
+.stage-history-track{position:relative;width:12px;height:86px;background:var(--surf);border-radius:6px;overflow:hidden}
+.stage-history-night small{font-size:10px;color:var(--mute);font-variant-numeric:tabular-nums}
+.stage-history-note{margin:0;font-size:12px;color:var(--mute)}
 .nights{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
 .nightchip{flex:none;border:1px solid var(--line2);border-radius:14px;padding:8px 12px;background:none;cursor:pointer;text-align:left;font-size:12.5px;color:var(--mute);display:grid;gap:1px}
 .nightchip b{color:var(--text);font-weight:500;font-size:14px}

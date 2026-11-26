@@ -317,7 +317,7 @@ def test_sync_lookback_grows_after_a_gap(tmp_path):
         starts.clear()
         c.post("/api/sim", json={"jump_to": "2026-12-22T12:00"}, headers=H)
         assert c.post("/api/cloud/me/whoop/sync", json={"person": "p2"}, headers=H).status_code == 200
-        assert starts == ["2026-12-08"]                            # 40 days later: capped at first_days (14)
+        assert starts == ["2026-11-11"]                            # 40 days later: re-fetch the full gap within WHOOP's 120-day window
         starts.clear()
         c.post("/api/sim", json={"jump_to": "2027-01-20T12:00"}, headers=H)
         c.portal.call(p.sync, "p2", 5)
