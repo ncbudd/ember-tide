@@ -7,7 +7,9 @@ Rules
 - Phone location counts like a GPS device: "home" is definite and wins; "away" wins over a Wi-Fi device that
   merely hasn't seen the phone. On the way home with the arrival inside 30 min, the person counts as home (so the
   bed is ready on arrival).
-- Home Wi-Fi from the phone counts as home; "not on Wi-Fi" alone never makes someone away.
+- Home Wi-Fi from the phone counts as home; off the home Wi-Fi for 30 min counts as away (when the "Off the home
+  Wi-Fi means away" setting is on and nothing better—like phone location, another device, or a bedside dial—says
+  otherwise). A stale report never makes someone away.
 - Every field goes stale: location/heading after 45 min, home/away after 6 h, Wi-Fi after 30 min, charging and
   bedtime mode after 20 min, the watch after 30 min. Calendar times and the alarm are used until they pass.
 - Only times and yes/no values ever arrive: no event titles, no coordinates.
@@ -19,6 +21,7 @@ import time as _time
 
 READY_MIN = 30                    # heading home this close → get the bed ready
 TRAVEL_S = 20 * 60                # after an evening event, time to get home
+WIFI_AWAY_S = 30 * 60             # off the home Wi-Fi this long → counts as away (when nothing better says so)
 # charging/bedtime: Android batches the 15-min check; real check-ins came 15-35 min apart overnight (2026-11-08)
 STALE = {"location": 45 * 60, "home": 6 * 3600, "wifi": 30 * 60, "charging": 50 * 60, "bedtime": 50 * 60, "watch": 30 * 60,
          "alarm": 50 * 60}         # the alarm's time is used until it passes; this is only how recent "the phone said" is
@@ -47,6 +50,7 @@ def latest(store, pid: str) -> dict | None:
 def update(store, pid: str, fields: dict, now: float, device: str | None = None, sharing: list[str] | None = None) -> dict:
     """Store what the app sent. Only fields present are updated; each keeps its own time."""
     cur = latest(store, pid) or {"data": {}, "ts": {}}
+    wifi_prev = (cur.get("ts") or {}).get("wifi_home")      # when the phone last said anything about the Wi-Fi
     for k, v in fields.items():
         cur["data"][k] = v
         cur["ts"][k] = now
@@ -62,6 +66,13 @@ def update(store, pid: str, fields: dict, now: float, device: str | None = None,
         cur["steps_hist"] = hist[-12:]
     if device:
         cur["device"] = device[:60]
+    if "wifi_home" in fields:
+        # off since this report, unless it already said "off" lately (a phone silent for a while starts afresh)
+        if fields["wifi_home"] is False and (not cur.get("wifi_off_since") or wifi_prev is None
+                                             or now - wifi_prev > STALE["wifi"]):
+            cur["wifi_off_since"] = now
+        elif fields["wifi_home"] is True:
+            cur["wifi_off_since"] = None
     if sharing is not None:
         cur["sharing"] = [s for s in sharing if isinstance(s, str)][:12]
         # a switch turned off: forget what it used to say
@@ -73,6 +84,8 @@ def update(store, pid: str, fields: dict, now: float, device: str | None = None,
             store.put(f"watch_live:{pid}", None)       # live watch heart rate switched off: stop using it at once
         if "steps" not in cur["sharing"]:
             cur.pop("steps_hist", None)
+        if "wifi" not in cur["sharing"]:
+            cur.pop("wifi_off_since", None)
         for src, keys in drop.items():
             if src not in cur["sharing"]:
                 for k in keys:
@@ -145,6 +158,10 @@ def merge(ctx, store, p, now: float | None = None) -> None:
         ctx.why = f"your phone: {round(float(dist), 1)} km away" if dist is not None else "your phone: away from home"
     if wifi is True and ctx.home is not True:
         ctx.home, ctx.why = True, "your phone is on the home Wi-Fi"
+    elif (ctx.home is None and wifi is False and getattr(p.settings, "wifi_off_away", True)
+          and (off_since := cur.get("wifi_off_since")) and now - off_since >= WIFI_AWAY_S):
+        ctx.home = False
+        ctx.why = f"your phone has been off the home Wi-Fi for {int((now - off_since) // 60)} min"
     # calendar on the phone: only times
     ev = (cur.get("data") or {}).get("evening_event_end")
     if ev and ev > now and ev - now < 20 * 3600:

@@ -53,11 +53,35 @@ def test_away_heading_home_wifi_and_staleness(tmp_path, monkeypatch):
         assert ctx(c).home is None
 
 
-def test_wifi_alone_makes_home_but_never_away(tmp_path, monkeypatch):
+def test_wifi_makes_home_and_away_after_wait(tmp_path, monkeypatch):
     nogap(monkeypatch)
     with make(tmp_path) as c:
+        k = ctl(c)
         post(c, wifi_home=True, sharing=["wifi"])
         assert ctx(c).home is True and "home Wi-Fi" in ctx(c).why
+        post(c, wifi_home=False)
+        assert ctx(c).home is None
+        off_since = PC.latest(k.store, "p1")["wifi_off_since"]
+        k.clock.jump_to(off_since + 15 * 60)
+        post(c, wifi_home=False)                         # the phone checks in every ~15 min
+        k.clock.jump_to(off_since + PC.WIFI_AWAY_S + 65)
+        post(c, wifi_home=False)
+        x = ctx(c)
+        assert x.home is False and "off the home Wi-Fi for 31 min" in x.why
+
+
+def test_wifi_off_never_away_when_setting_off(tmp_path, monkeypatch):
+    nogap(monkeypatch)
+    with make(tmp_path) as c:
+        k = ctl(c)
+        k.person("p1").settings.wifi_off_away = False
+        post(c, wifi_home=True, sharing=["wifi"])
+        assert ctx(c).home is True
+        post(c, wifi_home=False)
+        off_since = PC.latest(k.store, "p1")["wifi_off_since"]
+        k.clock.jump_to(off_since + 15 * 60)
+        post(c, wifi_home=False)
+        k.clock.jump_to(off_since + PC.WIFI_AWAY_S + 65)
         post(c, wifi_home=False)
         assert ctx(c).home is None
 
