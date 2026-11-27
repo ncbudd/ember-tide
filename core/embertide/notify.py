@@ -1546,7 +1546,8 @@ class Notifier:
             self._log_delivery({"provider": f"app · {d.get('device')}", "title": m.title, "ok": True})
             return True
         except Exception as e:  # noqa: BLE001
-            err = f"{e.__class__.__name__}: {getattr(getattr(e, 'response', None), 'status_code', '') or e}"
+            from .sources import scrub_urls
+            err = f"{e.__class__.__name__}: {getattr(getattr(e, 'response', None), 'status_code', '') or scrub_urls(str(e))}"
             log.warning("push to %s failed: %s", d.get("device"), err)
             self._log_delivery({"provider": f"app · {d.get('device')}", "title": m.title, "ok": False, "error": err})
             return False
@@ -1579,7 +1580,8 @@ class Notifier:
             err = {401: "The server rejected the token.", 403: "Not allowed. Check the token or topic permissions.",
                    404: "Not found. Check the topic or the notify service name."}.get(code, f"The server answered with an error ({code}).")
         except Exception as e:  # noqa: BLE001
-            err = f"That didn't work: {e}"
+            from .sources import scrub_urls
+            err = f"That didn't work: {scrub_urls(str(e))}"
         log.warning("notification via %s failed: %s", p.get("name"), err)
         self._log_delivery({"provider": p.get("name"), "title": m.title, "ok": False, "error": err})
         return {"ok": False, "error": err}
