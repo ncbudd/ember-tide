@@ -244,6 +244,9 @@ def night_devices(c, p, start: float, end: float) -> list[dict]:
         if src == "orion":
             continue
         add((d.get("label") or src).split(" · ")[0], "stages")
+    from .sleeps import stage_summaries_for
+    for summary in stage_summaries_for(c.store, p.id, start, end):
+        add(summary["label"].split(" · ")[0], "stages")
     return sorted(out.values(), key=lambda d: d["name"].casefold())
 
 
@@ -254,6 +257,7 @@ def night_coverage(c, p, now: float, days: int = 7) -> list[dict]:
     from datetime import timedelta
     from .. import align as A
     from .summary import night_window, summarize
+    from .sleeps import stage_summaries_for
     tz = c.clock.tz
     today = datetime.fromtimestamp(now, tz)
     d0 = (today - timedelta(days=1)).date() if today.hour < 12 else today.date()
@@ -273,20 +277,31 @@ def night_coverage(c, p, now: float, days: int = 7) -> list[dict]:
                 hr[device_name(c, src)] = A.coverage(pts, span) or 0.0
         live = hr.pop("Watch (live)", None)
         stages = [x for k, x in c.store.get_stages(p.id, a - 2 * 3600, b + 2 * 3600).items() if k != "orion"]
+        summaries = stage_summaries_for(c.store, p.id, a - 2 * 3600, b + 2 * 3600)
         best = max(hr.values(), default=0.0)
         old = now - b > 48 * 3600                # older than the phone's automatic look-back: only a re-import reaches it
         later = ("If your watch recorded it, Re-import last 7 days fetches it again." if old
                  else "It's picked up on a later sync once it reaches Health Connect.")
+        names = " and ".join(dict.fromkeys(x.get("device") or x["label"].split(" · ")[0] for x in summaries))
         if stages and best >= 0.8:
             text = "Sleep stages and heart rate from your watch or ring for the whole night."
         elif stages:
             text = f"Sleep stages from your watch or ring. Its heart rate covers {round(best * 100)}% of the night. {later}"
+        elif summaries:
+            who = "they don't" if " and " in names else f"{names} doesn't"
+            text = f"{names} stage totals arrived ({who} share when each stage happened)."
+            if best >= 0.8:
+                text += " Wearable heart rate covers the whole night."
+            elif best > 0:
+                text += f" Wearable heart rate covers {round(best * 100)}% of the night."
         elif best >= 0.8:
             text = f"Heart rate for the whole night, but no sleep stages from your watch or ring yet, so the bed's estimate is shown. {later}"
         elif best > 0:
             text = f"Heart rate covers {round(best * 100)}% of the night and there are no sleep stages yet. {later}"
         else:
             text = f"Nothing from your watch or ring through Health Connect for this night. {later}"
+        if summaries and stages:
+            text += f" {names} stage totals also arrived."
         if live is not None and best < 0.8:
             text += f" The watch's live heart rate covers {round(live * 100)}%."
         nw = not_worn_devices(c, p, a, b)
@@ -295,5 +310,6 @@ def night_coverage(c, p, now: float, days: int = 7) -> list[dict]:
                      "those readings are kept but not used to learn your nights.")
         out.append({"date": d.isoformat(), "in_bed_at": a, "out_at": b, "in_progress": bool(s.get("in_progress")),
                     "hr": {k: round(v, 2) for k, v in sorted(hr.items())}, "live": None if live is None else round(live, 2),
-                    "stages": [x.get("label") or x["source"] for x in stages], "text": text, "not_worn": nw})
+                    "stages": ([x.get("label") or x["source"] for x in stages] + [x["label"] for x in summaries]),
+                    "text": text, "not_worn": nw})
     return out
