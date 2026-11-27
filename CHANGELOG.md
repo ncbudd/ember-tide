@@ -5,6 +5,41 @@ minor versions, and each entry says what to check when upgrading.
 
 ## Unreleased
 
+## 0.1.26
+
+Two more beds, a fix for mornings after the alarm, settings search, less battery use, and fixes to how a night starts
+and ends. Update the server, the phone app and the watch app.
+
+- **Sleepme Dock Pro (new, not yet tried on a real unit).** `ET_BED=sleepme` runs the night on a Dock Pro through
+  Sleepme's official cloud API with your developer token. It finds your docks by itself, stays inside Sleepme's request
+  limit, and tells you when the water is low. Setup is in docs/drivers.md.
+- **Eight Sleep Pod with free-sleep (new, not yet tried on a real unit).** `ET_BED=free-sleep` runs the night on a Pod
+  that runs the community free-sleep software, fully on your own network. Setup is in docs/drivers.md, along with how to
+  use an OOLER through Home Assistant.
+- **Bed connection card in Studio.** The Bed hub shows which bed Ember & Tide is using and whether it answers, and for
+  each supported bed the exact lines to put in your `.env`, with a Copy button.
+- **Less battery and fewer calls.** The phone app and Studio stop checking the server while you aren't looking at them,
+  and back off when the live connection drops. The watch shares one fetch between the app, tile and complication, and
+  checks less often when no night is running. The phone skips location on your home Wi-Fi and doesn't look for the dial
+  while you're away.
+- **Getting up after your alarm ends the night.** Once the alarm the wake follows has rung, snoozes and backup alarms
+  no longer move the wake later. Before, a backup alarm could put the side back into its night phases, so getting up
+  was read as a trip to the bathroom and the side kept running. Staying in bed still keeps it warm until you get up.
+  Setting a new alarm after you got up and lying back down still warms the bed again.
+- **Early events move the wake.** When your calendar has an event early tomorrow morning, the warm wake now moves to
+  45 minutes before it on its own (before, there was only a button on Tonight). It only ever moves earlier, an earlier
+  alarm wins, and it goes back if the event is cancelled. Turn it off under Settings → "Wake earlier for early events".
+- **Search in Settings.** Type a word at the top of Settings to see just the settings that match. The sections also
+  sit under six headings now: You, Your nights, Notifications, Watch, ring and pets, Your home, and App.
+- **Night fixes.** "Start now" really starts after a pause or after you got up. "Off tonight" pressed after "I'm up"
+  applies to the coming night. A night you switched off partway still ends at its end time, so the morning summary goes
+  out. The empty-bed cutoff no longer stops the evening's pre-cool. Changing the temperature right after "Off tonight"
+  turns that side back on. The morning away check reads away periods that already ended.
+- **Security.** A partner or view-only account can no longer read the other person's morning summary or AI review.
+  After you swap sides, your history shows only your own readings. Sign-in and password changes are throttled more
+  carefully, exports and stage imports are limited to 400 days, and a few owner-only settings check addresses more
+  strictly.
+
 ## 0.1.25
 
 Sleep stage minutes from WHOOP and Garmin. Update the server; the phone and watch apps need no update for this one.
