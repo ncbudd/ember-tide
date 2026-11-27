@@ -194,6 +194,13 @@ def build_notify_router(state) -> APIRouter:
     async def get_settings():
         return _settings_out()
 
+    def _same_origin(a: str | None, b: str | None) -> bool:
+        from urllib.parse import urlsplit
+        if not a or not b:
+            return False
+        x, y = urlsplit(a), urlsplit(b)
+        return (x.scheme, (x.hostname or "").lower(), x.port) == (y.scheme, (y.hostname or "").lower(), y.port)
+
     @r.put("/settings")
     async def put_settings(b: NotifySettingsBody):
         old = state.controller.store.get("notify_settings", {}) or {}
@@ -205,8 +212,8 @@ def build_notify_router(state) -> APIRouter:
         if push and not push.startswith(("http://", "https://")):
             raise HTTPException(422, "The push server address should start with https://")
         tok = (b.push_token or "").strip() or None
-        if tok is None and b.keep_push_token:
-            tok = old.get("push_token")
+        if tok is None and b.keep_push_token and _same_origin(push, old.get("push_server")):
+            tok = old.get("push_token")                  # a saved token stays with its own server, never a new address
         state.controller.store.put("notify_settings", {"public_url": url, "push_server": push, "push_token": tok if push else None})
         return _settings_out()
 
@@ -281,9 +288,12 @@ def build_notify_router(state) -> APIRouter:
         if not devs:
             raise HTTPException(409, "No phone is registered for app notifications yet.")
         m = Message("test", "Notifications work", "This is how Ember & Tide will reach this phone.", pid, priority=3)
+        names = {f"app · {d.get('device')}" for d in devs}
+        before = len(n().sent_log)
         results = [await n().push(pid, d, m) for d in devs]
         if not any(results):
-            last = next((x for x in reversed(n().sent_log) if not x.get("ok")), {})
+            mine = [x for x in n().sent_log[before:] if not x.get("ok") and x.get("provider") in names]
+            last = mine[-1] if mine else {}
             raise HTTPException(502, f"The push server didn't accept it ({last.get('error', 'unknown error')}). "
                                      "It may need write access for UnifiedPush topics or an access token.")
         return {"ok": True, "sent": sum(results)}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import csv
+import math
 import io
 import json
 from datetime import datetime
@@ -655,7 +656,9 @@ def build_router(app_state) -> APIRouter:
             if zone != mine:
                 raise HTTPException(403, "That's their own sleep data.")
         now = ctl().clock.now_ts()
-        return ctl().store.history(zone, now - max(0.0, min(hours, 24 * 14)) * 3600, step_s=max(step, 15))
+        hours = hours if math.isfinite(hours) else 12
+        return ctl().store.history(zone, now - max(0.0, min(hours, 24 * 14)) * 3600, step_s=max(step, 15),
+                                   person=who.person if who is not None else None)
 
     @r.get("/events")
     async def events(request: Request, limit: int = 100, person: str | None = None):
@@ -669,13 +672,14 @@ def build_router(app_state) -> APIRouter:
     async def export(request: Request, fmt: Literal["csv", "jsonl"] = "csv", hours: float = 24 * 30, pseudonymize: bool = False):
         c = ctl()
         now = c.clock.now_ts()
+        span = max(0.0, min(hours, 24 * 400) if math.isfinite(hours) else 24 * 30) * 3600   # at most about a year
         rows = []
         who = request.scope.get("state", {}).get("principal")
         for i, p in enumerate(c.household.people):
             if who is not None and who.role != "owner" and who.person != p.id:
                 continue                                   # your own data only, unless you're the owner
             name = f"P{i + 1}" if pseudonymize else p.name
-            for h in c.store.history(p.zone, now - max(0.0, hours) * 3600, person=p.id):
+            for h in c.store.history(p.zone, now - span, person=p.id):
                 rows.append({"person": name, "zone": p.zone,
                              "time": datetime.fromtimestamp(h["ts"], c.clock.tz).isoformat(), **{k: v for k, v in h.items() if k != "ts"}})
         rows.sort(key=lambda x: x["time"])

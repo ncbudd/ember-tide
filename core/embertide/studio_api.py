@@ -28,6 +28,25 @@ PALETTE = {"target": "var(--acc)", "setpoint": "var(--faint)", "measured": "var(
            "location": "var(--pc-blue)", "calendar": "var(--pc-violet)", "light": "var(--warn)", "other": "var(--mute)"}
 
 
+HA_ENTITY = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
+
+
+def ha_url_ok(url: str) -> bool:
+    """http(s) with a host, and never a link-local address (cloud metadata lives there; Home Assistant never does)."""
+    import ipaddress
+    from urllib.parse import urlsplit
+    try:
+        u = urlsplit((url or "").strip())
+    except ValueError:
+        return False
+    if u.scheme not in ("http", "https") or not u.hostname:
+        return False
+    try:
+        return not ipaddress.ip_address(u.hostname).is_link_local
+    except ValueError:
+        return True                                    # a name, such as homeassistant.local
+
+
 class HaTest(BaseModel):
     url: str
     token: str
@@ -390,6 +409,10 @@ def build_studio_router(state) -> APIRouter:
 
     @r.post("/sources/test-ha")
     async def test_ha(b: HaTest):
+        if not HA_ENTITY.fullmatch(b.entity_id or ""):
+            return {"ok": False, "error": "That doesn't look like an entity ID. It looks like sensor.bedroom_temperature."}
+        if not ha_url_ok(b.url):
+            return {"ok": False, "error": "The address should look like http://homeassistant.local:8123"}
         try:
             async with httpx.AsyncClient(timeout=8, headers={"Authorization": f"Bearer {b.token}"}) as http:
                 x = await http.get(b.url.rstrip("/") + f"/api/states/{b.entity_id}")
@@ -407,7 +430,7 @@ def build_studio_router(state) -> APIRouter:
         except httpx.TimeoutException:
             return {"ok": False, "error": "Home Assistant didn't answer in time. Is the address right?"}
         except Exception as e:  # noqa: BLE001
-            return {"ok": False, "error": f"That didn't work: {e}"}
+            return {"ok": False, "error": f"That didn't work ({type(e).__name__})."}
 
     # ---------- calibration ----------
     @r.get("/calibration")
@@ -536,7 +559,7 @@ def build_studio_router(state) -> APIRouter:
         for g in b.segments:
             st = normalize_stage(g.stage)
             a0, a1 = A.parse_time(g.start, tz), A.parse_time(g.end, tz)
-            if not st or a0 is None or a1 is None or a1 <= a0 or a1 - a0 > 12 * 3600 or a1 > now + 300:
+            if not st or a0 is None or a1 is None or a1 <= a0 or a1 - a0 > 12 * 3600 or a1 > now + 300 or a0 < now - 400 * 86400:
                 bad += 1
                 continue
             segs.append({"start": a0, "end": a1, "stage": st})

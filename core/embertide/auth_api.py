@@ -335,7 +335,8 @@ def build_auth_router(state) -> APIRouter:
         # throttles: this name from this address (5 / 5 min), this address (20 / 10 min), and this name from anywhere
         # (40 / hour, so guessing from many addresses stays slow). A stranger can't lock the owner out quickly: their
         # own tries count against their own address first.
-        user = b.username.lower()
+        clean = b.username.strip()
+        user = clean.lower()
         who, where, name = f"u:{user}|{ip(request)}", f"ip:{ip(request)}", f"n:{user}"
         if a.throttled(who, now, 5, 300) or a.throttled(where, now, 20, 600) or a.throttled(name, now, 40, 3600):
             raise HTTPException(429, "Too many tries. Wait a few minutes and try again.")
@@ -344,7 +345,7 @@ def build_auth_router(state) -> APIRouter:
         # slowed tries is refused
         if not home(request) and a.throttled("all", now, 60, 60):
             await _slow_down()
-        u = await _hashing(a.verify, b.username.strip(), b.password)
+        u = await _hashing(a.verify, clean, b.password)
         if not u:
             a.failed(who, now)
             a.failed(where, now)
@@ -397,9 +398,14 @@ def build_auth_router(state) -> APIRouter:
         p = principal_of(request)
         if p.kind != "user":
             raise HTTPException(400, "Only accounts have passwords.")
+        a, now = auth(), time.time()
+        if a.throttled(f"pw:{p.id}", now, 5, 300):
+            raise HTTPException(429, "Too many tries. Wait a few minutes and try again.")
         try:
-            await _hashing(auth().set_password, p.id, b.current, b.new)
+            await _hashing(a.set_password, p.id, b.current, b.new)
         except ValueError as e:
+            if "current" in str(e).lower():
+                a.failed(f"pw:{p.id}", now)
             raise HTTPException(422, str(e))
         n = auth().end_other_sessions(p.id, p.session)
         return {"ok": True, "signed_out_elsewhere": n}
