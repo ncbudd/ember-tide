@@ -514,7 +514,8 @@ async def test_the_warm_wake_follows_the_phones_alarm(tmp_path):
 
 async def test_snoozing_the_alarm_holds_the_wake(tmp_path):
     """The followed alarm rings and is snoozed: the phone's next alarm is now 9 min later. The wake stays at the
-    time the alarm first rang; resetting the alarm an hour later (sleeping in on purpose) is still followed."""
+    time the alarm first rang. An alarm an hour later doesn't move it either (2026-11-27: a backup alarm moved the wake
+    back into the night, so getting up was read as a night-time trip); staying in bed is the lie-in's job."""
     n = Night(tmp_path, "2026-11-05T22:00")
     n.present("left", True)
     await n.until("2026-11-06T03:00")
@@ -527,8 +528,8 @@ async def test_snoozing_the_alarm_holds_the_wake(tmp_path):
     assert not e.follow_alarm(now, alarm + 9 * 60)                      # snooze
     assert not e.follow_alarm(now, alarm + 18 * 60)                     # and again
     assert abs(e.s.wake_override - alarm) < 1
-    assert e.follow_alarm(now, alarm + 3600)                            # a new alarm an hour later: followed
-    assert abs(e.s.wake_override - (alarm + 3600)) < 1
+    assert not e.follow_alarm(now, alarm + 3600)                        # a backup alarm an hour later: the wake holds
+    assert abs(e.s.wake_override - alarm) < 1
 
 
 def test_a_short_sit_down_hours_before_isnt_getting_into_bed():

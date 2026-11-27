@@ -70,6 +70,7 @@ class NightState:
     lie_in: bool = False
     lie_in_over: bool = False            # it ended (got up / cap): getting back in doesn't start another
     snoozed_until: float | None = None   # a later alarm after the followed one rang (a snooze or an extended alarm)
+    alarms_seen: list = field(default_factory=list)  # later alarms the phone showed after the followed one rang, still in bed
     ended: bool = False                  # "I'm up": the night was ended by hand (the dial, the app, a watch)
     # the person's own phone / watch (the "phone:bedside" and "watch:me" votes): ever voted this night, since when
     # neither has, and whether the pad was empty for a while after that. Used only to end a lie-in (see _lie_in)
@@ -93,6 +94,7 @@ class NightEngine:
         self.s = NightState()
         self.night: ResolvedNight | None = None
         self.busy_until: float | None = None       # set by the controller from calendar context
+        self.last_present: bool | None = None      # presence at the last tick
         self.away = False                          # away for a while (engine/away.py), set by the controller each tick
         # settling in (controller._start_gate): False = the bed radar / phone don't back this side's presence yet, so
         # lying there doesn't start the night; None = no opinion (no radar), the usual start
@@ -222,9 +224,21 @@ class NightEngine:
 
     # ---------- the phone's alarm ----------
     ALARM_EARLIER_S = 4 * 3600         # an alarm up to 4 h before the planned wake moves it earlier
-    ALARM_LATER_S = 3 * 3600           # and up to 3 h after (a second, later alarm to sleep in) moves it later
+    ALARM_LATER_S = 3 * 3600           # and up to 3 h after (a later alarm set to sleep in) moves it later, until one rings
 
     SNOOZE_S = 30 * 60                                   # a later alarm this soon after the first one rang = snooze
+
+    def _wake_day(self, now: float):
+        """(tonight's date, its planned wake) for following an alarm or the calendar, or None when it can't apply now:
+        no rhythm, or last night still running past noon (a lie-in) while the date already says tonight."""
+        from datetime import datetime
+        d = night_date(datetime.fromtimestamp(now, self.tz))
+        if self.night is not None and self.night.date != d:
+            return None
+        rhythm = pick_rhythm(self.person.rhythms, d)
+        if rhythm is None:
+            return None
+        return d, resolve(rhythm, d, self.tz).wake
 
     def follow_alarm(self, now: float, alarm: float | None, reported: bool = False) -> bool:
         """Line tonight's wake up with the phone's next alarm (Settings: "Wake with my alarm"). Returns True when the
@@ -232,44 +246,104 @@ class NightEngine:
         `reported`: the phone sent its next alarm lately. Then "no alarm" (None: none set, or the next one a day or more
         away) means the followed alarm was turned off before it rang, and the planned wake comes back. A phone that has
         gone quiet says nothing either way."""
-        if not getattr(self.person.settings, "wake_with_alarm", True) or self.s.wake_by_hand:
+        s = self.s
+        if s.wake_by_hand or s.ended:
             return False
-        if alarm is None:
-            fa = self.s.wake_from_alarm
-            if reported and fa and now < fa and self.s.wake_override == fa:
-                self.s.wake_override, self.s.wake_from_alarm, self.s.wake_source = None, None, None
-                self._ev(now, "wake_alarm_cleared", was=fa, reason="no alarm")
+        fa = s.wake_from_alarm
+        if not getattr(self.person.settings, "wake_with_alarm", True):
+            if fa and now < fa and s.wake_override == fa:           # switched off: an alarm it followed lets go
+                s.wake_override, s.wake_from_alarm, s.wake_source = None, None, None
+                self._ev(now, "wake_alarm_cleared", was=fa, reason="setting off")
                 return True
             return False
-        from datetime import datetime
-        d = night_date(datetime.fromtimestamp(now, self.tz))
-        rhythm = pick_rhythm(self.person.rhythms, d)
-        if rhythm is None or alarm <= now:
+
+        def drop(**why) -> bool:
+            # the followed alarm was turned off before it rang
+            if s.wake_override == fa:
+                s.wake_override, s.wake_from_alarm, s.wake_source = None, None, None
+                self._ev(now, "wake_alarm_cleared", was=fa, **why)
+                return True
+            s.wake_from_alarm = None                 # the wake came from the calendar: keep it, forget the alarm
             return False
-        planned = resolve(rhythm, d, self.tz).wake
+        if alarm is None:
+            if reported and fa and now < fa:
+                return drop(reason="no alarm")
+            return False
+        day = self._wake_day(now)
+        if day is None or alarm <= now:
+            return False
+        planned = day[1]
         if not (planned - self.ALARM_EARLIER_S <= alarm <= planned + self.ALARM_LATER_S):
             # the alarm this wake came from was turned off before it rang (the phone's next alarm is now a later,
             # other day's one): back to the planned wake, so sleeping in really is sleeping in. An earlier odd alarm
             # (a 3 AM reminder) means nothing about the morning one, which is still set.
-            fa = self.s.wake_from_alarm
-            if fa and now < fa < alarm and self.s.wake_override == fa:
-                self.s.wake_override, self.s.wake_from_alarm, self.s.wake_source = None, None, None
-                self._ev(now, "wake_alarm_cleared", was=fa, planned=planned)
-                return True
+            if fa and now < fa < alarm:
+                return drop(planned=planned)
             return False
-        if self.s.wake_from_alarm == alarm:
+        if fa == alarm:
             return False
-        fa = self.s.wake_from_alarm
-        if fa and fa <= now and fa < alarm <= fa + self.SNOOZE_S:
-            if self.s.snoozed_until != alarm:
-                self.s.snoozed_until = alarm
-                self._ev(now, "alarm_snoozed", until=alarm, alarm=fa)
-            # the followed alarm already rang and the next one is a few minutes after it: a snooze. The wake holds
-            # at the time the alarm first rang (a reset alarm well after it is a real change of plan and is followed)
+        morning = s.wake_override if s.wake_override is not None else planned
+        if morning <= now and alarm > morning:
+            # the wake already came (the followed alarm rang, or the planned wake passed): the morning has begun and
+            # the wake holds. A later alarm the phone shows meanwhile is a snooze or a backup alarm, never a reason to
+            # push the wake later: that put the side back into its night phases, so getting up was read as a trip to
+            # the bathroom and the side kept running (and the phone's next alarm flipped between the snooze and the
+            # backup alarm, 2026-11-27). Staying in bed is the lie-in's job. Only a NEW alarm, set after they got up
+            # (the night over), followed once they lie back down, means going back to bed.
+            up = s.state == "done" or s.lie_in_over
+            if not up or alarm in s.alarms_seen or not self.last_present:
+                if not up and alarm not in s.alarms_seen:
+                    s.alarms_seen = (s.alarms_seen + [alarm])[-12:]
+                if fa and fa <= now and alarm <= fa + self.SNOOZE_S and s.snoozed_until != alarm:
+                    s.snoozed_until = alarm
+                    self._ev(now, "alarm_snoozed", until=alarm, alarm=fa)
+                return False
+            s.alarms_seen = []
+        elif s.wake_source == "calendar" and s.wake_override is not None and alarm > s.wake_override:
+            s.wake_from_alarm = alarm                # an early start in the calendar already wakes them earlier
             return False
-        self.s.wake_override, self.s.wake_from_alarm, self.s.wake_source = alarm, alarm, None
+        s.wake_override, s.wake_from_alarm, s.wake_source = alarm, alarm, None
         self._ev(now, "wake_from_alarm", wake=alarm, planned=planned)
         return True
+
+    # ---------- an early start in the calendar ----------
+    CALENDAR_LEAD_S = 45 * 60          # warm wake this long before the first event (the app's "Wake up earlier" button)
+
+    def follow_calendar(self, now: float, early_start: float | None) -> bool:
+        """Move tonight's wake earlier for an early first event tomorrow morning (the phone's or an HA calendar),
+        Settings: "Wake earlier for early events". Only ever earlier than the wake it would otherwise have (an earlier
+        alarm wins), at most ALARM_EARLIER_S before the planned wake, and never once the morning has begun. A wake set
+        by hand wins. When the event goes away (or the setting is switched off) before the wake, the wake goes back to
+        the alarm's, if one is followed, or the planned one."""
+        s = self.s
+        if s.wake_by_hand or s.ended or s.lie_in or s.lie_in_over or s.state == "done":
+            return False
+        day = self._wake_day(now)
+        if day is None:
+            return False
+        planned = day[1]
+        if (s.wake_override if s.wake_override is not None else planned) <= now:
+            return False                                 # the morning has begun: the wake stays where it came
+        cur = s.wake_override if s.wake_source == "calendar" else None
+        # the wake without the calendar: the followed alarm's, or the planned one
+        fa = s.wake_from_alarm if (s.wake_from_alarm and s.wake_from_alarm > now
+                                   and (cur is not None or s.wake_override == s.wake_from_alarm)) else None
+        base = fa or planned
+        on = getattr(self.person.settings, "wake_with_calendar", True)
+        want = early_start - self.CALENDAR_LEAD_S if (early_start and on) else None
+        if want is not None and now < want and planned - self.ALARM_EARLIER_S <= want < base - 60:
+            if cur is not None and abs(cur - want) < 60:
+                return False
+            s.wake_override, s.wake_source = want, "calendar"
+            self._ev(now, "wake_from_calendar", wake=want, event=early_start, planned=planned)
+            return True
+        if cur is not None:                              # the event went away or moved later, or the setting was turned off
+            s.wake_override, s.wake_source = fa, None
+            if fa is None:
+                s.wake_from_alarm = None
+            self._ev(now, "wake_calendar_cleared", was=cur)
+            return True
+        return False
 
     # ---------- lying in ----------
     # the wake target runs on while they're still in bed (getting up ends it: LIE_IN_UP_S), up to this long past the
@@ -347,6 +421,7 @@ class NightEngine:
 
     def tick(self, now: float, present: bool | None, home: bool | None = None, active: float | None = None) -> float | None:
         """`active` = since when the people in bed have been awake and moving (engine/active.py), else None."""
+        self.last_present = present                # follow_alarm reads it on the next tick (back in bed after getting up?)
         from datetime import date, datetime
         dt = datetime.fromtimestamp(now, self.tz)
         d = night_date(dt)

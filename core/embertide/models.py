@@ -230,6 +230,7 @@ class PersonSettings(BaseModel):
     wearable: str = Field("", max_length=20, pattern=r"^[a-z_]*$")   # first-time setup's pick ("oura", "apple", "none"...)
     setup_steps: list[str] = Field(default_factory=list, max_length=30)   # first-time setup steps already done (skipped next time)
     tone: Literal["calm", "friendly", "cheeky"] = "calm"   # how notifications and suggestions are worded (voice.py); alerts stay plain
+    wake_with_calendar: bool = True      # an early first event tomorrow morning (phone or HA calendar) moves the warm wake earlier
     wake_with_alarm: bool = True         # the warm wake lines up with the phone's next alarm (shared from the phone), earlier or a bit later
     pet_questions: bool = True           # ask "was the pet on the bed?" after something lay on your side that didn't look like you
     # in / out of bed tuning (None = recommended): minutes lying down before the night starts, and minutes out of

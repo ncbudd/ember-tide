@@ -751,6 +751,7 @@ class Controller:
             self._ctx_home[p.id] = home
             e.busy_until = ctx.busy_until
             e.follow_alarm(now, ctx.next_alarm, ctx.alarm_reported)    # the warm wake lines up with the phone's alarm
+            e.follow_calendar(now, ctx.early_start)                    # ... and comes earlier for an early first event
         except Exception:  # noqa: BLE001
             log.exception("context failed for %s", p.id)
         # away for a while (engine/away.py): back when they use their side or the end date passes
