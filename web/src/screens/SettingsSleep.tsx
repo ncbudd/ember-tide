@@ -47,8 +47,10 @@ export function SleepDataRows({ s, upd }: { s: PersonSettings; upd: (p: Partial<
           <TrustPicker value={trust} onChange={v => upd({ autopilot: { ...s.autopilot, trust_more: v } })} />
           <span className="faint" style={{ fontSize: 12 }}>Used for your in-bed and asleep times, sleep stages, heart rate, your normal range and whether it's you in bed.</span>
         </div>
-        <div className="row"><span>Wake with my phone's alarm<br /><span className="mute" style={{ fontSize: 12 }}>The warm wake moves to match your next alarm, earlier or later (set a second alarm to sleep in). Needs your phone to share its next alarm.</span></span>
+        <div className="row"><span>Wake with my phone's alarm<br /><span className="mute" style={{ fontSize: 12 }}>The warm wake moves to match your next alarm, earlier or later. Once it rings, snoozes and backup alarms don't move it later. Needs your phone to share its next alarm.</span></span>
           <input type="checkbox" className="toggle" aria-label="Wake with my phone's alarm" checked={s.wake_with_alarm ?? true} onChange={e => upd({ wake_with_alarm: e.target.checked })} /></div>
+        <div className="row"><span>Wake earlier for early events<br /><span className="mute" style={{ fontSize: 12 }}>When your calendar has an event early tomorrow morning, the warm wake moves to 45 minutes before it. Only ever earlier; an earlier alarm wins. Needs your phone (or Home Assistant) to share your calendar.</span></span>
+          <input type="checkbox" className="toggle" aria-label="Wake earlier for early events" checked={s.wake_with_calendar ?? true} onChange={e => upd({ wake_with_calendar: e.target.checked })} /></div>
         <div className="row"><span>Ask me about the pet<br /><span className="mute" style={{ fontSize: 12 }}>If something on your side for half an hour or more didn't seem like you, you're asked "Was it the dog?". One question a night at most.</span></span>
           <input type="checkbox" className="toggle" aria-label="Ask me about the pet" checked={s.pet_questions ?? true} onChange={e => upd({ pet_questions: e.target.checked })} /></div>
         {(s.pet_questions ?? true) && <div className="row"><span>Also as a notification<br /><span className="mute" style={{ fontSize: 12 }}>Only between 8 AM and 9 PM. You can answer right from it.</span></span>

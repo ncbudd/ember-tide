@@ -20,7 +20,7 @@ export interface PersonSettings {
   tone?: "calm" | "friendly" | "cheeky";
   show_ask?: boolean;
   work_days?: number[]; wearable?: string; setup_steps?: string[];
-  pet_questions?: boolean; wake_with_alarm?: boolean; in_bed_after_min?: number | null; up_after_min?: number | null;
+  pet_questions?: boolean; wake_with_alarm?: boolean; wake_with_calendar?: boolean; in_bed_after_min?: number | null; up_after_min?: number | null;
 }
 interface NightContext { home: boolean | null; why: string; distance_km: number | null; eta_min: number | null; heading_home: boolean; busy_until: number | null; event_end: number | null; lights_on: boolean | null; early_start?: number | null }
 interface FlashState { kind: "hot" | "cold"; start: number; end: number; ease_end: number; target_c: number; source: string }
