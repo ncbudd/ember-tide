@@ -269,11 +269,18 @@ object PhoneSources {
         val out = JSONObject()
         val now = System.currentTimeMillis()
         val p = prefs(c)
-        if ("location" in on && homeSet(c)) {
+        val wifiIsHome = if ("wifi" in on) wifiHome(c) else null
+        if (wifiIsHome != null) out.put("wifi_home", wifiIsHome)
+        var knownHome: Boolean? = null
+        if (wifiIsHome == true) knownHome = true
+        if (wifiIsHome == true && "location" in on && homeSet(c)) {
+            out.put("home", true)                        // already on home Wi-Fi: no need to wake the location radio
+        } else if ("location" in on && homeSet(c)) {
             locate(c)?.let { loc ->
                 val home = Location("home").apply { latitude = p.getFloat("home_lat", 0f).toDouble(); longitude = p.getFloat("home_lon", 0f).toDouble() }
                 val km = loc.distanceTo(home) / 1000.0
                 val atHome = km * 1000 <= radiusM(c) + min(loc.accuracy.toDouble(), 150.0)
+                knownHome = atHome
                 out.put("home", atHome)
                 if (!atHome) {
                     out.put("distance_km", Math.round(km * 100) / 100.0)
@@ -289,7 +296,6 @@ object PhoneSources {
                 p.edit().putFloat("prev_km", km.toFloat()).putLong("prev_t", now).apply()
             }
         }
-        if ("wifi" in on) wifiHome(c)?.let { out.put("wifi_home", it) }
         if ("calendar" in on && has(c, Manifest.permission.READ_CALENDAR)) {
             val (end, early) = calendar(c, now)
             out.put("evening_event_end", end ?: 0.0)
@@ -312,7 +318,7 @@ object PhoneSources {
             if (n != null) out.put("watch_connected", n.any { it.isNearby })
         }
         val screenOff = c.getSystemService(android.os.PowerManager::class.java)?.isInteractive == false
-        if ("dial" in on && (charging || bedtime || screenOff) && (nightWindow() || fakeDials(c) != null)) {
+        if ("dial" in on && knownHome != false && (charging || bedtime || screenOff) && (nightWindow() || fakeDials(c) != null)) {
             out.put("dials", validDials(scanDials(c)))
         }
         if ("steps" in on && (Build.VERSION.SDK_INT < 29 || has(c, Manifest.permission.ACTIVITY_RECOGNITION))) {

@@ -51,9 +51,19 @@ public class EmberWidget extends AppWidgetProvider {
     }
 
     static void refreshAll(Context c) {
+        refreshAll(c, false);
+    }
+
+    /** Also runs load(c) when there are no widgets, for callers that rely on it to show or restore FlashNotifier. */
+    static void refreshFlash(Context c) {
+        refreshAll(c, true);
+    }
+
+    private static void refreshAll(Context c, boolean forFlash) {
         AppWidgetManager m = AppWidgetManager.getInstance(c);
         int[] ids = m.getAppWidgetIds(new ComponentName(c, EmberWidget.class));
-        Shown data = load(c);      // also re-shows or clears the flash notification, so it runs with no widget too
+        if (ids.length == 0 && !forFlash) return;
+        Shown data = load(c);      // also re-shows or clears the flash notification
         if (ids.length == 0) return;
         if (Build.VERSION.SDK_INT >= 31) {
             Map<SizeF, RemoteViews> sizes = new HashMap<>();

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import GuestPage, { GuestBanner } from "./Guest";
 import { Navigate, NavLink, Route, Routes, useLocation } from "react-router-dom";
-import { api } from "../api";
+import { api, useVisibleInterval } from "../api";
 import ErrorBoundary from "../components/ErrorBoundary";
 import LeakBanner from "../components/LeakBanner";
 import ShowMore from "../components/ShowMore";
@@ -118,7 +118,9 @@ function Overview() {
   const auth = useAuth();
   const [events, setEvents] = useState<EventRow[]>([]);
   const [update, setUpdate] = useState<UpdateInfo | null>(null);
-  useEffect(() => { const f = () => api.get<EventRow[]>("/api/events?limit=30").then(setEvents).catch(() => {}); f(); const t = setInterval(f, 5000); return () => clearInterval(t); }, []);
+  const loadEvents = () => api.get<EventRow[]>("/api/events?limit=30").then(setEvents).catch(() => {});
+  useEffect(() => { void loadEvents(); }, []);
+  useVisibleInterval(loadEvents, 5000, []);
   useEffect(() => {
     if (!auth.isOwner || auth.state.demo) return;
     api.get<UpdateInfo>("/api/update").then(setUpdate).catch(() => {});
@@ -238,7 +240,8 @@ function Simulator() {
   const [sim, setSim] = useState<{ speed: number; now: string; scripted: boolean; echo: boolean; blips: boolean; room_c: number; presence: Record<string, boolean> } | null>(null);
   const [jump, setJump] = useState("");
   const load = () => api.get<typeof sim>("/api/sim").then(setSim).catch(() => setSim(null));
-  useEffect(() => { load(); const t = setInterval(load, 3000); return () => clearInterval(t); }, []);
+  useEffect(() => { void load(); }, []);
+  useVisibleInterval(load, 3000, []);
   if (!snap) return null;
   if (!sim) return <div className="box">The simulator isn't running. Start the core with <code>ET_BED=sim</code> to use this page.</div>;
   const post = (b: object) => api.post<typeof sim>("/api/sim", b).then(setSim);
@@ -308,7 +311,9 @@ function LiveSignals() {
   const { snap, me } = useApp();
   const [src, setSrc] = useState<{ id: string; name: string; role: string; role_label: string; zone: string | null; unit: string; value: number | null; age_s: number | null; error: string | null; online: boolean; device: string | null; driver: string }[]>([]);
   const [ins, setIns] = useState<{ title: string; detail: string; severity: string; person: string }[]>([]);
-  useEffect(() => { const f = () => api.get<{ sources: typeof src }>("/api/sources").then(d => setSrc(d.sources)).catch(() => {}); f(); const t = setInterval(f, 4000); return () => clearInterval(t); }, []);
+  const loadSources = () => api.get<{ sources: typeof src }>("/api/sources").then(d => setSrc(d.sources)).catch(() => {});
+  useEffect(() => { void loadSources(); }, []);
+  useVisibleInterval(loadSources, 4000, []);
   useEffect(() => { snap?.people.forEach(p => api.get<{ title: string; detail: string; severity: string }[]>(`/api/people/${p.id}/insights`).then(r => setIns(x => [...x.filter(i => i.person !== p.name), ...r.filter(i => i.severity === "suggest").slice(0, 2).map(i => ({ ...i, person: p.name }))])).catch(() => {})); }, [snap?.people.length]);
   if (!snap) return null;
   const u = me?.settings.units ?? snap.people[0]?.settings.units ?? "F";

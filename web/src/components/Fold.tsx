@@ -10,6 +10,8 @@ const write = (id: string, open: boolean) => {
 
 /** Inside this, every Fold still opens and closes but the controls in its body are disabled (a view-only account). */
 export const FoldLock = createContext(false);
+/** Whether the enclosing Fold is currently open (true outside any Fold). */
+export const FoldOpen = createContext(true);
 
 /**
  * A collapsible settings section: a big tappable header (name, a one-line summary of where it stands, chevron) and its
@@ -42,6 +44,6 @@ export default function Fold({ id, anchor, title, summary, defaultOpen = false, 
       {summary && (!open || keepSummary) && <span className={`fold-sum${attention ? " warn" : ""}`}>{summary}</span>}
       <span className="fold-chev" aria-hidden="true">›</span>
     </button>
-    <div id={body} className="fold-body" hidden={!open}>{locked ? <fieldset disabled className="fold-lock">{children}</fieldset> : children}</div>
+    <div id={body} className="fold-body" hidden={!open}><FoldOpen.Provider value={open}>{locked ? <fieldset disabled className="fold-lock">{children}</fieldset> : children}</FoldOpen.Provider></div>
   </section>;
 }

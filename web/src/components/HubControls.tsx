@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { useContext, useEffect, useRef, useState } from "react";
+import { api, useVisibleInterval } from "../api";
 import { useApp } from "../ctx";
 import type { Snapshot, HubDetail } from "../types";
 import { LightGuide, useCare } from "./Care";
+import { FoldOpen } from "./Fold";
 
 /**
  * The bed hub's light and quiet fan, shared by Studio → Bed hub and the phone's Settings card, so both use the
@@ -29,14 +30,16 @@ export function useHubDetail(every = 5000, enabled = true): HubDetail | null {
 export function useHubState(every = 5000, enabled = true): { d: HubDetail | null; failed: boolean } {
   const [d, setD] = useState<HubDetail | null>(null);
   const [failed, setFailed] = useState(false);
+  const loadRef = useRef<() => void>(() => {});
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled) { loadRef.current = () => {}; return; }
     let live = true;
     const load = () => api.get<HubDetail>("/api/hub").then(r => { if (live) { setD(r); setFailed(false); } }).catch(() => { if (live) setFailed(true); });
+    loadRef.current = load;
     load();
-    const t = window.setInterval(load, every);
-    return () => { live = false; window.clearInterval(t); };
-  }, [every, enabled]);
+    return () => { live = false; };
+  }, [enabled]);
+  useVisibleInterval(() => loadRef.current(), enabled ? every : null, [enabled]);
   return { d, failed };
 }
 
@@ -96,8 +99,9 @@ export function LightControl({ snap }: { snap: Snapshot }) {
 export function HubCard({ snap, owner }: { snap: Snapshot; owner: boolean }) {
   const t = snap.system.hub;
   const { care } = useCare();
+  const foldOpen = useContext(FoldOpen);
   const controls = owner && (has(snap, "led_dim") || has(snap, "fan_quiet"));
-  const detail = useHubDetail(5000, owner);      // the faults and their advice are the owner's to see
+  const detail = useHubDetail(15_000, owner && foldOpen);      // the faults and their advice are the owner's to see
   if (!t && !controls) return null;
   const faults = owner && !t?.ok ? detail?.faults ?? [] : [];
   return (

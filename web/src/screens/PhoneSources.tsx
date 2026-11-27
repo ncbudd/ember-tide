@@ -76,11 +76,19 @@ export default function PhoneSources({ compact = false, inline = false }: { comp
 
   const load = () => phoneStatus().then(s => { setSt(s); setFailed(false); }).catch(() => { setSt(null); setFailed(true); });
   useEffect(() => {
-    load(); const t = setInterval(load, 30_000);
-    // back from the system permission pages: show what was allowed
-    const vis = () => { if (document.visibilityState === "visible") load(); };
+    load();
+    let t: number | undefined;
+    const start = () => { if (t === undefined && document.visibilityState !== "hidden") t = window.setInterval(load, 30_000); };
+    const stop = () => { if (t !== undefined) { window.clearInterval(t); t = undefined; } };
+    // back from the system permission pages: show what was allowed, and pause the poll while hidden
+    const vis = () => {
+      if (document.visibilityState === "hidden") { stop(); return; }
+      load();
+      start();
+    };
+    start();
     document.addEventListener("visibilitychange", vis);
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
+    return () => { stop(); document.removeEventListener("visibilitychange", vis); };
   }, []);
   if (!st) return inline
     ? <p className="mute ps-inline-note" role="status">{failed ? "This phone can't share hints right now. You can turn them on later in Settings → From this phone." : "Checking this phone…"}</p>
