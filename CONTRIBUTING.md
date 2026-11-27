@@ -40,7 +40,7 @@ cd ../web/android && ./gradlew :app:testMinimalDebugUnitTest :app:assembleMinima
 ```
 
 Every pull request also runs the security checks (Semgrep, Trivy, gitleaks, CodeQL and dependency review). Fill in
-the pull request template: root cause, fix, how you verified it, and a release note.
+the pull request template: root cause, fix, how you verified it, a release note, and any AI use.
 
 Made-up keys and tokens in tests should contain the word `synthetic` (for example `k-synthetic-0123456789`), so the
 secret scan knows they are fake (`.gitleaks.toml`).
@@ -49,6 +49,21 @@ secret scan knows they are fake (`.gitleaks.toml`).
   themselves when it is absent. Run only the files you touched while iterating, then the whole suite once.
 - Keep pull requests small and about one thing. Say what changed and why, and how you checked it.
 - Screenshots help for any visible change; use the simulator, never a real household.
+
+## Using AI tools
+
+AI coding and writing tools are welcome here; the project itself is built with their help (disclosed once at the top of the [README](README.md), which covers the maintainer's own commits and pull requests). Just be open about it:
+
+- **Say if you used AI, and which tool and model** (for example "Claude Code with Claude Opus 5.5", "GitHub Copilot with
+  GPT-5", "ChatGPT (GPT-5) to tidy the wording"). The pull request template and the issue forms ask for it. "None" is a fine answer.
+- **Say what it did**: wrote most of the code, wrote the tests, reviewed it, translated or tidied your text.
+- **You stay responsible for what you send.** Read every line, understand it well enough to answer questions about it,
+  and run the tests yourself. Don't paste AI output you haven't checked, and don't let a tool open pull requests or
+  post comments on its own.
+- Issues and comments: describe what *you* saw. If a tool summarised logs or wrote the text, say so, and keep the real
+  log lines and steps in.
+
+This isn't about turning AI-assisted work away; it helps reviewers know where to look harder.
 
 ## Supporting another bed
 

@@ -39,3 +39,16 @@ body:
       options:
         - label: I can test changes on this hardware
         - label: I can capture traffic or logs
+  - type: dropdown
+    id: ai
+    attributes:
+      label: Did you use an AI tool to write this?
+      description: Fine either way; it helps us read it right. See CONTRIBUTING.md, "Using AI tools".
+      options: ["No", "Yes (tool and model below)"]
+    validations:
+      required: true
+  - type: input
+    id: ai_model
+    attributes:
+      label: AI tool and model, and what it did
+      description: "For example: ChatGPT (GPT-5) summarised my logs; Claude (Opus 5.5) tidied the wording. Leave blank if you answered No."

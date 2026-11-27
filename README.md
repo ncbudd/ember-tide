@@ -7,6 +7,8 @@ app, Home Assistant, a bedside dial, a watch and whatever sensors you already ha
 
 **Unofficial:** an independent community project, not affiliated with or endorsed by Orion Sleep or its maker. "Orion" only names the hardware it works with.
 
+**Built with AI help:** most of the code is written with Claude Code (Anthropic's Claude models, currently Claude Opus 5.5), and Google's Gemini models do second-opinion reviews and some of the code. The maintainer designs it, reviews what goes in, and tests every change on a real bed, phone and watch. This covers every commit and pull request from the maintainer, so they don't repeat it. Contributors: see [Using AI tools](CONTRIBUTING.md#using-ai-tools).
+
 **Found a bug, have an idea, or changed something in a fork? Please tell us.** [Open an issue](https://github.com/Ncbudd/ember-tide/issues/new/choose)
 or send a pull request, so everyone gets the fix. Questions go to [Discussions](https://github.com/Ncbudd/ember-tide/discussions). More in [Contributing](#contributing).
 

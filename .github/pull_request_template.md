@@ -19,6 +19,15 @@
 
 <!-- One plain-language line for the changelog, or "none" if users will not notice. -->
 
+## AI use
+
+<!-- Did an AI tool help with this pull request? Name the tool and model, and say what it did. See CONTRIBUTING.md. -->
+
+- [ ] No AI tools used
+- [ ] AI helped. Tool and model: <!-- e.g. Claude Code (Claude Opus 5.5), GitHub Copilot (GPT-5), Cursor (Gemini 4) -->
+      What it did: <!-- wrote the code / wrote the tests / reviewed / wording -->
+- [ ] I have read and understand every line, and ran the checks above myself
+
 ## Checklist
 
 - [ ] Behaviour changes have tests
