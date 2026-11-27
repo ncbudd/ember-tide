@@ -281,7 +281,7 @@ export default function Settings() {
       {isApp() && <AppVersion />}
       </div>
       </FoldSearch.Provider>
-      <p className="mute" style={{ fontSize: 12, textAlign: "center" }}>Devices, exporting your data and more are in <Link to="/studio">Studio</Link>.</p>
+      {found !== 0 && <p className="mute" style={{ fontSize: 12, textAlign: "center" }}>Devices, exporting your data and more are in <Link to="/studio">Studio</Link>.</p>}
       {checking && <Sheet onClose={() => setChecking(false)} aria-label="Check sides with the bed">
           <h2 style={{ fontSize: 20 }}>Check sides with the bed</h2>
           <SideCheck personId={me.id} onDone={() => setChecking(false)} />
