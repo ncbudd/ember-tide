@@ -30,8 +30,11 @@ class PhoneLinkService : WearableListenerService() {
                     val m = if (e.type == DataEvent.TYPE_DELETED) null else DataMapItem.fromDataItem(e.dataItem).dataMap
                     val on = m?.getBoolean("on", false) ?: false
                     val wanted = m?.getBoolean("wanted", false) ?: false
+                    val wasOn = WatchHr.switchOn(this@PhoneLinkService)
                     runBlocking { withTimeoutOrNull(15_000) { WatchHr.control(this@PhoneLinkService, on, wanted) } }
-                    if (on) Thread { runCatching { WatchHr.reportPermission(applicationContext) } }.start()
+                    if (on && (!wasOn || WatchHr.permState(this@PhoneLinkService) != WatchHr.reportedPerm(this@PhoneLinkService))) {
+                        Thread { runCatching { WatchHr.reportPermission(applicationContext) } }.start()
+                    }
                 }
             }
         }
@@ -44,7 +47,10 @@ class WatchBootReceiver : BroadcastReceiver() {
         if (i.action != Intent.ACTION_BOOT_COMPLETED) return
         val pending = goAsync()
         Thread {
-            try { runBlocking { withTimeoutOrNull(8_000) { WatchHr.apply(c.applicationContext) } } } finally { pending.finish() }
+            try {
+                WatchHr.resetOnBoot(c.applicationContext)
+                runBlocking { withTimeoutOrNull(8_000) { WatchHr.apply(c.applicationContext) } }
+            } finally { pending.finish() }
         }.start()
     }
 }

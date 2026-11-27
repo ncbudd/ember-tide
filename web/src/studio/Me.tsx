@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, useVisibleInterval } from "../api";
 import { useAuth } from "../auth";
 import BedSidePicker, { peopleHalves, type Side, SideCheck, sideTitle, useBedFromFoot } from "../components/BedSidePicker";
 import Fold, { FoldLock } from "../components/Fold";
@@ -259,6 +259,7 @@ function PhoneBox({ p, s }: { p: PersonView; s: PersonSettings }) {
   const [phone, setPhone] = useState<{ device?: string | null; sharing?: string[]; seen?: number | null } | null>(null);
   const [watch, setWatch] = useState<{ seen: number | null; wanted: boolean } | null>(null);
   const [wearables, setWearables] = useState<WearableStatus[] | null>(null);
+  const loadRef = useRef<() => void>(() => {});
   useEffect(() => {
     let live = true;
     const f = () => {
@@ -266,9 +267,11 @@ function PhoneBox({ p, s }: { p: PersonView; s: PersonSettings }) {
       api.get<{ seen: number | null; wanted: boolean }>(`/api/people/${p.id}/watch-hr`).then(r => live && setWatch(r)).catch(() => live && setWatch(null));
       api.get<WearableStatus[]>(`/api/people/${p.id}/wearables`).then(r => live && setWearables(r ?? [])).catch(() => live && setWearables([]));
     };
-    f(); const t = window.setInterval(f, 30000);
-    return () => { live = false; window.clearInterval(t); };
+    loadRef.current = f;
+    f();
+    return () => { live = false; };
   }, [p.id]);
+  useVisibleInterval(() => loadRef.current(), 30_000, [p.id]);
   const now = Date.now() / 1000;
   const sharing = (phone?.sharing ?? []).filter(x => x !== "watch_hr");
   const hrOn = (phone?.sharing ?? []).includes("watch_hr");

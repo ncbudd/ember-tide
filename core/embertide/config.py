@@ -74,6 +74,9 @@ class Config:
     bed_entities: str | None = field(default_factory=lambda: _env("ET_BED_ENTITIES"))
     bed_kind: str = field(default_factory=lambda: (_env("ET_BED_KIND", "auto") or "auto").lower())
     ha_neutral_c: float = field(default_factory=lambda: float(_env("ET_HA_NEUTRAL_C", "26.0")))
+    sleepme_token: str | None = field(default_factory=lambda: _env("ET_SLEEPME_TOKEN"))          # Sleepme developer API token
+    sleepme_devices: str | None = field(default_factory=lambda: _env("ET_SLEEPME_DEVICES"))      # left=<id>,right=<id> (optional)
+    free_sleep_url: str | None = field(default_factory=lambda: _env("ET_FREE_SLEEP_URL"))        # http://<pod address>:3000
     sim_speed: float = field(default_factory=lambda: float(_env("ET_SIM_SPEED", "1")))
     host: str = field(default_factory=lambda: _env("ET_HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(_env("ET_PORT", "8790")))

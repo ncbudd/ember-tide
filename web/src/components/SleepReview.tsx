@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
+import { api, useVisibleInterval } from "../api";
 import { hm12, temp } from "../format";
 
 interface Proposal { rhythm_id: string; phase_id?: string; field?: string; schedule?: string; from?: number | string; to: number | string }
@@ -35,11 +35,7 @@ export default function SleepReview({ pid, date, label, older, newer, onDate, un
   const [done, setDone] = useState<Record<string, string>>({});
   const load = () => api.get<Page>(`/api/people/${pid}/review${date ? `?date=${date}` : ""}`).then(setPage).catch(() => { /* offline: keep what's shown */ });
   useEffect(() => { setDone({}); void load(); }, [pid, date]);
-  useEffect(() => {
-    if (!page?.reviewing) return;
-    const t = window.setInterval(load, 30_000);
-    return () => window.clearInterval(t);
-  }, [page?.reviewing, pid, date]);
+  useVisibleInterval(load, page?.reviewing ? 30_000 : null, [pid, date]);
   if (!page) return <p className="mute">Loading…</p>;
   const feel = async (f: string) => {
     setPage({ ...page, feel: f });

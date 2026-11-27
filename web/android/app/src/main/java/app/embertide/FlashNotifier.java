@@ -100,10 +100,11 @@ public final class FlashNotifier {
                             return;
                         default: break;
                     }
-                    EmberWidget.refreshAll(app);
+                    if ("app.embertide.FLASH_STOP".equals(act)) EmberWidget.refreshAll(app);
+                    else EmberWidget.refreshFlash(app);
                 } catch (Exception e) {
                     android.util.Log.w("EmberTide", "action " + act + " failed: " + e.getMessage());
-                    try { EmberWidget.refreshAll(app); } catch (Exception ignored) {}   // puts the real notification back after "Working…"
+                    try { EmberWidget.refreshFlash(app); } catch (Exception ignored) {}   // puts the real notification back after "Working…"
                 } finally {
                     pending.finish();
                 }

@@ -73,15 +73,19 @@ class EmberTileService : TileService() {
             if (did != null) {
                 note = did.getOrElse { "Couldn't reach it" }
                 buzz(did.isSuccess)
-                updateComplications()
             }
         }
         renderId = c.getSharedPreferences("embertide_tile", MODE_PRIVATE).let { pr ->
             (pr.getLong("render", 0L) + 1).also { pr.edit().putLong("render", it).apply() }
         }
         val v = WearApi.view(c)
-        // during a flash, come back just after it ends; otherwise every 10 minutes
-        val fresh = if (v.flashLeftMs > 0) (v.flashLeftMs + 5_000L).coerceIn(30_000L, 10 * 60_000L) else 10 * 60_000L
+        if (note != null) updateComplications()             // after WearApi.view(c) so the complication reuses its snapshot
+        // during a flash, come back just after it ends; 10 min while a night is running, 30 min when idle
+        val fresh = when {
+            v.flashLeftMs > 0 -> (v.flashLeftMs + 5_000L).coerceIn(30_000L, 10 * 60_000L)
+            v.on -> 10 * 60_000L
+            else -> 30 * 60_000L
+        }
         TileBuilders.Tile.Builder()
             .setResourcesVersion(RES)
             .setFreshnessIntervalMillis(fresh)
@@ -119,7 +123,7 @@ class EmberTileService : TileService() {
     private fun togglePower(): String {
         val c = applicationContext
         val pid = WearApi.person(c)
-        fun me() = WearApi.me(c, JSONObject(WearApi.call(c, "GET", "/api/snapshot")))!!
+        fun me() = WearApi.me(c, WearApi.snapshot(c))!!
         var p = me()
         var n = p.getJSONObject("night")
         val st = n.optString("state")

@@ -17,7 +17,7 @@ def cfg(tmp_path, bed):
 
 
 def test_registry_has_the_builtins():
-    assert set(DRIVERS) == {"sim", "orion-mqtt", "orion-cloud", "ha-climate"}
+    assert set(DRIVERS) == {"sim", "orion-mqtt", "orion-cloud", "ha-climate", "sleepme", "free-sleep"}
     c = Config()
     c.bed = "sim"
     assert make_driver(c, Clock("UTC")).id == "sim"
@@ -45,6 +45,20 @@ def test_registry_has_the_builtins():
     c.bed_entities = "climate.bed"
     d = make_driver(c, Clock("UTC"))
     assert d.id == "ha-climate" and d.zones == ["left"]
+    c.bed = "sleepme"
+    c.sleepme_token = None
+    with pytest.raises(SystemExit, match="ET_SLEEPME_TOKEN"):
+        make_driver(c, Clock("UTC"))
+    c.sleepme_token, c.sleepme_devices = "synthetic-sleepme-token", "left=dev-a,right=dev-b"
+    d = make_driver(c, Clock("UTC"))
+    assert d.id == "sleepme" and d.zones == ["left", "right"]
+    c.bed = "free-sleep"
+    c.free_sleep_url = None
+    with pytest.raises(SystemExit, match="ET_FREE_SLEEP_URL"):
+        make_driver(c, Clock("UTC"))
+    c.free_sleep_url = "http://192.168.1.60:3000"
+    d = make_driver(c, Clock("UTC"))
+    assert d.id == "free-sleep" and d.zones == ["left", "right"]
 
 
 def test_unknown_driver_names_the_choices():

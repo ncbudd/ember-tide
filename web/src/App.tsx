@@ -48,9 +48,14 @@ function useTheme(s: PersonSettings | undefined): "light" | "dark" {
     const m = window.matchMedia?.("(prefers-color-scheme: light)");
     const on = () => setSysLight(!!m?.matches);
     m?.addEventListener?.("change", on);
-    const t = window.setInterval(() => tick(x => x + 1), 60000);
-    return () => { m?.removeEventListener?.("change", on); clearInterval(t); };
+    return () => m?.removeEventListener?.("change", on);
   }, []);
+  const scheduled = s?.appearance === "schedule";
+  useEffect(() => {
+    if (!scheduled) return;
+    const t = window.setInterval(() => tick(x => x + 1), 60000);
+    return () => clearInterval(t);
+  }, [scheduled]);
   if (!s || s.appearance === "system") return sysLight ? "light" : "dark";
   if (s.appearance !== "schedule") return s.appearance;
   const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();

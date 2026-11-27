@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, useVisibleInterval } from "../api";
 import { useApp } from "../ctx";
 import { hm12, temp } from "../format";
 import { useSwipeAway } from "./useSwipeAway";
@@ -41,16 +41,18 @@ export default function MorningCards({ person, name, state, units, phases }: {
 }) {
   const [feed, setFeed] = useState<Feed | null>(null);
   const working = !!feed?.cards.some(c => c.kind === "review" && c.state === "working");
+  const visible = morningVisible(state);
+  const loadRef = useRef<() => void>(() => {});
   useEffect(() => {
+    if (!visible) { loadRef.current = () => {}; return; }
     let live = true;
     const load = () => api.get<Feed>(`/api/people/${person}/morning`).then(f => { if (live) setFeed(f); }).catch(() => { /* offline: try later */ });
+    loadRef.current = load;
     void load();
-    const t = window.setInterval(load, working ? 30_000 : 120_000);
-    const vis = () => { if (document.visibilityState === "visible") void load(); };
-    document.addEventListener("visibilitychange", vis);
-    return () => { live = false; window.clearInterval(t); document.removeEventListener("visibilitychange", vis); };
-  }, [person, working]);
-  if (!feed || !morningVisible(state) || feed.cards.length === 0) return null;
+    return () => { live = false; };
+  }, [person, visible]);
+  useVisibleInterval(() => loadRef.current(), visible ? (working ? 30_000 : 120_000) : null, [person, visible, working]);
+  if (!feed || !visible || feed.cards.length === 0) return null;
   const away = (id: string) => {
     setFeed(f => (f ? { ...f, cards: f.cards.filter(c => c.id !== id) } : f));
     api.post(`/api/people/${person}/morning/dismiss`, { id }).catch(() => { /* hidden here anyway */ });

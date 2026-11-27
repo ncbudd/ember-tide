@@ -194,13 +194,21 @@ export default function SleepScreen() {
   const [stageSrc, setStageSrc] = useState<string | null>(null);
   const [allStages, setAllStages] = useState<StageSrc[]>([]);
   const minute = snap ? Math.floor(snap.now / 120) : 0;
+  const inProgress = !!(date && (night?.date === date ? night.in_progress : nights?.find(x => x.date === date)?.in_progress));
+  const prevMin = useRef(minute);
+  const [liveTick, setLiveTick] = useState(0);
+  useEffect(() => {
+    if (prevMin.current === minute) return;
+    prevMin.current = minute;
+    if (inProgress) setLiveTick(t => t + 1);
+  }, [minute, inProgress]);
   const [pets, setPets] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => { api.get<{ pets: { id: string; name: string }[] }>("/api/pets").then(r => setPets(r.pets)).catch(() => setPets([])); }, []);
   // before tonight has anything, open on last night
-  useEffect(() => { if (me) api.get<Night[]>(`/api/people/${me.id}/nights?count=7`).then(n => { setNights(n); setDate(d => d ?? (n[0]?.has_data || !n[1]?.has_data ? n[0]?.date : n[1].date) ?? null); }).catch(() => {}); }, [me?.id, minute]);
+  useEffect(() => { if (me) api.get<Night[]>(`/api/people/${me.id}/nights?count=7`).then(n => { setNights(n); setDate(d => d ?? (n[0]?.has_data || !n[1]?.has_data ? n[0]?.date : n[1].date) ?? null); }).catch(() => {}); }, [me?.id, liveTick]);
   const [nightErr, setNightErr] = useState(false);
-  useEffect(() => { if (me && date) api.get<Night>(`/api/people/${me.id}/night?date=${date}`).then(x => { setNight(x); setNightErr(false); }).catch(() => { setNight(x => (x && x.date === date ? x : null)); setNightErr(true); }); }, [me?.id, date, minute]);
-  useEffect(() => { if (me && date) api.get<StageSrc[]>(`/api/people/${me.id}/stages?date=${date}`).then(setAllStages).catch(() => setAllStages([])); }, [me?.id, date, minute]);
+  useEffect(() => { if (me && date) api.get<Night>(`/api/people/${me.id}/night?date=${date}`).then(x => { setNight(x); setNightErr(false); }).catch(() => { setNight(x => (x && x.date === date ? x : null)); setNightErr(true); }); }, [me?.id, date, liveTick]);
+  useEffect(() => { if (me && date) api.get<StageSrc[]>(`/api/people/${me.id}/stages?date=${date}`).then(setAllStages).catch(() => setAllStages([])); }, [me?.id, date, liveTick]);
   if (!me || !snap) return null;
   const u = me.settings.units;
   const n = night;

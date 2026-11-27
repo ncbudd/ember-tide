@@ -3,7 +3,7 @@ import NightFix from "../components/NightFix";
 import RingCard, { type Ring } from "../components/RingCard";
 import NapsCard, { type Nap, Sleep14 } from "../components/NapsCard";
 import PetQuestions from "./PetQuestions";
-import { api } from "../api";
+import { api, useVisibleInterval } from "../api";
 import ShowMore from "../components/ShowMore";
 import { useApp } from "../ctx";
 import { useOwnPerson } from "../auth";
@@ -27,7 +27,8 @@ const DEFAULT_OFF = new Set(["setpoint", "status", "br"]);
 /** Where a series comes from, in plain words ("sim" and "ha-entity" mean nothing to most people). */
 function driverName(d: string): string {
   return ({ sim: "simulated", "ha-entity": "Home Assistant", "mqtt-topic": "MQTT", engine: "Ember & Tide", ics: "calendar feed",
-    "orion-mqtt": "bed (local)", "orion-cloud": "bed (cloud)" } as Record<string, string>)[d] ?? d;
+    "orion-mqtt": "bed (local)", "orion-cloud": "bed (cloud)", "ha-climate": "bed (Home Assistant)",
+    sleepme: "bed (Sleepme)", "free-sleep": "bed (local)" } as Record<string, string>)[d] ?? d;
 }
 function deviceLine(device: string, driver: string): string {
   const dn = driverName(driver);
@@ -96,13 +97,14 @@ export default function Explorer() {
   const [bump, setBump] = useState(0);
   const [pets, setPets] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => { api.get<{ pets: { id: string; name: string }[] }>("/api/pets").then(r => setPets(r.pets)).catch(() => setPets([])); }, []);
-  const tick = (snap ? Math.floor(Date.now() / 30000) : 0) + bump * 1e9;
+  const inProgress = !!nights.find(n => n.date === date)?.in_progress;
+  useVisibleInterval(() => setBump(b => b + 1), inProgress ? 30_000 : null, [person?.id, date, inProgress]);
 
   useEffect(() => { if (!wrap.current) return; const ro = new ResizeObserver(() => setW(Math.max(600, wrap.current!.clientWidth))); ro.observe(wrap.current); return () => ro.disconnect(); }, []);
   useEffect(() => { if (person) api.get<(typeof nights[number] & { in_bed_min?: number })[]>(`/api/people/${person.id}/nights?count=14`).then(n => { setNights(n);
         const pick = n[0] && (!n[0].in_progress || (n[0].in_bed_min ?? 0) >= 60) ? n[0] : n.find(x => x.has_data && !x.in_progress) ?? n[0];
         setDate(d => d ?? pick?.date ?? null); }).catch(() => {}); }, [person?.id]);
-  useEffect(() => { if (person && date) api.get<Explore>(`/api/explore?person_id=${person.id}&date=${date}`).then(d => { setDenied(null); setData(d); }).catch(e => { setData(null); setDenied(e instanceof Error ? e.message : "Couldn't load this night."); }); }, [person?.id, date, tick]);
+  useEffect(() => { if (person && date) api.get<Explore>(`/api/explore?person_id=${person.id}&date=${date}`).then(d => { setDenied(null); setData(d); }).catch(e => { setData(null); setDenied(e instanceof Error ? e.message : "Couldn't load this night."); }); }, [person?.id, date, bump]);
   const [ring, setRing] = useState<Ring | null>(null);         // the ring's own numbers for the night (engine/ring.py)
   const [naps, setNaps] = useState<{ list: Nap[]; night: number | null }>({ list: [], night: null });   // naps that day (engine/sleeps.py)
   useEffect(() => { setRing(null); setNaps({ list: [], night: null }); if (person && date) api.get<{ ring?: Ring | null; naps?: Nap[]; night_asleep_min?: number | null }>(`/api/people/${person.id}/night?date=${date}`)

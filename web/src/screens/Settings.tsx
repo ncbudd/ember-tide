@@ -101,6 +101,7 @@ export default function Settings() {
         <span className="mute" role="status" aria-live="polite" style={{ fontSize: 12.5, paddingBottom: 6 }}>{saved}</span></div>
       <div className="settings-flow">
 
+      <h3 className="settings-group">You</h3>
       <div className="card list">
         <div className="row"><span>Name</span><input type="text" value={profile.name} style={{ width: 150 }} onChange={e => updProfile({ ...profile, name: e.target.value }, 900)} onBlur={() => void flush()} /></div>
         <div style={{ display: "grid", gap: 8, padding: "11px 0", borderBottom: "1px solid var(--line)" }}><span>How I sleep<Tip label="Ember and Tide" text={PERSONA_TIP} /></span>
@@ -109,18 +110,28 @@ export default function Settings() {
           <select value={me.id} onChange={e => setMe(e.target.value)}>{snap.people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></div>}
       </div>
 
+      <Fold id="settings.side" title="My side of the bed" summary={sideTitle(me.zone as Side)}>
+      <div className="card list">
+        <div className="settings-side">
+          <BedSidePicker value={me.zone as Side} halves={peopleHalves(snap.people)} caption={<span className="mute" style={{ fontSize: 13 }}>As you lie in bed. Tap the other half to change it.</span>}
+            onChange={async z => {
+              if (z === "both" || z === me.zone) return;
+              if (partner) { setConfirmSwap(true); return; }
+              try { await api.put(`/api/people/${me.id}/profile`, { zone: z }); setSaved(`Now on the ${sideLower(z)}`); window.setTimeout(() => setSaved(null), 2500); }
+              catch (e) { setSaved(`Couldn't change it: ${(e as Error).message}`); }
+            }} />
+          <div className="pills"><button className="pill" onClick={() => setChecking(true)}>Check sides with the bed</button>
+            {partner && <button className="pill" onClick={() => setConfirmSwap(true)}>Swap sides</button>}</div>
+          {auth.isOwner && <BedOrientation onSaid={m => { setSaved(m); window.setTimeout(() => setSaved(null), 2500); }} />}</div>
+      </div>
+      </Fold>
+
+      <SettingsWorkDays value={s.work_days ?? [0, 1, 2, 3, 4]} onChange={v => upd({ work_days: v })} />
+
+      <h3 className="settings-group">Your nights</h3>
       <Fold id="settings.flash" title="Flash relief" summary={sumFlash}>
       <FlashBlock hot label="❄ Hot flash" color="var(--cool)" f={s.hot_flash} units={u} set={f => upd({ hot_flash: f })} />
       <FlashBlock hot={false} label="☼ Cold flash" color="var(--warm)" f={s.cold_flash} units={u} set={f => upd({ cold_flash: f })} />
-      </Fold>
-
-      {isApp() ? <PhoneNotifications /> : <SettingsWebPush person={me.id} />}
-      <Fold id="settings.notify" title="Notifications" summary={`${notifyOn === NOTIFY_TYPES.length ? "All on" : notifyOn === 0 ? "All off" : `${notifyOn} of ${NOTIFY_TYPES.length} on`} · ${s.tone ?? "calm"} words`}>
-      <div className="card list">
-        <NotifyToggles s={s} upd={upd} />
-        <TonePicker s={s} name={me.name} upd={upd} />
-        <p className="faint" style={{ fontSize: 12, padding: "8px 0 2px" }}>{isApp() ? "They can also go to the ntfy or Home Assistant app, as a backup. Set that up" : "Choose where they're sent"} in <Link to="/studio/notifications">Studio → Notifications</Link>.</p>
-      </div>
       </Fold>
 
       <Fold id="settings.autopilot" title="Autopilot" summary={sumAp}>
@@ -172,6 +183,8 @@ export default function Settings() {
       </div>
       </Fold>
 
+      <SettingsSleep s={s} upd={upd} />
+
       <Fold id="settings.tonight" title="Tonight screen" summary={sumTonight}>
       <div className="card list">
         <div className="row"><span>Open on</span>
@@ -186,58 +199,37 @@ export default function Settings() {
       </div>
       </Fold>
 
-      <Fold id="settings.sharing" title="Sharing" summary={sumShare}>
+      <h3 className="settings-group">Notifications</h3>
+      {isApp() ? <PhoneNotifications /> : <SettingsWebPush person={me.id} />}
+      <Fold id="settings.notify" title="Notifications" summary={`${notifyOn === NOTIFY_TYPES.length ? "All on" : notifyOn === 0 ? "All off" : `${notifyOn} of ${NOTIFY_TYPES.length} on`} · ${s.tone ?? "calm"} words`}>
       <div className="card list">
-        <SharingRows s={s} partnerName={partner?.name} onChange={upd} />
+        <NotifyToggles s={s} upd={upd} />
+        <TonePicker s={s} name={me.name} upd={upd} />
+        <p className="faint" style={{ fontSize: 12, padding: "8px 0 2px" }}>{isApp() ? "They can also go to the ntfy or Home Assistant app, as a backup. Set that up" : "Choose where they're sent"} in <Link to="/studio/notifications">Studio → Notifications</Link>.</p>
       </div>
       </Fold>
 
-      <Fold id="settings.side" title="My side of the bed" summary={sideTitle(me.zone as Side)}>
-      <div className="card list">
-        <div className="settings-side">
-          <BedSidePicker value={me.zone as Side} halves={peopleHalves(snap.people)} caption={<span className="mute" style={{ fontSize: 13 }}>As you lie in bed. Tap the other half to change it.</span>}
-            onChange={async z => {
-              if (z === "both" || z === me.zone) return;
-              if (partner) { setConfirmSwap(true); return; }
-              try { await api.put(`/api/people/${me.id}/profile`, { zone: z }); setSaved(`Now on the ${sideLower(z)}`); window.setTimeout(() => setSaved(null), 2500); }
-              catch (e) { setSaved(`Couldn't change it: ${(e as Error).message}`); }
-            }} />
-          <div className="pills"><button className="pill" onClick={() => setChecking(true)}>Check sides with the bed</button>
-            {partner && <button className="pill" onClick={() => setConfirmSwap(true)}>Swap sides</button>}</div>
-          {auth.isOwner && <BedOrientation onSaid={m => { setSaved(m); window.setTimeout(() => setSaved(null), 2500); }} />}</div>
-      </div>
-      </Fold>
-
-      <SettingsWorkDays value={s.work_days ?? [0, 1, 2, 3, 4]} onChange={v => upd({ work_days: v })} />
-
-      <Fold id="settings.appearance" title="Appearance" summary={sumLook}>
-      <div className="card list">
-        <KeyboardLayout />
-        <div className="item" style={{ display: "grid", gap: 10 }}>
-          <span>Your colour<br /><span className="mute" style={{ fontSize: 12 }}>For your name, chart and side everywhere, including the bedside dials</span></span>
-          <ColorSwatches zone={me.zone} s={s} partner={partner} onPick={c => upd({ color: c })} />
-        </div>
-        <div className="item" style={{ display: "grid", gap: 8 }}><span>Light or dark</span><AppearancePicker s={s} onChange={upd} /></div>
-      </div>
-      </Fold>
-
+      <h3 className="settings-group">Watch, ring and pets</h3>
       {isApp() && <PhoneSources />}
       {isApp() && <HealthConnect />}
       <SettingsWearable person={me.id} value={s.wearable ?? ""} onChange={v => upd({ wearable: v })} />
-      <SettingsSleep s={s} upd={upd} />
-
-      <div className="card list">
-        <div className="row"><span>Simple app<br /><span className="mute" style={{ fontSize: 12 }}>Just temperature, flashes and an easy schedule. Everything else stays in Studio.</span></span>
-          <input type="checkbox" className="toggle" checked={s.app_mode === "simple"} onChange={e => upd({ app_mode: e.target.checked ? "simple" : "full" })} aria-label="Simple app" /></div>
-        {(!auth.state.enabled || auth.isOwner) && <button type="button" className="row rowbtn" onClick={() => setPetsOpen(true)}>
+      {(!auth.state.enabled || auth.isOwner) && <div className="card list">
+        <button type="button" className="row rowbtn" onClick={() => setPetsOpen(true)}>
           <span>Pets on the bed<br /><span className="mute" style={{ fontSize: 12 }}>So a cat or dog isn't mistaken for someone in bed.</span></span>
-          <span className="mute" style={{ whiteSpace: "nowrap" }}>{petCount == null ? "Set up ›" : petCount === 0 ? "None ›" : `${petCount} pet${petCount === 1 ? "" : "s"} ›`}</span></button>}
-      </div>
+          <span className="mute" style={{ whiteSpace: "nowrap" }}>{petCount == null ? "Set up ›" : petCount === 0 ? "None ›" : `${petCount} pet${petCount === 1 ? "" : "s"} ›`}</span></button>
+      </div>}
       {petsOpen && <Sheet onClose={() => setPetsOpen(false)} role="dialog" aria-label="Pets on the bed">
         <div className="k">Pets on the bed</div>
         <p className="mute" style={{ fontSize: 13 }}>Their readings are recognised and set aside, so a pet won't start your night or sway Autopilot.</p>
         <PetsEditor weightUnit={weightUnit(s)} showIgnore compact learned onCount={setPetCount} />
       </Sheet>}
+
+      <h3 className="settings-group">Your home</h3>
+      <Fold id="settings.sharing" title="Sharing" summary={sumShare}>
+      <div className="card list">
+        <SharingRows s={s} partnerName={partner?.name} onChange={upd} />
+      </div>
+      </Fold>
 
       {auth.isOwner && <Fold id="settings.guest" title="Guest mode" summary={guests.length ? `On · ${guests.join(", ")}` : "Off"}>
         <div className="card">
@@ -254,6 +246,22 @@ export default function Settings() {
       </Fold>}
 
       <CareFold owner={auth.isOwner} />
+      <h3 className="settings-group">App</h3>
+      <Fold id="settings.appearance" title="Appearance" summary={sumLook}>
+      <div className="card list">
+        <KeyboardLayout />
+        <div className="item" style={{ display: "grid", gap: 10 }}>
+          <span>Your colour<br /><span className="mute" style={{ fontSize: 12 }}>For your name, chart and side everywhere, including the bedside dials</span></span>
+          <ColorSwatches zone={me.zone} s={s} partner={partner} onPick={c => upd({ color: c })} />
+        </div>
+        <div className="item" style={{ display: "grid", gap: 8 }}><span>Light or dark</span><AppearancePicker s={s} onChange={upd} /></div>
+      </div>
+      </Fold>
+
+      <div className="card list">
+        <div className="row"><span>Simple app<br /><span className="mute" style={{ fontSize: 12 }}>Just temperature, flashes and an easy schedule. Everything else stays in Studio.</span></span>
+          <input type="checkbox" className="toggle" checked={s.app_mode === "simple"} onChange={e => upd({ app_mode: e.target.checked ? "simple" : "full" })} aria-label="Simple app" /></div>
+      </div>
       <Account />
       <SetupAgain person={me.id} />
       {isApp() && <AppVersion />}

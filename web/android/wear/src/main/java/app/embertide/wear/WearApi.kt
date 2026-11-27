@@ -15,12 +15,28 @@ object WearApi {
     fun person(c: Context) = prefs(c).getString("person", "") ?: ""
     fun ready(c: Context) = server(c).isNotEmpty() && token(c).isNotEmpty() && person(c).isNotEmpty()
 
+    private const val SNAP_TTL_MS = 15_000L      // long enough to share one fetch between the app, tile and complication
+    private val snapLock = Any()
+    private var cachedSnap: String? = null
+    private var cachedSnapAt = 0L
+    private var cachedSnapKey = ""
+
     fun save(c: Context, server: String, token: String, person: String) {
+        invalidateSnapshot(c)
         prefs(c).edit().putString("server", server).putString("token", token).putString("person", person).apply()
+    }
+
+    fun invalidateSnapshot(c: Context) {
+        synchronized(snapLock) {
+            cachedSnap = null
+            cachedSnapAt = 0L
+            cachedSnapKey = ""
+        }
     }
 
     /** Blocking; call off the main thread. */
     fun call(c: Context, method: String, path: String, body: String? = null): String {
+        if (method != "GET") invalidateSnapshot(c)    // any change (POST) drops the cached snapshot before the follow-up fetch
         val h = URL(server(c) + path).openConnection() as HttpURLConnection
         h.requestMethod = method
         h.instanceFollowRedirects = false           // never carry the token to wherever a redirect points
@@ -40,6 +56,30 @@ object WearApi {
         return text
     }
 
+    data class SnapshotHit(val json: JSONObject, val ageMs: Long)
+
+    /** GET /api/snapshot, shared for a few seconds in memory (the app, tile and complication run in one process). */
+    fun snapshotWithAge(c: Context): SnapshotHit {
+        val key = "${server(c)}|${person(c)}"
+        val now = System.currentTimeMillis()
+        synchronized(snapLock) {
+            val age = now - cachedSnapAt
+            if (cachedSnap != null && cachedSnapKey == key && age in 0 until SNAP_TTL_MS) {
+                return SnapshotHit(JSONObject(cachedSnap!!), age)
+            }
+        }
+        val raw = call(c, "GET", "/api/snapshot")
+        val json = JSONObject(raw)
+        synchronized(snapLock) {
+            cachedSnap = raw
+            cachedSnapAt = System.currentTimeMillis()
+            cachedSnapKey = key
+        }
+        return SnapshotHit(json, 0L)
+    }
+
+    fun snapshot(c: Context): JSONObject = snapshotWithAge(c).json
+
     fun me(c: Context, snap: JSONObject): JSONObject? {
         val people = snap.getJSONArray("people")
         for (i in 0 until people.length()) if (people.getJSONObject(i).optString("id") == person(c)) return people.getJSONObject(i)
@@ -54,7 +94,8 @@ object WearApi {
     fun view(c: Context): View {
         if (!ready(c)) return View("Ember & Tide", "–", "Open the app on your phone to sign in", "Sign in", false, ok = false)
         return try {
-            val snap = JSONObject(call(c, "GET", "/api/snapshot"))
+            val hit = snapshotWithAge(c)
+            val snap = hit.json
             val me = me(c, snap) ?: return View("Ember & Tide", "–", "This account has no side", "–", false, ok = false)
             val f = me.optJSONObject("settings")?.optString("units", "F") != "C"
             val n = me.getJSONObject("night")
@@ -62,7 +103,8 @@ object WearApi {
             val bed = me.optJSONObject("bed")
             val flash = n.optJSONObject("flash")
             val now = snap.optDouble("now")
-            val left = if (flash != null && now < flash.optDouble("end")) ((flash.optDouble("end") - now) * 1000).toLong() else 0L
+            val rawLeft = if (flash != null && now < flash.optDouble("end")) ((flash.optDouble("end") - now) * 1000).toLong() - hit.ageMs else 0L
+            val left = rawLeft.coerceAtLeast(0L)
             val kind = if (left > 0) flash!!.optString("kind") else null
             val (state, short) = when {
                 left > 0 -> "${if (kind == "hot") "Hot" else "Cold"} flash · ${Math.ceil(left / 60000.0).toInt()} min" to
