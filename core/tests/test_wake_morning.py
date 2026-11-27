@@ -114,3 +114,54 @@ async def test_calendar_setting_off(tmp_path):
     PC.update(n.store, n.p1.id, {"early_start": planned - 2 * 3600}, n.clock.now_ts())
     await n.step(2)
     assert e.s.wake_override is None
+
+
+async def test_next_event_after_the_calendar_wake_came_moves_nothing(tmp_path):
+    """Review: the first event starts, the calendar's 'first event' becomes the second one: no later wake, no reopen."""
+    n, e, planned = await _night(tmp_path)
+    ev1 = planned - 2 * 3600
+    PC.update(n.store, n.p1.id, {"early_start": ev1}, n.clock.now_ts())
+    await n.step(2)
+    w = ev1 - 45 * 60
+    assert e.s.wake_override == w
+    await n.until(_at(n, w + 10 * 60))
+    PC.update(n.store, n.p1.id, {"early_start": ev1 + 3600}, n.clock.now_ts())
+    await n.step(4)
+    assert e.s.wake_override == w
+
+
+async def test_a_deleted_alarm_does_not_come_back_with_the_calendar(tmp_path):
+    n, e, planned = await _night(tmp_path)
+    alarm, event = planned - 3600, planned - 75 * 60                                 # calendar wake 2 h before planned
+    PC.update(n.store, n.p1.id, {"next_alarm": alarm, "early_start": event}, n.clock.now_ts())
+    await n.step(4)
+    assert e.s.wake_override == event - 45 * 60
+    PC.update(n.store, n.p1.id, {"next_alarm": None}, n.clock.now_ts())              # alarm deleted
+    await n.step(2)
+    assert e.s.wake_from_alarm is None and e.s.wake_override == event - 45 * 60
+    PC.update(n.store, n.p1.id, {"early_start": None}, n.clock.now_ts())             # and the event cancelled
+    await n.step(2)
+    assert e.s.wake_override is None and abs(e.night.wake - planned) < 1
+
+
+async def test_backup_alarm_first_seen_after_getting_up_is_not_followed_out_of_bed(tmp_path):
+    n, e, planned = await _night(tmp_path)
+    alarm = planned - 3 * 3600
+    PC.update(n.store, n.p1.id, {"next_alarm": alarm}, n.clock.now_ts())
+    await n.until(_at(n, alarm + 20 * 60))
+    n.present("left", False)
+    await n.step(16)
+    assert e.s.state == "done"
+    PC.update(n.store, n.p1.id, {"next_alarm": alarm + 150 * 60}, n.clock.now_ts())  # appears only now
+    await n.step(4)
+    assert e.s.state == "done" and e.s.wake_override == alarm and not n.side("left").on
+
+
+async def test_calendar_setting_switched_off_gives_the_wake_back(tmp_path):
+    n, e, planned = await _night(tmp_path)
+    PC.update(n.store, n.p1.id, {"early_start": planned - 2 * 3600}, n.clock.now_ts())
+    await n.step(2)
+    assert e.s.wake_source == "calendar"
+    n.p1.settings.wake_with_calendar = False
+    await n.step(2)
+    assert e.s.wake_override is None and abs(e.night.wake - planned) < 1
