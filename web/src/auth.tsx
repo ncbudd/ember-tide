@@ -287,9 +287,10 @@ function ServerPick({ done }: { done: () => void }) {
 export function AuthGate({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState | null>(null);
   const [down, setDown] = useState(false);
-  const refresh = useCallback(async () => {
-    try { setState(await api.get<AuthState>("/api/auth/state")); setDown(false); } catch { setDown(true); }
+  const probe = useCallback(async (): Promise<boolean> => {
+    try { setState(await api.get<AuthState>("/api/auth/state")); setDown(false); return true; } catch { setDown(true); return false; }
   }, []);
+  const refresh = useCallback(async () => { await probe(); }, [probe]);
   const [needServer, setNeedServer] = useState(() => isApp() && !appServer());
   // the server's encrypted address, offered (never taken silently) when the app reached it over plain http at home
   const [offer, setOffer] = useState<string | null>(null);
@@ -306,10 +307,30 @@ export function AuthGate({ children }: { children: ReactNode }) {
   }, [refresh]);
   useEffect(() => {
     if (!down) return;
-    const quick = window.setTimeout(refresh, 1500);              // a phone just woken often fails the first try
-    const t = window.setInterval(() => { if (document.visibilityState !== "hidden") refresh(); }, 4000);   // not in the background
-    return () => { clearTimeout(quick); clearInterval(t); };
-  }, [down, refresh]);
+    let cancelled = false;
+    let timer: number | undefined;
+    let inFlight = false;
+    const delays = [4000, 8000, 15_000, 30_000];
+    let idx = 0;
+    const hidden = () => document.visibilityState === "hidden";     // a function: the state can change across the await
+    const step = async () => {
+      timer = undefined;
+      if (cancelled || inFlight || hidden()) return;
+      inFlight = true;
+      const ok = await probe();
+      inFlight = false;
+      if (cancelled || ok || hidden()) return;
+      const ms = delays[Math.min(idx++, delays.length - 1)];
+      timer = window.setTimeout(step, ms);
+    };
+    timer = window.setTimeout(step, 1500);                       // a phone just woken often fails the first try
+    const onVis = () => {
+      if (document.visibilityState === "hidden") { clearTimeout(timer); timer = undefined; return; }
+      if (!cancelled && timer === undefined && !inFlight) { idx = 0; void step(); }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { cancelled = true; clearTimeout(timer); document.removeEventListener("visibilitychange", onVis); };
+  }, [down, probe]);
   // only say we can't reach the server once it has kept failing for a few seconds; until then it's "Connecting…"
   const [downLong, setDownLong] = useState(false);
   useEffect(() => {

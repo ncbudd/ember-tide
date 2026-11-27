@@ -161,17 +161,82 @@ export const api = {
   del: <T,>(p: string) => req<T>("DELETE", p),
 };
 
+/** Run `fn` every `ms` while visible; pause while hidden, and run once on return if `ms` has passed. */
+export function useVisibleInterval(fn: () => void, ms: number | null, deps: unknown[]) {
+  const fnRef = useRef(fn);
+  fnRef.current = fn;
+  useEffect(() => {
+    if (ms == null) return;
+    let lastRun = Date.now();
+    let timer: number | undefined;
+    const run = () => {
+      lastRun = Date.now();
+      fnRef.current();
+    };
+    const start = () => {
+      if (timer !== undefined || document.visibilityState === "hidden") return;
+      timer = window.setInterval(run, ms);
+    };
+    const stop = () => {
+      if (timer === undefined) return;
+      window.clearInterval(timer);
+      timer = undefined;
+    };
+    const onVis = () => {
+      if (document.visibilityState === "hidden") { stop(); return; }
+      if (Date.now() - lastRun >= ms) run();
+      start();
+    };
+    start();
+    document.addEventListener("visibilitychange", onVis);
+    return () => { stop(); document.removeEventListener("visibilitychange", onVis); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ms, ...deps]);
+}
+
 /** Live snapshot over WebSocket, falling back to polling. `apply` lets actions show their result instantly. */
 export function useLive() {
   const [snap, setSnap] = useState<Snapshot | null>(null);
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   useEffect(() => {
-    let stop = false, retry: number | undefined, poll: number | undefined, lastMsg = Date.now();
+    let stop = false, retry: number | undefined, lastMsg = Date.now();
     let gen = 0, fails = 0;                                // gen: which connect attempt is current (a pause moves it on)
+    const POLL_MS = [4000, 8000, 15_000, 30_000];
+    let pollTimer: number | undefined, pollIdx = 0, pollGen = 0, pollWanted = false, pollInFlight = false;
+    const stopPoll = () => {
+      pollWanted = false;
+      pollGen++;
+      clearTimeout(pollTimer);
+      pollTimer = undefined;
+    };
+    const schedulePoll = (delay: number) => {
+      clearTimeout(pollTimer);
+      if (!pollWanted || stop || document.visibilityState === "hidden") return;
+      const myGen = pollGen;
+      pollTimer = window.setTimeout(() => {
+        pollTimer = undefined;
+        if (!pollWanted || stop || myGen !== pollGen || document.visibilityState === "hidden" || pollInFlight) return;
+        pollInFlight = true;
+        api.get<Snapshot>("/api/snapshot")
+          .then(s => { if (!stop && myGen === pollGen) { setSnap(s); pollIdx = 0; } })
+          .catch(() => { if (!stop && myGen === pollGen) pollIdx = Math.min(pollIdx + 1, POLL_MS.length - 1); })
+          .finally(() => {
+            pollInFlight = false;
+            if (!stop && pollWanted && document.visibilityState !== "hidden" && pollTimer === undefined) {
+              schedulePoll(POLL_MS[pollIdx]);
+            }
+          });
+      }, delay);
+    };
+    const startPoll = () => {
+      if (stop || document.visibilityState === "hidden") return;
+      pollWanted = true;
+      if (pollTimer === undefined && !pollInFlight) schedulePoll(POLL_MS[pollIdx]);
+    };
     const again = () => {
       // poll meanwhile, and try again a little later each time it fails (3 s, 6 s, 12 s … up to 30 s)
-      if (!poll) poll = window.setInterval(() => api.get<Snapshot>("/api/snapshot").then(setSnap).catch(() => {}), 4000);
+      startPoll();
       fails++;
       clearTimeout(retry);
       retry = window.setTimeout(connect, Math.min(30_000, 3000 * 2 ** Math.min(fails - 1, 4)));
@@ -180,7 +245,7 @@ export function useLive() {
       const ws = new WebSocket(url);
       wsRef.current = ws;
       let closed = false;                                  // this connection only: a late close from an old one does nothing
-      ws.onopen = () => { if (closed) return; fails = 0; setConnected(true); if (poll) { clearInterval(poll); poll = undefined; } };
+      ws.onopen = () => { if (closed) return; fails = 0; pollIdx = 0; setConnected(true); stopPoll(); };
       ws.onmessage = (e) => { if (closed) return; lastMsg = Date.now(); try { setSnap(JSON.parse(e.data)); } catch { /* ignore */ } };
       ws.onclose = (ev) => {
         if (closed) return;
@@ -209,14 +274,20 @@ export function useLive() {
     // battery: no live connection while the app is in the background. Close it 30 s after the app is hidden and
     // reconnect (with a fresh snapshot) as soon as it is shown again.
     let hideTimer: number | undefined;
-    const pause = () => { stop = true; gen++; fails = 0; clearTimeout(retry); clearInterval(poll); poll = undefined; detach(); wsRef.current?.close(); wsRef.current = null; setConnected(false); };
+    const pause = () => { stop = true; gen++; fails = 0; pollIdx = 0; clearTimeout(retry); stopPoll(); detach(); wsRef.current?.close(); wsRef.current = null; setConnected(false); };
     const onVis = () => {
-      if (document.visibilityState === "hidden") { clearTimeout(hideTimer); hideTimer = window.setTimeout(pause, 30_000); return; }
+      if (document.visibilityState === "hidden") {
+        stopPoll();                                        // stop fallback polling at once; socket still closes after 30 s
+        clearTimeout(hideTimer);
+        hideTimer = window.setTimeout(pause, 30_000);
+        return;
+      }
       clearTimeout(hideTimer);
       // always refresh on coming back: an iPhone freezes timers in the background, so the 30 s pause may never have
       // run and the socket may be dead without knowing it yet
       api.get<Snapshot>("/api/snapshot").then(setSnap).catch(() => {});
       if (stop) { stop = false; connect(); return; }
+      if (fails > 0 && wsRef.current?.readyState !== WebSocket.OPEN) startPoll();
       const shownAt = Date.now();
       window.setTimeout(() => {
         if (!stop && lastMsg < shownAt && wsRef.current) { wsRef.current.close(); }     // silent socket: onclose reconnects
