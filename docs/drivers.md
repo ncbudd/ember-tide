@@ -11,7 +11,9 @@ Built in:
 | `sim` | The built-in simulator (the default). A pretend two-person bed with a scripted night, thermal lag and sensor noise. |
 | `orion-mqtt` | The Orion topper through your own MQTT broker (see [bed-cutover.md](bed-cutover.md)). |
 | `orion-cloud` | The maker's cloud API (`ET_ORION_API_KEY`). |
-| `ha-climate` | A bed controlled through Home Assistant `climate` entities, such as a BedJet (`ET_HA_URL`, `ET_HA_TOKEN`, `ET_BED_ENTITIES`). |
+| `ha-climate` | A bed controlled through Home Assistant `climate` entities, such as a BedJet or an OOLER (`ET_HA_URL`, `ET_HA_TOKEN`, `ET_BED_ENTITIES`). |
+| `sleepme` | A Sleepme Dock Pro (ChiliPad Dock Pro) through Sleepme's official developer API (`ET_SLEEPME_TOKEN`). |
+| `free-sleep` | An Eight Sleep Pod running [free-sleep](https://github.com/throwaway31265/free-sleep), fully local (`ET_FREE_SLEEP_URL`). |
 | `python:package.module:ClassName` | Your own driver, loaded from any installed Python package (below). |
 
 ## Home Assistant climate (BedJet and others)
@@ -48,6 +50,58 @@ ET_HA_NEUTRAL_C: "26.0"
 - **Heat timer**: a BedJet ends heat by itself after about 4 hours. Ember & Tide sees that side switch off while the plan still wants it on and turns it back on, the same way it does for any bed. To stop it for the night, use Off tonight in the app rather than the BedJet's remote, or it will be switched back on.
 - **What it reports**: the temperature a BedJet reports is the air coming out of it, not the bed surface. There's no in-bed sensor, so the night starts from your other presence sensors (Studio, Devices) or the schedule.
 - **One Bluetooth connection**: a BedJet accepts one Bluetooth connection at a time, so close its phone app while Home Assistant is connected.
+
+### OOLER (ChiliPad) through Home Assistant
+
+The [OOLER integration](https://github.com/PostLogical/ooler) (HACS, local Bluetooth, works with ESPHome Bluetooth
+proxies) shows each OOLER as a `climate` entity, so `ha-climate` can run it: one OOLER per side, `ET_BED_KIND=thermostat`.
+An OOLER takes its setpoint in whole °F (55 to 115) and ignores changes while it's off, which the driver handles by
+turning it on before setting the temperature. Like a BedJet, it accepts one Bluetooth connection at a time.
+
+## Sleepme Dock Pro
+
+> **New driver:** `sleepme` has not yet been tried on a real Dock Pro. If you run it, please open an issue and say how it goes.
+
+Uses Sleepme's own [developer API](https://docs.developer.sleep.me), so it needs the internet but no workarounds.
+
+1. In the Sleepme app or at sleep.me, open **Account details → Developer API → Create new token** (the dock must already
+   be set up in the Sleepme app). Copy the token.
+2. Set it in `.env`:
+
+```yaml
+ET_BED: sleepme
+ET_SLEEPME_TOKEN: your-sleepme-token
+# ET_SLEEPME_DEVICES: left=<device id>,right=<device id>   # only if the sides come out swapped
+```
+
+- One Dock Pro is one side. With one dock it becomes the left side; with two, the first two docks on the account become
+  left and right. If they come out swapped, set `ET_SLEEPME_DEVICES`; the server log lists each dock's name and id when it starts.
+- Sleepme allows 10 requests a minute per account, so Ember & Tide reads each dock once a minute and sends one request
+  per change. Changes made in the Sleepme app show up within a minute.
+- It reports the water temperature and low water (Care reminds you). There's no in-bed sensor on the dock, so the night
+  starts from your other presence sensors (a Sleepme Sleep Tracker isn't read yet) or the schedule.
+
+## Eight Sleep Pod (free-sleep)
+
+> **New driver:** `free-sleep` has not yet been tried on a real Pod. If you run it, please open an issue and say how it goes.
+
+[free-sleep](https://github.com/throwaway31265/free-sleep) is a community project that replaces the Pod's software so it
+runs without Eight Sleep's cloud. It works on the Pod 3 (without SD card), Pod 4 and Pod 5, and installing it means
+opening the Pod and connecting to its board: follow its README, and know that it may affect your warranty. Once it runs,
+it serves a small web page and API on your home network, and Ember & Tide talks to that directly:
+
+```yaml
+ET_BED: free-sleep
+ET_FREE_SLEEP_URL: http://192.168.1.60:3000     # the Pod's address
+```
+
+- Both sides are controlled; temperatures go in whole °F, 55 to 110 (about 13 to 43 °C).
+- free-sleep has no sign-in: anyone on your network can control the Pod. Keep it on a trusted network (free-sleep also
+  has a script to block the Pod's internet access).
+- If away mode is on for one side in free-sleep's own settings, free-sleep applies changes to both sides. Leave away mode
+  off and use Ember & Tide's away instead.
+- Heart rate and presence from the Pod aren't read yet; add your other presence sensors in Studio, Devices.
+- Eight Sleep's cloud isn't supported: it has no public API, and the unofficial one needs the app's built-in key and your password.
 
 ## No bed yet? Run it on the simulator
 

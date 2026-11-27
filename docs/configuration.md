@@ -8,7 +8,7 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 
 | Variable | Default | What it does |
 |---|---|---|
-| `ET_BED` | `sim` | Which bed driver to use: `sim` (built-in simulator), `orion-mqtt` (the Orion topper over local MQTT), `orion-cloud` (the maker's cloud API), `ha-climate` (bed `climate` entities in Home Assistant, e.g. BedJet), or `python:package.module:ClassName` for your own driver (see [drivers.md](drivers.md)). |
+| `ET_BED` | `sim` | Which bed driver to use: `sim` (built-in simulator), `orion-mqtt` (the Orion topper over local MQTT), `orion-cloud` (the maker's cloud API), `ha-climate` (bed `climate` entities in Home Assistant, e.g. BedJet or OOLER), `sleepme` (Sleepme Dock Pro), `free-sleep` (Eight Sleep Pod running free-sleep), or `python:package.module:ClassName` for your own driver (see [drivers.md](drivers.md)). |
 | `ET_TZ` | `TZ`, else the machine's zone, else `UTC` | Your IANA time zone, for example `Europe/London` or `Asia/Tokyo`. Schedules and nights are local time, so set this. The standard `TZ` variable is used when `ET_TZ` is empty. A name that is not a real zone is ignored. Studio, Your settings shows the zone in use and where it came from. |
 | `ET_MQTT_URL` | `mqtt://localhost:1883` | The broker the bed talks to (`orion-mqtt` only). A login can go in the URL: `mqtt://user:password@host:1883`. |
 | `ET_ORION_SERIAL` | auto | Serial number of the bed to control. Auto-detected from the first bed that reports; set it if several beds share the broker. |
@@ -17,6 +17,9 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_HA_TOKEN` | none | Home Assistant long-lived access token (`ha-climate` only). Never logged or shown in status; keep it in `.env`. |
 | `ET_BED_ENTITIES` | none | Home Assistant `climate.*` entities mapped to bed sides (`ha-climate` only), for example `left=climate.bedjet_left,right=climate.bedjet_right` or a single `climate.bedjet` for `left` only. |
 | `ET_BED_KIND` | `auto` | How `ha-climate` drives each entity: `auto` (`bedjet` if `bedjet` is in the entity ID or `friendly_name`, else `thermostat`), `bedjet`, or `thermostat`. |
+| `ET_SLEEPME_TOKEN` | none | Sleepme developer API token (`sleepme` only): Sleepme account, Developer API, Create new token. Never logged or shown in status. |
+| `ET_SLEEPME_DEVICES` | none | Optional for `sleepme`: which dock is which side, `left=<id>,right=<id>` or a single id (left). Without it the account's first two docks become left and right. |
+| `ET_FREE_SLEEP_URL` | none | The Pod's address for `free-sleep`, for example `http://192.168.1.60:3000`. |
 | `ET_HA_NEUTRAL_C` | `26.0` | Crossover temperature in °C (`ha-climate` only): requests warmer than this use `heat`, requests at or below use `cool` (fan speed on a BedJet). |
 | `ET_DATA_DIR` | `./data` (the Docker image sets `/data`) | Where the database (`embertide.db`), the Web Push key, night traces and optional credentials live. Back this folder up. |
 | `ET_HOST` | `0.0.0.0` | Address the server listens on. Use `127.0.0.1` if a reverse proxy on the same machine is the only client. |
@@ -49,7 +52,7 @@ day-to-day settings (rhythms, notifications, devices, people) are in the app and
 | `ET_UPDATE_URL` | `https://github.com/Ncbudd/ember-tide/releases/latest/download/latest.json` | Address of the release manifest checked for updates. |
 | `TZ` | none | Standard time-zone variable; used by the container and as the fallback for `ET_TZ`. |
 
-That is 40 variables (39 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_HA_TOKEN`, `ET_LLM_KEY`, URLs with passwords) are best
+That is 43 variables (42 `ET_` plus `TZ`). Settings that are secrets (`ET_ORION_API_KEY`, `ET_HA_TOKEN`, `ET_SLEEPME_TOKEN`, `ET_LLM_KEY`, URLs with passwords) are best
 kept in a `.env` file next to your Compose file with restricted permissions, which is git-ignored here (`.env.example` lists every variable to copy from):
 
 ```yaml
