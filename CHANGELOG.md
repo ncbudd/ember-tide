@@ -5,6 +5,16 @@ minor versions, and each entry says what to check when upgrading.
 
 ## Unreleased
 
+## 0.1.27
+
+Your side notices when you're away. Update the server; the phone app's new switch comes with this version too.
+
+- **Away from home Wi-Fi means away.** When your phone has been off your home Wi-Fi for 30 minutes and nothing else
+  says you're home (phone location, a Home Assistant tracker, a bedside dial), your side waits at pre-cool time and
+  asks you (Wait an hour, Off tonight, Start anyway) instead of cooling an empty bed. Getting into bed still starts the
+  night. Turn it off under Settings → "Off the home Wi-Fi means away".
+- **Settings search.** When nothing matches, the pointer to Studio shows once instead of twice.
+
 ## 0.1.26
 
 Two more beds, a fix for mornings after the alarm, settings search, less battery use, and fixes to how a night starts
