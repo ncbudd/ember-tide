@@ -243,7 +243,7 @@ def night_verdict(c, p, d) -> tuple[str | None, str]:
         x = max(rings, key=lambda x: x["end"] - x["start"])
         # only minutes the bed knew about count: no rows (bed or server down) or presence unknown isn't "empty"
         rows = [r for r in c.store.history(p.zone, x["start"], x["end"], step_s=60, person=p.id) if r.get("occupied") is not None]
-        if len(rows) * 60 < KNOWN_COVER * (x["end"] - x["start"]):
+        if not rows or len(rows) * 60 < KNOWN_COVER * (x["end"] - x["start"]):
             return None, "the bed didn't report for much of the night"
         occ = sum(1 for r in rows if r.get("occupied") == 1) / len(rows)
         if occ < 0.2:
@@ -273,7 +273,8 @@ def morning_check(c, p, now: float) -> dict | None:
     if key in cs:
         return None
     rec = c.store.get(_key(p.id))
-    away_then = isinstance(rec, dict) and bool(rec.get("since")) and rec["since"] <= _night_span(d, c.clock.tz)[1]
+    span = _night_span(d, c.clock.tz)
+    away_then = (isinstance(rec, dict) and bool(rec.get("since")) and rec["since"] <= span[1])         or away_share(away_periods(c.store, p.id, now), *span) >= 0.5      # away then, even if back since
     verdict, why = night_verdict(c, p, d)
     if verdict is None:
         return None                                   # can't be sure (yet): ask nothing, try again later

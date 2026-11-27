@@ -76,7 +76,8 @@ async def test_skipped_night_has_no_lie_in(tmp_path):
     n, e, end, _ = await _to_end(tmp_path)
     e.s.skip = True
     await n.until(iso(end + 600))
-    assert e.s.state == "skipped" and not n.events("lie_in_started")
+    # switched off: no lie-in, and the night still finishes at its end (night_done, morning summary)
+    assert e.s.state == "done" and not n.events("lie_in_started")
 
 
 async def test_noon_rollover_waits_for_lie_in_to_finish(tmp_path):

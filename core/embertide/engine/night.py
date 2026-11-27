@@ -138,9 +138,11 @@ class NightEngine:
                source: str = "app", minutes: int | None = None) -> None:
         step, set_to = delta_c, temp_c
         self.s.empty_off, self.s.empty_on_since = False, None
+        resumed = False
         if self.s.skip or (self.s.pause_until and now < self.s.pause_until):
             # pressing + or − while paused / off for the night means "I want my side back": resume, then apply the step
             self.s.skip, self.s.pause_until = False, None
+            resumed = True
             self._ev(now, "tonight_resume", source=source, reason="adjusted while off")
         cur = self.s.override
         if delta_c is not None and cur and cur.delta_c is not None and cur.until == until:
@@ -150,7 +152,8 @@ class NightEngine:
         merged = cur is not None and step is not None and cur.until == until and cur.phase_id == self.s.phase_id
         # turned on by hand while the rhythm has the side off (a nap, an early night): it runs until the timer, or
         # until the rhythm itself starts, and never carries on into the night
-        idle = self.s.base_c is None and self.s.state not in ("skipped", "paused")   # off because of the rhythm, not the person
+        # off because of the rhythm, not the person (a side that was off or paused a moment ago was just resumed above)
+        idle = self.s.base_c is None and (resumed or self.s.state not in ("skipped", "paused"))
         manual = (cur.manual if merged else False) or (idle and temp_c is not None)
         end_ts = now + minutes * 60 if minutes else (cur.end_ts if merged else None)
         self.s.override = Override(cur.set_ts if merged else now, until, self.s.phase_id, temp_c=temp_c, delta_c=delta_c,
@@ -187,19 +190,23 @@ class NightEngine:
             if self.s.lie_in or (self.running() and self.night is not None and self.s.phase_id == "wake"):
                 self.end_night(now, source, "off pressed")   # in the morning "off" means "I'm up", not "skip tonight"
                 action = "end"
-            elif self.night is not None and now >= self.night.end:
+            elif self.s.ended or (self.night is not None and now >= self.night.end):
                 self.s.skip_next = True              # this morning's night is over; "tonight" means the next one
             else:
                 self.s.skip = True
                 self._end_flash(now, source)         # "off" means off, even mid-flash
         elif action == "resume":
             self.s.skip, self.s.skip_next, self.s.pause_until = False, False, None
+            self.s.empty_off, self.s.empty_on_since = False, None
             if self.s.started and self.s.state == "out_of_bed":
                 # off after the out-of-bed hold (or the bed lost whoever was there): carry on with the night now. If the
                 # side stays empty, the hold runs again and turns it off once more
                 self.s.absent_since = now
         elif action == "start_now":
             self.s.skip, self.s.started, self.s.in_bed = False, True, now
+            self.s.pause_until, self.s.ended, self.s.lie_in_over = None, False, False
+            self.s.absent_since = self.s.out_since = None
+            self.s.empty_off, self.s.empty_on_since = False, None
             self._began(now, "hand")
         elif action in ("pause", "delay"):
             self.s.pause_until = now + (minutes or 60) * 60
@@ -440,7 +447,9 @@ class NightEngine:
         s_ended = self.s.ended
         base: float | None
         phase = None
-        if self.s.skip:
+        if self.s.skip and self.s.started and now >= n.end and not self.s.lie_in:
+            state, base = "done", None                   # switched off during the night: it still ends at its end
+        elif self.s.skip:
             state, base = "skipped", None
         elif self.s.pause_until and now < self.s.pause_until:
             state, base = "paused", None
@@ -473,6 +482,8 @@ class NightEngine:
             state, base = "waiting", n.phases[0].temp_c if n.phases else None
             phase = n.phases[0].id if n.phases else None
 
+        if state == "waiting" and self.s.state != "waiting":
+            self.s.empty_off, self.s.empty_on_since = False, None   # a cutoff from the afternoon doesn't stop pre-conditioning
         if state == "done" and self.s.state != "done" and self.s.started:
             # when the night really ended (the alarm can move it before the schedule's end): the summary counts
             # getting up only until here
@@ -649,6 +660,7 @@ class NightEngine:
     def _began(self, now: float, by: str) -> None:
         """The night has just started (any way): note how, and whether it started again after being given up."""
         self.s.started_by = by
+        self.s.empty_off, self.s.empty_on_since = False, None
         r = self.s.reanchor
         if r:
             self.s.reanchor = None
