@@ -55,6 +55,18 @@ object WatchHr {
 
     fun switchOn(c: Context) = prefs(c).getBoolean("on", false)
     fun active(c: Context) = prefs(c).getBoolean("active", false)
+    fun reportedPerm(c: Context): String? = prefs(c).getString("reported_perm", null)
+    fun resetOnBoot(c: Context) { prefs(c).edit().putBoolean("active", false).apply() }
+
+    private fun bootCount(c: Context) = runCatching {
+        android.provider.Settings.Global.getInt(c.contentResolver, android.provider.Settings.Global.BOOT_COUNT, -1)
+    }.getOrDefault(-1)
+
+    // registered in this boot by this app version: an update can drop the registration, so a new version registers again
+    private fun appVersion(c: Context): Long = runCatching {
+        val pi = c.packageManager.getPackageInfo(c.packageName, 0)
+        if (android.os.Build.VERSION.SDK_INT >= 28) pi.longVersionCode else @Suppress("DEPRECATION") pi.versionCode.toLong()
+    }.getOrDefault(-1L)
 
     /** The phone's latest word (switch on/off, night wanted or not). Starts or stops passive monitoring to match. */
     suspend fun control(c: Context, on: Boolean, wanted: Boolean) {
@@ -69,14 +81,19 @@ object WatchHr {
         val client = HealthServices.getClient(c).passiveMonitoringClient
         try {
             if (want) {
+                val boot = bootCount(c)
+                val stepsOk = stepsPermitted(c)
+                val ver = appVersion(c)
+                if (p.getBoolean("active", false) && boot >= 0 && p.getInt("active_boot", -1) == boot &&
+                    p.getLong("active_version", -2L) == ver && p.getBoolean("active_steps", false) == stepsOk) return
                 val types = mutableSetOf<DataType<*, *>>(DataType.HEART_RATE_BPM)
-                if (stepsPermitted(c)) types += DataType.STEPS
+                if (stepsOk) types += DataType.STEPS
                 val caps = client.getCapabilitiesAsync().await()
                 types.retainAll(caps.supportedDataTypesPassiveMonitoring)
                 if (DataType.HEART_RATE_BPM !in types) { Log.w(TAG, "no passive heart rate on this watch"); return }
                 client.setPassiveListenerServiceAsync(HrPassiveService::class.java,
                     PassiveListenerConfig.builder().setDataTypes(types).build()).await()
-                p.edit().putBoolean("active", true).apply()
+                p.edit().putBoolean("active", true).putInt("active_boot", boot).putLong("active_version", ver).putBoolean("active_steps", stepsOk).apply()
                 Log.i(TAG, "passive heart rate on (${types.size} types)")
             } else if (p.getBoolean("active", false)) {
                 client.clearPassiveListenerServiceAsync().await()
@@ -94,6 +111,7 @@ object WatchHr {
 
     fun onBatch(c: Context, data: DataPointContainer) {
         synchronized(lock) { addBatch(c, data) }
+        if (System.currentTimeMillis() - prefs(c).getLong("sent_at", 0) in 0 until SEND_EVERY_MS) return
         val app = c.applicationContext
         Thread { runCatching { flush(app, force = false) } }.start()     // never block the binder / main thread
     }
@@ -155,7 +173,8 @@ object WatchHr {
         }
         if (buf.getJSONArray("samples").length() == 0 && buf.getJSONArray("steps").length() == 0 && !force) return
         val sentCount = buf.getJSONArray("samples").length() to buf.getJSONArray("steps").length()
-        buf.put("perm", permState(c))
+        val perm = permState(c)
+        buf.put("perm", perm)
         val bytes = buf.toString().toByteArray()
         val ok = runCatching {
             val nodes = Tasks.await(Wearable.getNodeClient(c).connectedNodes, 5, TimeUnit.SECONDS)
@@ -179,7 +198,7 @@ object WatchHr {
                 }
                 save(c, now)
             }
-            p.edit().putLong("sent_at", System.currentTimeMillis()).apply()
+            p.edit().putLong("sent_at", System.currentTimeMillis()).putString("reported_perm", perm).apply()
             Log.d(TAG, "sent ${buf.getJSONArray("samples").length()} readings to the phone")
         }
         // a phone that hasn't confirmed the night for a long time (switched off, uninstalled): stop on our own

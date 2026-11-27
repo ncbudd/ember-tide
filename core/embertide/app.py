@@ -61,8 +61,43 @@ def _ha_climate(cfg: Config, clock: Clock):
         raise SystemExit(str(e)) from None
 
 
+def _sleepme(cfg: Config, clock: Clock):
+    if not cfg.sleepme_token:
+        raise SystemExit("ET_SLEEPME_TOKEN is required for the sleepme driver (Sleepme account → Developer API → Create new token)")
+    from .drivers.sleepme import SleepmeBed, parse_devices
+    try:
+        return SleepmeBed(cfg.sleepme_token, parse_devices(cfg.sleepme_devices))
+    except ValueError as e:
+        raise SystemExit(str(e)) from None
+
+
+def _free_sleep(cfg: Config, clock: Clock):
+    if not cfg.free_sleep_url:
+        raise SystemExit("ET_FREE_SLEEP_URL is required for the free-sleep driver, e.g. http://192.168.1.60:3000")
+    from .drivers.free_sleep import FreeSleepBed
+    return FreeSleepBed(cfg.free_sleep_url)
+
+
+def _sleepme(cfg: Config, clock: Clock):
+    if not cfg.sleepme_token:
+        raise SystemExit("ET_SLEEPME_TOKEN is required for the sleepme driver (Sleepme account → Developer API → Create new token)")
+    from .drivers.sleepme import SleepmeBed, parse_devices
+    try:
+        return SleepmeBed(cfg.sleepme_token, parse_devices(cfg.sleepme_devices))
+    except ValueError as e:
+        raise SystemExit(str(e)) from None
+
+
+def _free_sleep(cfg: Config, clock: Clock):
+    if not cfg.free_sleep_url:
+        raise SystemExit("ET_FREE_SLEEP_URL is required for the free-sleep driver, e.g. http://192.168.1.60:3000")
+    from .drivers.free_sleep import FreeSleepBed
+    return FreeSleepBed(cfg.free_sleep_url)
+
+
 # ET_BED value -> factory(cfg, clock) returning a driver (see docs/drivers.md). Add a built-in driver by adding a line here.
-DRIVERS = {"sim": _sim, "orion-mqtt": _orion_mqtt, "orion-cloud": _orion_cloud, "ha-climate": _ha_climate}
+DRIVERS = {"sim": _sim, "orion-mqtt": _orion_mqtt, "orion-cloud": _orion_cloud, "ha-climate": _ha_climate,
+           "sleepme": _sleepme, "free-sleep": _free_sleep}
 
 
 def load_driver_class(spec: str):

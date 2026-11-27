@@ -2,6 +2,7 @@ package app.embertide.wear
 
 import android.app.Application
 import android.content.ComponentName
+import android.content.Context
 import android.os.SystemClock
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -58,10 +59,11 @@ class BedModel(app: Application) : AndroidViewModel(app) {
         WatchUpdate.consumeLastError(c)?.let { updateMsg = it }
         if (!WearApi.ready(c)) { snap = null; problem = Problem.NotSignedIn; loading = false; return@withContext }
         try {
-            val s = WatchLogic.snap(JSONObject(WearApi.call(c, "GET", "/api/snapshot")), WearApi.person(c))
+            val hit = WearApi.snapshotWithAge(c)
+            val s = WatchLogic.snap(hit.json, WearApi.person(c))
             if (s == null) { snap = null; problem = Problem.NoSide }
             else {
-                snap = s; fetchedAt = SystemClock.elapsedRealtime(); problem = null
+                snap = s; fetchedAt = SystemClock.elapsedRealtime() - hit.ageMs; problem = null
                 if (!WatchLogic.canPreset(s.me)) preset = 0
                 withContext(Dispatchers.Main) { checkUpdate() }
             }
@@ -73,12 +75,14 @@ class BedModel(app: Application) : AndroidViewModel(app) {
         loading = false
     }
 
+    private fun updatePrefs() = c.getSharedPreferences("embertide_update", Context.MODE_PRIVATE)
+
     // ---------- in-app updates (at most once every 6 hours) ----------
     fun checkUpdate() {
         if (checkingUpdate || !WearApi.ready(c)) return
-        val now = SystemClock.elapsedRealtime()
-        val last = updateCheckedAtMs
-        if (last != null && now - last < UPDATE_EVERY_MS) return
+        val now = System.currentTimeMillis()
+        val last = updateCheckedAtMs ?: updatePrefs().getLong("checked_at", 0L).takeIf { it > 0L }?.also { updateCheckedAtMs = it }
+        if (last != null && now - last in 0L until UPDATE_EVERY_MS) return
         checkingUpdate = true
         viewModelScope.launch {
             try {
@@ -86,7 +90,9 @@ class BedModel(app: Application) : AndroidViewModel(app) {
                     WatchUpdate.checkStatus(c) to WatchUpdate.consumeLastError(c)
                 }
                 if (err != null) updateMsg = err
-                updateCheckedAtMs = SystemClock.elapsedRealtime()
+                val checkedAt = System.currentTimeMillis()
+                updateCheckedAtMs = checkedAt
+                updatePrefs().edit().putLong("checked_at", checkedAt).apply()
                 when (res) {
                     is WatchUpdate.CheckResult.Available -> { update = res.offer; updateUpToDate = false }
                     is WatchUpdate.CheckResult.UpToDate -> { update = null; updateUpToDate = true }
@@ -179,7 +185,7 @@ class BedModel(app: Application) : AndroidViewModel(app) {
                 WatchLogic.Power.OffTonight -> WearApi.call(c, "POST", path("tonight"), "{\"action\":\"skip\",\"source\":\"watch\"}")
                 WatchLogic.Power.Resume -> {
                     WearApi.call(c, "POST", path("tonight"), "{\"action\":\"resume\",\"source\":\"watch\"}")
-                    val now = WatchLogic.snap(JSONObject(WearApi.call(c, "GET", "/api/snapshot")), WearApi.person(c))?.me
+                    val now = WatchLogic.snap(WearApi.snapshot(c), WearApi.person(c))?.me
                     if (now != null && now.targetC == null) turnOn(now)
                 }
                 WatchLogic.Power.TurnOnNow -> turnOn(me, preset)
