@@ -7,6 +7,7 @@ import RingCard, { type Ring } from "../components/RingCard";
 import NapsCard, { type Nap } from "../components/NapsCard";
 import PetQuestion from "../components/PetQuestion";
 import SleepHistory from "../components/SleepHistory";
+import SleepStageBar, { STAGE_COLORS as STAGE_COLOR, STAGE_ORDER, stageLabel, stageTotal, type StageTotals } from "../components/SleepStageBar";
 import SleepReview from "../components/SleepReview";
 import Tip from "../components/Tip";
 import { useApp } from "../ctx";
@@ -21,11 +22,10 @@ interface Night {
   coolest_c?: number | null; warmest_c?: number | null; hot_flashes?: number; cold_flashes?: number; adjustments?: number; moments: Moment[];
   series?: { ts: number; target: number | null; measured: number | null; hr: number | null; occupied: number }[];
   ring?: Ring | null; naps?: Nap[]; nap_min?: number; night_asleep_min?: number | null;
-  times_from?: string;
+  times_from?: string; stage_totals?: StageTotals | null; stage_totals_from?: string | null;
   stages?: StageSrc | null; stage_sources?: { id: string; label: string; kind: string }[];
 }
 interface StageSrc { id: string; label: string; kind: string; segments: { start: number; end: number; stage: string }[]; totals: Record<string, number>; agree_with_first?: number | null }
-const STAGE_COLOR: Record<string, string> = { awake: "#e3b37a", rem: "#a08be2", light: "#7fb6cc", deep: "#3f6fb5" };
 const STAGE_ROWS = ["awake", "rem", "light", "deep"];
 
 function Hypnogram({ src, tz }: { src: StageSrc; tz: string }) {
@@ -246,7 +246,10 @@ export default function SleepScreen() {
         const newer = idx > 0 ? list[idx - 1] : null;
         const week = [...list].slice(0, 7).reverse();
         const barMin = (x: Night) => (n && !n.away && n.has_data && x.date === n.date ? n.in_bed_min : x.in_bed_min);
-        const maxMin = Math.max(480, ...week.map(x => barMin(x) ?? 0));
+        const maxMin = Math.max(480, ...week.flatMap(x => [barMin(x) ?? 0, x.has_data ? stageTotal(x.stage_totals) : 0]));
+        const weekWithTotals = week.filter(x => x.has_data && stageTotal(x.stage_totals) > 0);
+        const weekDevices = [...new Set(weekWithTotals.map(x => x.stage_totals_from).filter((d): d is string => !!d))];
+        const legendLabel = weekDevices.length === 1 ? `${weekDevices[0]} totals` : "Stage totals";
         return <>
           <div className="daynav">
             <button aria-label="Previous night" data-key="arrowleft" disabled={!older} onClick={() => older && setDate(older.date)}>‹</button>
@@ -256,10 +259,19 @@ export default function SleepScreen() {
           </div>
           {week.length > 1 && <div className="week" role="tablist" aria-label="Last 7 nights">
             {week.map(x => { const d = new Date(x.date + "T12:00:00"); const sel = x.date === date; const m = barMin(x);
-              return <button key={x.date} role="tab" aria-selected={sel} className={sel ? "on" : ""} onClick={() => setDate(x.date)} title={x.label}>
-                <span className="bar"><i style={{ height: `${x.has_data ? Math.max(6, ((m ?? 0) / maxMin) * 100) : 0}%` }} /></span>
+              const summary = x.has_data && stageTotal(x.stage_totals) > 0;
+              const title = `${x.label}${m != null ? ` · ${hShort(m)} in bed` : ""}${summary ? ` · ${stageLabel(x.stage_totals!, x.stage_totals_from)}` : ""}`;
+              return <button key={x.date} role="tab" aria-selected={sel} className={sel ? "on" : ""} onClick={() => setDate(x.date)} title={title}>
+                <span className="bar"><i className="week-bed" style={{ height: `${x.has_data ? Math.max(6, ((m ?? 0) / maxMin) * 100) : 0}%` }} />
+                  {x.has_data && <SleepStageBar totals={x.stage_totals} from={x.stage_totals_from} vertical scale={maxMin} />}
+                </span>
                 <span className="d">{x.in_progress ? "Now" : d.toLocaleDateString([], { weekday: "narrow" })}</span>
                 <span className="h">{x.has_data ? hShort(m) : x.away ? "away" : "—"}</span></button>; })}
+          </div>}
+          {weekWithTotals.length > 0 && <div className="stagekey stage-week-key" aria-label="Weekly chart legend">
+            <span><i className="inbed-key" />In bed</span>
+            {STAGE_ORDER.map(stage => <span key={stage}><i style={{ backgroundColor: STAGE_COLOR[stage] }} />{stage === "rem" ? "REM" : stage[0].toUpperCase() + stage.slice(1)}</span>)}
+            <span>{legendLabel}</span>
           </div>}
         </>;
       })()}
@@ -281,14 +293,15 @@ export default function SleepScreen() {
           <div className="stat"><span className="v">{n.br_avg ?? "—"}</span><span className="l">breaths a minute</span></div>
           <div className="stat"><span className="v">{n.tracking_c != null ? `±${(u === "F" ? n.tracking_c * 1.8 : n.tracking_c).toFixed(1)}°` : "—"}</span><span className="l">bed vs plan, average gap</span></div>
         </div>
-        {allStages.length > 0 && (() => { const src = allStages.find(x => x.id === stageSrc) ?? allStages[0]; const t = src.totals; const tot = Object.values(t).reduce((p, q) => p + q, 0) || 1;
+        {allStages.length > 0 && (() => { const src = allStages.find(x => x.id === stageSrc) ?? allStages.find(x => x.id === n.stages?.id) ?? allStages.find(x => x.kind !== "summary") ?? allStages[0]; const t = src.totals; const tot = Object.values(t).reduce((p, q) => p + q, 0) || 1;
           return <Fold id="sleep.stages" title="Sleep stages" defaultOpen
             summary={`deep ${hm(t.deep ?? 0)} · REM ${hm(t.rem ?? 0)}`}><div className="card">
             {src.kind === "estimate" && <span className="faint" style={{ fontSize: 12 }}>Estimated from the bed<Tip label="About stage sources" text="Your watch or ring's own sleep stages take this place once they arrive (Settings → Watch or ring shows each night). You can switch between sources." /></span>}
+            {src.kind === "summary" && <span className="faint" style={{ fontSize: 12 }}>{src.label.split(" · ")[0]} reports minutes per stage, but not when each stage happened, so there's no timeline.</span>}
             {src.kind === "wearable" && <span className="faint" style={{ fontSize: 12 }}>From your {/ring|oura/i.test(src.label) ? "ring" : "watch"} ({src.label.split(" · ")[0]})</span>}
             <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden" }}>{["deep", "light", "rem", "awake"].map(k => <span key={k} style={{ width: `${(t[k] ?? 0) / tot * 100}%`, background: STAGE_COLOR[k] }} />)}</div>
             <div className="stagekey">{["deep", "light", "rem", "awake"].map(k => <span key={k}><i style={{ background: STAGE_COLOR[k] }} />{k === "rem" ? "REM" : k[0].toUpperCase() + k.slice(1)}<b>{hm(t[k] ?? 0)}</b></span>)}</div>
-            <Hypnogram src={src} tz={snap.tz} />
+            {src.kind !== "summary" && <Hypnogram src={src} tz={snap.tz} />}
             {allStages.length > 1 && <div className="chips">{allStages.map(x => <button key={x.id} className="chip" aria-pressed={x.id === src.id} onClick={() => setStageSrc(x.id)}>{x.kind === "estimate" ? "Bed estimate" : x.label.split(" · ")[0]}</button>)}</div>}
             <span className="faint" style={{ fontSize: 11.5 }}>From {src.label}{src.agree_with_first != null ? ` · agrees ${Math.round(src.agree_with_first * 100)}% with ${allStages[0].label.split(" · ")[0]}` : ""}</span>
           </div></Fold>; })()}

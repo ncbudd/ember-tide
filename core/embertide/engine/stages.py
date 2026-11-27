@@ -128,18 +128,24 @@ def parse_orion_hypnogram(hyp) -> list[dict]:
 
 
 def collect(store, person, start: float, end: float) -> list[dict]:
-    """All stage timelines for a person's night: imported/device sources first, the bed estimate last."""
+    """All imported timelines and provider summaries for a night, then the bed estimate."""
     rows = store.history(person.zone, start, end, person=person.id)
     out = []
     for src, d in store.get_stages(person.id, start, end).items():
         kind = "orion" if src == "orion" else "wearable"
         out.append({"id": src, "label": d["label"] or src, "kind": kind, "segments": d["segments"], "totals": totals(d["segments"])})
+    # Summary-only sources publish stage durations without stage timestamps; show totals without inventing a timeline.
+    from .sleeps import stage_summaries_for
+    out.extend(stage_summaries_for(store, person.id, start, end))
     est = estimate(rows)
     if est:
         out.append({"id": "estimate", "label": "Ember & Tide estimate · bed heart rate + movement", "kind": "estimate", "segments": est, "totals": totals(est)})
-    rank = {"wearable": 0, "orion": 1, "estimate": 2}
+    rank = {"wearable": 0, "orion": 1, "estimate": 2, "summary": 3}
     out.sort(key=lambda x: rank[x["kind"]])
-    ref = out[0]["segments"] if out else []
-    for x in out[1:]:
-        x["agree_with_first"] = agreement(ref, x["segments"])
+    first = next((x for x in out if x["kind"] != "summary" and x.get("segments")), None)
+    ref = first["segments"] if first else []
+    for x in out:
+        if x is first:
+            continue
+        x["agree_with_first"] = None if x["kind"] == "summary" else agreement(ref, x["segments"])
     return out

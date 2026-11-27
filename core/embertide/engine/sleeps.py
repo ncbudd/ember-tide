@@ -1,24 +1,27 @@
 """Every sleep a person's watch or ring recorded, nights and naps alike, so the app can show the whole day's sleep.
 
-A wearable connection (Oura, and later WHOOP / Polar / Apple Health / Health Connect) hands over its sleep periods;
+A wearable connection (for example Oura, WHOOP, Polar, Apple Health or Health Connect) hands over its sleep periods;
 each is kept as one record in kv `sleeps:<pid>` (newest 120 days), keyed by the provider's own id so a re-sync
 replaces rather than duplicates:
 
     {"id": "oura:<id>", "source": "oura", "device": "Oura", "kind": "night" | "nap", "start", "end",
      "asleep_min", "deep_min", "rem_min", "light_min", "awake_min", "efficiency", "latency_min",
-     "hr_avg", "hr_low", "hrv_avg", "breath", "segments": [...] (naps only; nights' stages live in the stages table),
+     "hr_avg", "hr_low", "hrv_avg", "breath", "segments": [...] (naps only; night timelines live in the stages table),
      "where": "bed" | "away" | "unknown", "where_why": "..."}
 
 Where a nap happened is worked out from the bed itself: if the person's side was occupied for most of the nap and
 the bed's heart rate there matched the wearable's, it was on the bed; if the side was empty, or something else was on
 it (heart rate far from the wearable's, e.g. the dog while they napped on the couch), it was away. A nap on the bed
 also answers an open "was that the pet?" question about the same stretch: it was the person (engine/petq.py).
+Some providers (such as WHOOP and Garmin cloud) provide stage-duration totals but no timestamps for individual stages,
+so their night records have the totals and an empty `segments` list.
 """
 
 from __future__ import annotations
 
-import statistics
 from datetime import datetime, timedelta
+from math import isfinite
+import statistics
 from ..units import fmt_clock
 
 KEEP_DAYS = 120
@@ -28,8 +31,79 @@ def _key(pid: str) -> str:
     return f"sleeps:{pid}"
 
 
+def _num(v) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and isfinite(v)
+
+
 def all_for(store, pid: str) -> list[dict]:
     return store.get(_key(pid)) or []
+
+
+def stage_summaries_for(store, pid: str, start: float, end: float) -> list[dict]:
+    """Nightly stage totals from summary-only providers, skipping sources that already have a stage timeline."""
+    if not _num(start) or not _num(end) or end <= start:
+        return []
+    timeline_sources = set(store.get_stages(pid, start, end))
+    out = []
+    for sleep in all_for(store, pid):
+        if sleep.get("kind") != "night":
+            continue
+        src = sleep.get("source")
+        if src in timeline_sources:
+            continue
+        a, b = sleep.get("start"), sleep.get("end")
+        if not _num(a) or not _num(b) or b <= a or a >= end or b <= start:
+            continue
+        totals = {}
+        for stage in ("awake", "rem", "light", "deep"):
+            value = sleep.get(f"{stage}_min")
+            totals[stage] = round(value) if _num(value) and value >= 0 else 0
+        if any(totals.values()):
+            device = sleep.get("device") or src or "Wearable"
+            out.append({
+                "id": sleep["id"],
+                "label": f"{device} · stage totals",
+                "device": device,
+                "kind": "summary",
+                "segments": [],
+                "totals": totals,
+            })
+    return out
+
+
+def stage_summary_for_night(store, pid: str, start: float, end: float,
+                            night_start: float | None = None, night_end: float | None = None) -> dict | None:
+    """Choose the summary that best matches this bed night, requiring real overlap (or midpoint inside the window)."""
+    if not _num(start) or not _num(end) or end <= start:
+        return None
+    candidates = stage_summaries_for(store, pid, start, end)
+    if not candidates:
+        return None
+    has_bed = _num(night_start) and _num(night_end) and night_end > night_start
+    target_start, target_end = (night_start, night_end) if has_bed else (start, end)
+    periods = {sleep.get("id"): sleep for sleep in all_for(store, pid)}
+
+    qualified: list[tuple[tuple[float, float], dict]] = []
+    for summary in candidates:
+        sleep = periods.get(summary.get("id"), {})
+        a, b = sleep.get("start"), sleep.get("end")
+        if not _num(a) or not _num(b) or b <= a:
+            continue
+        overlap = max(0.0, min(b, target_end) - max(a, target_start))
+        if has_bed:
+            shorter = min(b - a, target_end - target_start)
+            if shorter <= 0 or overlap < 0.3 * shorter:
+                continue
+        else:
+            mid = (a + b) / 2
+            if not (start < mid < end):
+                continue
+        distance = abs((a + b) / 2 - (target_start + target_end) / 2)
+        qualified.append(((overlap, -distance), summary))
+
+    if not qualified:
+        return None
+    return max(qualified, key=lambda item: item[0])[1]
 
 
 def save(c, p, periods: list[dict], now: float) -> int:

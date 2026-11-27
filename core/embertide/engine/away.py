@@ -377,7 +377,7 @@ def hide_away_night(store, pid: str, night: dict | None, now: float, tz=None) ->
     """A night that mostly fell inside an away period is not this person's (something else lay on their side): for the
     nights/night summaries the Sleep screen shows, swap its numbers for a plain "away" marker. Same rule as Autopilot's
     learning (away_share)."""
-    if not night or not night.get("has_data"):
+    if not night:
         return night
     a, b = night.get("in_bed_at"), night.get("out_at")
     if not a and tz is not None and night.get("date"):

@@ -5,6 +5,20 @@ minor versions, and each entry says what to check when upgrading.
 
 ## Unreleased
 
+## 0.1.25
+
+Sleep stage minutes from WHOOP and Garmin. Update the server; the phone and watch apps need no update for this one.
+
+- **WHOOP and Garmin sleep stages on the Sleep screen.** Both share how many minutes you spent in deep, light and REM
+  sleep and awake each night, but not when each stage happened. Those totals now show in the week chart, in Sleep
+  stages (pick WHOOP or Garmin next to the bed's own estimate) and as a 14-night chart in History. There's no timeline
+  for them, because neither service provides one. Thanks to @maulikl, who built the WHOOP part (#107).
+- **WHOOP naps and sleep efficiency.** Naps from WHOOP show on their day, with whether they were on the bed or away, as
+  Oura and Garmin naps do. Nights WHOOP hasn't finished scoring are picked up on a later sync. After updating, a
+  connected WHOOP account fetches its last 120 days once, so earlier nights get their stage minutes too.
+- **Contributing.** Pull requests and issues now ask whether an AI tool helped, and which one; the README says how the
+  project itself is built.
+
 ## 0.1.24
 
 BedJet support, for testing. Update the server; the phone apps need no update for this one.

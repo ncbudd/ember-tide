@@ -69,6 +69,7 @@ class CloudConnector:
     refreshes = True                     # False: tokens are long-lived and there's no refresh (Polar)
     first_days = 14
     data_version = 1                     # bump when fetch() starts bringing a new metric: the next sync looks back first_days again
+    backfill_days = 0                    # >0: after a data_version bump, an already-connected account looks back this far once
     gives = ""                           # plain words for the UI: "sleep stages, heart rate, ..."
     docs_url = ""
     callback_path: str | None = None     # default /api/cloud/<id>/callback
@@ -278,6 +279,8 @@ class CloudConnector:
             back = min(self.first_days, gap_days + 1) if gap_days > 2 else 2
         else:
             back = self.first_days
+            if st.get("last_sync") and self.backfill_days:
+                back = max(back, self.backfill_days)   # one-time catch-up for a new metric; a new connection stays at first_days
         try:
             data = await self.fetch(pid, today - timedelta(days=back), today + timedelta(days=1), now)
         except CloudError as e:

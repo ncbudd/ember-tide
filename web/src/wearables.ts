@@ -53,14 +53,15 @@ export const BRANDS: Brand[] = [
   { id: "garmin", name: "Garmin", icon: "△",
     hc: { stages: "yes", hr: "yes", hrv: "no", temp: "no", resp: "some" },
     ah: { stages: "some", hr: "yes", hrv: "no", temp: "no", resp: "some" },
-    // the cloud gives minutes per stage, not a stage timeline, so stages are "no" (Personal API key, cloud/garmin.py)
-    cloud: { stages: "no", hr: "yes", hrv: "yes", temp: "no", resp: "some" }, cloudId: "garmin",
+    // the cloud gives minutes per stage (no timeline), so stages are "some" (Personal API key, cloud/garmin.py)
+    cloud: { stages: "some", hr: "yes", hrv: "yes", temp: "no", resp: "some" }, cloudId: "garmin",
     hcHow: "In Garmin Connect: More → Settings → Connected Apps → Health Connect → turn it on.",
     ahHow: "In Garmin Connect: More → Settings → Connected Apps → Apple Health → turn it on." },
   { id: "whoop", name: "Whoop", icon: "▭",
     hc: { stages: "some", hr: "yes", hrv: "no", temp: "some", resp: "some" },
     ah: { stages: "some", hr: "yes", hrv: "no", temp: "no", resp: "some" },
-    cloud: { stages: "no", hr: "no", hrv: "yes", temp: "yes", resp: "yes" }, cloudId: "whoop",
+    // WHOOP exposes per-night totals, not the times of individual stages.
+    cloud: { stages: "some", hr: "no", hrv: "yes", temp: "yes", resp: "yes" }, cloudId: "whoop",
     hcHow: "In the Whoop app: Profile → Settings → Integrations → Health Connect.",
     ahHow: "In the Whoop app: Profile → Settings → Integrations → Apple Health." },
   { id: "withings", name: "Withings", icon: "◇",

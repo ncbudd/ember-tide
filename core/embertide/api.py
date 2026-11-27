@@ -501,7 +501,9 @@ def build_router(app_state) -> APIRouter:
     async def nights(pid: str, count: int = 7):
         from .engine.away import hide_away_night
         from .engine.compare import lean_summary
-        from .engine.summary import recent
+        from .engine.summary import night_window, recent
+        from .engine.sleeps import stage_summary_for_night
+        from datetime import date
         c = ctl()
         p = find(pid)
         now = c.clock.now_ts()
@@ -512,10 +514,26 @@ def build_router(app_state) -> APIRouter:
             if (an := applied_night(c, a)):
                 applied[an] = applied.get(an, 0) + 1
         for s in recent(c.store, p, c.clock.tz, now, max(1, min(30, count))):
-            n = hide_away_night(c.store, pid, s, now, c.clock.tz)
-            n = lean_summary(c.store, p, n, c.clock.tz, now) if n is s else n
+            # recent() already swaps away nights for a marker; checking again here keeps this endpoint safe on its own.
+            # Decide on the result's "away" flag, not on identity (a marker can come back unchanged).
+            s = hide_away_night(c.store, pid, s, now, c.clock.tz) or s
+            visible = not s.get("away")
+            n = lean_summary(c.store, p, s, c.clock.tz, now) if visible else s
+            stage_totals = None
+            stage_totals_from = None
+            if visible:
+                win = night_window(p, date.fromisoformat(s["date"]), c.clock.tz, now)
+                if win:
+                    in_bed = n.get("in_bed_at") if n.get("in_bed_at") is not None else s.get("in_bed_at")
+                    out_at = n.get("out_at") if n.get("out_at") is not None else s.get("out_at")
+                    summary = stage_summary_for_night(c.store, pid, *win, in_bed, out_at)
+                    if summary:
+                        stage_totals = summary["totals"]
+                        stage_totals_from = summary.get("device")
             # for History: was the night reviewed, and how many suggestions were applied from it
-            out.append({**n, "reviewed": bool((c.store.get(f"ai_review:{pid}:{n['date']}") or {}).get("answer")), "applied": applied.get(n["date"], 0)})
+            out.append({**n, "stage_totals": stage_totals, "stage_totals_from": stage_totals_from,
+                        "reviewed": bool((c.store.get(f"ai_review:{pid}:{n['date']}") or {}).get("answer")),
+                        "applied": applied.get(n["date"], 0)})
         return out
 
     @r.get("/people/{pid}/night")
@@ -537,7 +555,8 @@ def build_router(app_state) -> APIRouter:
         from .engine.summary import night_window
         win = night_window(p, d, c.clock.tz, c.clock.now_ts())
         st = collect(c.store, p, *win) if win else []
-        s["stages"] = st[0] if st else None
+        # Summary-only providers do not have a timestamped source to drive the night timeline or story.
+        s["stages"] = next((x for x in st if x["kind"] != "summary"), None)
         s["stage_sources"] = [{"id": x["id"], "label": x["label"], "kind": x["kind"]} for x in st]
         # the wearable's night next to the bed's, and which one is used (engine/compare.py)
         from .engine.compare import compare_night
