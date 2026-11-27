@@ -395,6 +395,9 @@ body:has(.app.tab){background:var(--bg)}
 
 /* Settings: sections flow into two columns (phones: the wrapper is invisible) */
 .settings-flow{display:contents}
+.settings-search input{width:100%;box-sizing:border-box;font-size:16px;padding:10px 14px;border-radius:12px}
+.settings-none{font-size:13px;margin:4px 2px}
+.settings [data-miss]{display:none !important}
 .settings-group{font-size:17px;font-weight:500;color:var(--text);margin:22px 2px -2px;letter-spacing:0}
 .settings-flow > .settings-group:first-child{margin-top:6px}
 .app.tab .settings-flow > .settings-group{break-after:avoid;margin:18px 2px 8px}
