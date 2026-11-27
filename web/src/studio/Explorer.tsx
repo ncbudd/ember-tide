@@ -27,7 +27,8 @@ const DEFAULT_OFF = new Set(["setpoint", "status", "br"]);
 /** Where a series comes from, in plain words ("sim" and "ha-entity" mean nothing to most people). */
 function driverName(d: string): string {
   return ({ sim: "simulated", "ha-entity": "Home Assistant", "mqtt-topic": "MQTT", engine: "Ember & Tide", ics: "calendar feed",
-    "orion-mqtt": "bed (local)", "orion-cloud": "bed (cloud)" } as Record<string, string>)[d] ?? d;
+    "orion-mqtt": "bed (local)", "orion-cloud": "bed (cloud)", "ha-climate": "bed (Home Assistant)",
+    sleepme: "bed (Sleepme)", "free-sleep": "bed (local)" } as Record<string, string>)[d] ?? d;
 }
 function deviceLine(device: string, driver: string): string {
   const dn = driverName(driver);

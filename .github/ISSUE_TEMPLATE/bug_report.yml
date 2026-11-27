@@ -29,7 +29,7 @@ body:
     id: bed
     attributes:
       label: Bed driver
-      options: [Simulator (sim), Orion cloud (orion-cloud), Orion local MQTT (orion-mqtt), Not sure]
+      options: [Simulator (sim), Orion cloud (orion-cloud), Orion local MQTT (orion-mqtt), Home Assistant climate (ha-climate), Sleepme Dock Pro (sleepme), Eight Sleep free-sleep (free-sleep), Not sure]
     validations:
       required: true
   - type: dropdown

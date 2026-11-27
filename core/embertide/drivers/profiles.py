@@ -114,3 +114,36 @@ AIR: Profile = {
     ],
     "light_guide": None,
 }
+
+# ---------- water units run through someone else's app: Sleepme Dock Pro, Eight Sleep Pod ----------
+# No fill mode here (the maker's app does that), so the water task points there.
+def _water_unit(name: str, unit: str, app: str) -> Profile:
+    return {
+        "name": name,
+        "tasks": [
+            {"id": "water", "title": "Add water", "trigger": "hub_water", "interval_days": None, "source": "default",
+             "why": f"The {unit} says when its water is low. Low water means it cools and heats less well.",
+             "steps": [f"Open {app} and follow its steps for adding water.",
+                       "Use the kind of water the maker asks for, and pour slowly.",
+                       "Check the status here once it's done."],
+             "supplies": "The kind of water the maker asks for."},
+            {"id": "hub_check", "title": f"Check the {unit}, hoses and vents", "interval_days": 90, "source": "default",
+             "reminder": f"Time for a quick check of the {unit}",
+             "why": "A few minutes keeps the vents clear and spots a loose hose or a drip early.",
+             "steps": [f"Dust the {unit}'s vents and check there's space around it.",
+                       "Check the hoses are pushed in firmly and aren't kinked.",
+                       f"Look for water on the floor around the {unit}. If you find any, switch it off and contact the maker."],
+             "note": "No schedule comes from the maker; every 3 months is a suggestion."},
+            {"id": "water_care", "title": "Clean or refresh the water", "interval_days": 180, "source": "default",
+             "reminder": "Time to clean or refresh the water",
+             "why": "Water that sits for months can grow a film. A clean or refresh keeps the lines clear.",
+             "steps": [f"Follow the maker's cleaning steps in {app}.",
+                       "Tap Done here so the next reminder counts from today."],
+             "note": "Suggested every 6 months. Change it to whatever the maker says."},
+        ],
+        "light_guide": None,
+    }
+
+
+WATER_DOCK: Profile = _water_unit("sleepme", "dock", "the Sleepme app")
+WATER_POD: Profile = _water_unit("eight-sleep", "Pod hub", "free-sleep's web page or the maker's guide")
