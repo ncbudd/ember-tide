@@ -34,7 +34,7 @@ Status as researched in November 2026 (check each developer site before relying 
 | WHOOP (Developer API v2) | per-night stage-duration totals (awake/light/REM/deep), resting heart rate, HRV (RMSSD), skin temperature, SpO2, breathing rate, recovery score; no stage timeline or minute-by-minute heart rate | OAuth2; `offline read:sleep read:recovery` | No (any member can create an app) | after the strap syncs and WHOOP scores the sleep | yes |
 | Polar (AccessLink v3) | sleep hypnogram and heart-rate samples, Nightly Recharge HRV / breathing / heart rate | OAuth2 with HTTP Basic client auth; no refresh (long-lived tokens); user registered once after connecting | No (any Polar Flow user can register a client); last 28 days only | after Polar Flow sync | yes |
 | Fitbit / Pixel Watch | — | Fitbit Web API switched off Nov 2026; Google Health API uses Google OAuth | Yes: Google's app verification for health scopes | — | no (use Health Connect) |
-| Garmin (Personal API) | sleep and nap times with minutes per stage, heart rate, HRV, resting heart rate; no stage timeline | Personal API key exchanged for a 24-hour token | No | after the watch syncs to Garmin Connect | yes |
+| Garmin (Personal API) | sleep and nap times with minutes per stage (shown on the Sleep screen), heart rate, HRV, resting heart rate; no stage timeline | Personal API key exchanged for a 24-hour token | No | after the watch syncs to Garmin Connect | yes |
 | Samsung Galaxy Watch | — | no public cloud API | — | — | no (Health Connect) |
 | Apple Watch / Apple Health | — | no cloud API; on-device HealthKit only | — | — | no (iPhone app) |
 

@@ -53,8 +53,8 @@ export const BRANDS: Brand[] = [
   { id: "garmin", name: "Garmin", icon: "△",
     hc: { stages: "yes", hr: "yes", hrv: "no", temp: "no", resp: "some" },
     ah: { stages: "some", hr: "yes", hrv: "no", temp: "no", resp: "some" },
-    // the cloud gives minutes per stage, not a stage timeline, so stages are "no" (Personal API key, cloud/garmin.py)
-    cloud: { stages: "no", hr: "yes", hrv: "yes", temp: "no", resp: "some" }, cloudId: "garmin",
+    // the cloud gives minutes per stage (no timeline), so stages are "some" (Personal API key, cloud/garmin.py)
+    cloud: { stages: "some", hr: "yes", hrv: "yes", temp: "no", resp: "some" }, cloudId: "garmin",
     hcHow: "In Garmin Connect: More → Settings → Connected Apps → Health Connect → turn it on.",
     ahHow: "In Garmin Connect: More → Settings → Connected Apps → Apple Health → turn it on." },
   { id: "whoop", name: "Whoop", icon: "▭",

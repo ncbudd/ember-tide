@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-from math import isfinite
 from statistics import median, pstdev
 
 STAGES = ("awake", "rem", "light", "deep")
@@ -135,15 +134,18 @@ def collect(store, person, start: float, end: float) -> list[dict]:
     for src, d in store.get_stages(person.id, start, end).items():
         kind = "orion" if src == "orion" else "wearable"
         out.append({"id": src, "label": d["label"] or src, "kind": kind, "segments": d["segments"], "totals": totals(d["segments"])})
-    # WHOOP publishes stage durations but not the time of each stage; show totals without inventing a timeline.
+    # Summary-only sources publish stage durations without stage timestamps; show totals without inventing a timeline.
     from .sleeps import stage_summaries_for
     out.extend(stage_summaries_for(store, person.id, start, end))
     est = estimate(rows)
     if est:
         out.append({"id": "estimate", "label": "Ember & Tide estimate · bed heart rate + movement", "kind": "estimate", "segments": est, "totals": totals(est)})
-    rank = {"wearable": 0, "summary": 1, "orion": 2, "estimate": 3}
+    rank = {"wearable": 0, "orion": 1, "estimate": 2, "summary": 3}
     out.sort(key=lambda x: rank[x["kind"]])
-    ref = out[0]["segments"] if out else []
-    for x in out[1:]:
-        x["agree_with_first"] = agreement(ref, x["segments"])
+    first = next((x for x in out if x["kind"] != "summary" and x.get("segments")), None)
+    ref = first["segments"] if first else []
+    for x in out:
+        if x is first:
+            continue
+        x["agree_with_first"] = None if x["kind"] == "summary" else agreement(ref, x["segments"])
     return out

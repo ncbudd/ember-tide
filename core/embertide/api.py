@@ -499,6 +499,7 @@ def build_router(app_state) -> APIRouter:
     # ---------- nights (Sleep screen) ----------
     @r.get("/people/{pid}/nights")
     async def nights(pid: str, count: int = 7):
+        from .engine.away import hide_away_night
         from .engine.compare import lean_summary
         from .engine.summary import night_window, recent
         from .engine.sleeps import stage_summary_for_night
@@ -513,19 +514,24 @@ def build_router(app_state) -> APIRouter:
             if (an := applied_night(c, a)):
                 applied[an] = applied.get(an, 0) + 1
         for s in recent(c.store, p, c.clock.tz, now, max(1, min(30, count))):
-            # `recent()` already masks away nights. Re-applying hide_away_night here
-            # can return its marker unchanged and make identity checks mislabel it visible.
+            # recent() already swaps away nights for a marker; checking again here keeps this endpoint safe on its own.
+            # Decide on the result's "away" flag, not on identity (a marker can come back unchanged).
+            s = hide_away_night(c.store, pid, s, now, c.clock.tz) or s
             visible = not s.get("away")
             n = lean_summary(c.store, p, s, c.clock.tz, now) if visible else s
             stage_totals = None
+            stage_totals_from = None
             if visible:
                 win = night_window(p, date.fromisoformat(s["date"]), c.clock.tz, now)
                 if win:
-                    summary = stage_summary_for_night(c.store, pid, *win, s.get("in_bed_at"), s.get("out_at"))
+                    in_bed = n.get("in_bed_at") if n.get("in_bed_at") is not None else s.get("in_bed_at")
+                    out_at = n.get("out_at") if n.get("out_at") is not None else s.get("out_at")
+                    summary = stage_summary_for_night(c.store, pid, *win, in_bed, out_at)
                     if summary:
                         stage_totals = summary["totals"]
+                        stage_totals_from = summary.get("device")
             # for History: was the night reviewed, and how many suggestions were applied from it
-            out.append({**n, "stage_totals": stage_totals,
+            out.append({**n, "stage_totals": stage_totals, "stage_totals_from": stage_totals_from,
                         "reviewed": bool((c.store.get(f"ai_review:{pid}:{n['date']}") or {}).get("answer")),
                         "applied": applied.get(n["date"], 0)})
         return out
