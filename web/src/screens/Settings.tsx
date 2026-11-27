@@ -221,6 +221,10 @@ export default function Settings() {
 
       <h3 className="settings-group">Watch, ring and pets</h3>
       {isApp() && <PhoneSources />}
+      {isApp() && <div className="card list">
+        <div className="row"><span>Off the home Wi-Fi means away<br /><span className="mute" style={{ fontSize: 12 }}>After 30 minutes off your home Wi-Fi, your side waits at pre-cool time and asks you, unless your location says you're home.</span></span>
+          <input type="checkbox" className="toggle" checked={s.wifi_off_away ?? true} onChange={e => upd({ wifi_off_away: e.target.checked })} aria-label="Off the home Wi-Fi means away" /></div>
+      </div>}
       {isApp() && <HealthConnect />}
       <SettingsWearable person={me.id} value={s.wearable ?? ""} onChange={v => upd({ wearable: v })} />
       {(!auth.state.enabled || auth.isOwner) && <div className="card list">
