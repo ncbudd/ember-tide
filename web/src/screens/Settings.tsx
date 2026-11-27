@@ -7,7 +7,8 @@ import { GuestStart } from "../components/GuestCard";
 import Account from "./Account";
 import Sheet from "../components/Sheet";
 import BedSidePicker, { BedOrientation, peopleHalves, type Side, SideCheck, sideLower, sideTitle, useBedFromFoot } from "../components/BedSidePicker";
-import Fold from "../components/Fold";
+import Fold, { FoldSearch } from "../components/Fold";
+import { useSettingsFilter } from "../components/SettingsSearch";
 import { NOTIFY_TYPES, NotifyToggles, notifyOnCount, TonePicker } from "../components/NotifyPrefs";
 import SettingsSleep from "./SettingsSleep";
 import { HubCard } from "../components/HubControls";
@@ -77,6 +78,9 @@ export default function Settings() {
   // changed somewhere else (Studio, the other phone, first-time setup): follow it, unless a change of ours is still waiting to save
   const live = me ? JSON.stringify(me.settings) : "";
   useEffect(() => { if (me && !pending.current.s && saved !== "Saving…") setS(structuredClone(me.settings)); }, [live]);
+  const [query, setQuery] = useState("");
+  const flow = useRef<HTMLDivElement>(null);
+  const found = useSettingsFilter(flow, query);
   if (!me || !s || !profile || !snap) return null;
   const u = s.units;
   const upd = (patch: Partial<PersonSettings>) => { const next = { ...s, ...patch }; setS(next); queue({ s: next }); };
@@ -99,7 +103,13 @@ export default function Settings() {
       <div className="row" style={{ alignItems: "flex-end" }}><div><div className="k">More</div><h2 style={{ fontSize: 28 }}>Settings</h2>
         <span className="set-for"><i style={{ background: personaColor(me) }} />For {me.name}{partner ? ` · ${sideLower(me.zone)}` : ""}</span></div>
         <span className="mute" role="status" aria-live="polite" style={{ fontSize: 12.5, paddingBottom: 6 }}>{saved}</span></div>
-      <div className="settings-flow">
+      <div className="settings-search">
+        <input type="search" placeholder="Search settings" aria-label="Search settings" value={query} enterKeyHint="search"
+          onChange={e => setQuery(e.target.value)} onKeyDown={e => { if (e.key === "Escape") setQuery(""); }} />
+      </div>
+      {found === 0 && <p className="mute settings-none" role="status">Nothing in Settings matches "{query.trim()}". Devices, your data and the bed's setup are in <Link to="/studio">Studio</Link>.</p>}
+      <FoldSearch.Provider value={!!query.trim()}>
+      <div className="settings-flow" ref={flow}>
 
       <h3 className="settings-group">You</h3>
       <div className="card list">
@@ -266,6 +276,7 @@ export default function Settings() {
       <SetupAgain person={me.id} />
       {isApp() && <AppVersion />}
       </div>
+      </FoldSearch.Provider>
       <p className="mute" style={{ fontSize: 12, textAlign: "center" }}>Devices, exporting your data and more are in <Link to="/studio">Studio</Link>.</p>
       {checking && <Sheet onClose={() => setChecking(false)} aria-label="Check sides with the bed">
           <h2 style={{ fontSize: 20 }}>Check sides with the bed</h2>

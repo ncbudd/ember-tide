@@ -12,6 +12,8 @@ const write = (id: string, open: boolean) => {
 export const FoldLock = createContext(false);
 /** Whether the enclosing Fold is currently open (true outside any Fold). */
 export const FoldOpen = createContext(true);
+/** True while a settings search is running: every Fold shows its contents (not remembered), so matches inside show. */
+export const FoldSearch = createContext(false);
 
 /**
  * A collapsible settings section: a big tappable header (name, a one-line summary of where it stands, chevron) and its
@@ -37,13 +39,15 @@ export default function Fold({ id, anchor, title, summary, defaultOpen = false, 
   const locked = useContext(FoldLock);
   useEffect(() => { if (attention) setOpen(true); }, [attention]);
   useEffect(() => { if (reveal) setOpen(true); }, [reveal]);
+  const searching = useContext(FoldSearch);
   const toggle = () => setOpen(o => { write(id, !o); return !o; });
-  return <section ref={sect} className={`fold${open ? " open" : ""}${className ? ` ${className}` : ""}`}>
-    <button type="button" className="fold-head" aria-expanded={open} aria-controls={body} onClick={toggle}>
+  const shown = open || searching;
+  return <section ref={sect} className={`fold${shown ? " open" : ""}${className ? ` ${className}` : ""}`}>
+    <button type="button" className="fold-head" aria-expanded={shown} aria-controls={body} onClick={toggle} disabled={searching}>
       <span className="k">{title}</span>
-      {summary && (!open || keepSummary) && <span className={`fold-sum${attention ? " warn" : ""}`}>{summary}</span>}
+      {summary && (!shown || keepSummary) && <span className={`fold-sum${attention ? " warn" : ""}`}>{summary}</span>}
       <span className="fold-chev" aria-hidden="true">›</span>
     </button>
-    <div id={body} className="fold-body" hidden={!open}><FoldOpen.Provider value={open}>{locked ? <fieldset disabled className="fold-lock">{children}</fieldset> : children}</FoldOpen.Provider></div>
+    <div id={body} className="fold-body" hidden={!shown}><FoldOpen.Provider value={shown}>{locked ? <fieldset disabled className="fold-lock">{children}</fieldset> : children}</FoldOpen.Provider></div>
   </section>;
 }
