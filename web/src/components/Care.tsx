@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { api } from "../api";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { api, useVisibleInterval } from "../api";
 import { useApp } from "../ctx";
 import type { CareData, CareTask, HubGuide } from "../types";
 import { pushClear } from "../native";
@@ -17,22 +17,25 @@ import ShowMore from "./ShowMore";
 
 const EVENT = "et-care";
 
-/** The care list, refreshed when anything changes it (on any screen) and once a minute (a new day changes "due"). */
+/** The care list, refreshed when anything changes it (on any screen) and every 15 min (a new day changes "due"). */
 export function useCare(): { care: CareData | null; reload: () => void; failed: boolean } {
   const [care, setCare] = useState<CareData | null>(null);
   const [failed, setFailed] = useState(false);
   const reload = useCallback(() => { api.get<CareData>("/api/care").then(c => { setCare(c); setFailed(false); }).catch(() => setFailed(true)); }, []);
   const { snap } = useApp();
   const water = snap?.system.hub?.water_ok ?? null;
+  const prevWater = useRef(water);
   useEffect(() => {
     reload();
-    const t = window.setInterval(reload, 60000);          // a fallback; the rest below make changes show at once
-    const vis = () => { if (document.visibilityState === "visible") reload(); };
     window.addEventListener(EVENT, reload);
-    document.addEventListener("visibilitychange", vis);
-    return () => { window.clearInterval(t); window.removeEventListener(EVENT, reload); document.removeEventListener("visibilitychange", vis); };
+    return () => window.removeEventListener(EVENT, reload);
   }, [reload]);
-  useEffect(() => { reload(); }, [water, reload]);        // the hub's water status changed in the live snapshot
+  useVisibleInterval(reload, 15 * 60_000, [reload]);        // a fallback; water updates and et-care events reload immediately
+  useEffect(() => {
+    if (prevWater.current === water) return;
+    prevWater.current = water;
+    reload();
+  }, [water, reload]);                                       // the hub's water status changed in the live snapshot
   return { care, reload, failed };
 }
 const changed = () => window.dispatchEvent(new Event(EVENT));

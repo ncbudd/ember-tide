@@ -72,6 +72,16 @@ def hash_password(pw: str) -> str:
     return f"scrypt$16384$8$1${salt.hex()}${d.hex()}"
 
 
+_DUMMY: list[str] = []
+
+
+def _dummy_hash() -> str:
+    """A fixed hash to check against for unknown names (made once: hashing it on every try would double the work)."""
+    if not _DUMMY:
+        _DUMMY.append(hash_password("timing-equaliser"))
+    return _DUMMY[0]
+
+
 def check_password(pw: str, stored: str) -> bool:
     try:
         _, n, r, p, salt, d = stored.split("$")
@@ -209,7 +219,7 @@ class Auth:
     def verify(self, username: str, password: str) -> dict | None:
         r = self._q("SELECT id,pw FROM users WHERE username=?", (username,))
         if not r:
-            check_password(password, hash_password("timing-equaliser"))   # same work whether or not the name exists
+            check_password(password, _dummy_hash())                       # same work whether or not the name exists
             return None
         return self.user(r[0][0]) if check_password(password, r[0][1]) else None
 
@@ -546,7 +556,7 @@ PUBLIC_PATTERNS = [("GET", re.compile(r"^/api/cloud/[a-z]{2,20}/callback$")), ("
 # a person's own data that the partner and view-only accounts don't read (the owner can, and each person their own):
 # where they are, their phone and watch, every night's detail, Autopilot's view of them, their imports and questions
 PRIVATE_READS = ("/phone-context", "/watch-hr", "/nights", "/night", "/sleeps", "/stages", "/compare", "/autopilot", "/wearable",
-                 "/wearables", "/insights", "/imports", "/pet-question")
+                 "/wearables", "/insights", "/imports", "/pet-question", "/morning", "/review")
 PERSON_PATH = re.compile(r"^/api/people/([^/]+)(/.*)?$")
 FLASH = re.compile(r"^/flash(/extend|/stop)?$")
 ADJUST = re.compile(r"^/(adjust(/clear)?|tonight)$")

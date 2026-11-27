@@ -172,7 +172,8 @@ class Generic:
         d = b.model_dump()
         if cur:                                   # masked header values sent back unchanged keep the stored ones,
             from urllib.parse import urlsplit     # but only for the same address: a saved key never goes to a new host
-            same = urlsplit(cur.get("url", "")).netloc.lower() == urlsplit(d["url"]).netloc.lower()
+            a, b_ = urlsplit(cur.get("url", "")), urlsplit(d["url"])
+            same = (a.scheme, (a.hostname or "").lower(), a.port) == (b_.scheme, (b_.hostname or "").lower(), b_.port)
             d["headers"] = {k: v for k, v in ((k, (cur.get("headers", {}).get(k, "") if same else "") if v.startswith("••••") else v)
                                               for k, v in d["headers"].items()) if v}
         h = {**(cur or {"id": "j_" + secrets.token_hex(4)}), **d}

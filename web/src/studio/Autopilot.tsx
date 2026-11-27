@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api } from "../api";
+import { api, useVisibleInterval } from "../api";
 import Fold from "../components/Fold";
 import ShowMore from "../components/ShowMore";
 import Tip from "../components/Tip";
@@ -139,7 +139,8 @@ export default function Autopilot() {
     api.get<ImportRow[]>(`/api/people/${person.id}/imports`).then(r => setImports([...r].reverse())).catch(() => {});
   };
   useEffect(() => { api.get<Meta>("/api/autopilot/meta").then(setMeta).catch(() => {}); }, []);
-  useEffect(() => { setDirty(false); setReplay(null); setReview(null); loadAll(); const t = setInterval(loadAll, 30000); return () => clearInterval(t); }, [person?.id]);
+  useEffect(() => { setDirty(false); setReplay(null); setReview(null); loadAll(); }, [person?.id]);
+  useVisibleInterval(loadAll, 30_000, [person?.id]);
   useEffect(() => {
     if (!person) return;
     let live = true;

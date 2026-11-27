@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { api } from "../api";
+import { useEffect, useRef, useState } from "react";
+import { api, useVisibleInterval } from "../api";
 import { pushClear } from "../native";
 
 export interface PetQ {
@@ -26,18 +26,18 @@ export default function PetQuestion({ person, start, end, onAnswered, notificati
   const [done, setDone] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const loadRef = useRef<() => void>(() => {});
   useEffect(() => {
     let live = true;
     const load = () => api.get<PetQ | null>(`/api/people/${person}/pet-question`).then(x => {
       if (live) setQ(x);
       if (!x) clearPushed(person, notifications);
     }).catch(() => { /* offline: try later */ });
+    loadRef.current = load;
     void load();
-    const t = window.setInterval(load, 5 * 60_000);
-    const vis = () => { if (document.visibilityState === "visible") void load(); };    // coming back to the app: check again
-    document.addEventListener("visibilitychange", vis);
-    return () => { live = false; window.clearInterval(t); document.removeEventListener("visibilitychange", vis); };
+    return () => { live = false; };
   }, [person]);
+  useVisibleInterval(() => loadRef.current(), 5 * 60_000, [person]);
   if (done) return <div className="card petq" role="status"><p style={{ margin: 0, fontSize: 14 }}>{done}</p></div>;
   if (!q || (start != null && end != null && ((q.end ?? q.start) < start || q.start > end))) return null;
   const answer = async (c: PetQ["choices"][number]) => {

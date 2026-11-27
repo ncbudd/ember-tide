@@ -79,7 +79,7 @@ export default function Devices() {
   useEffect(() => {
     load();
     const t = setInterval(() => { if (!document.hidden) load(); }, 3000);
-    const tick = setInterval(() => setTick(x => x + 1), 1000);
+    const tick = setInterval(() => { if (!document.hidden) setTick(x => x + 1); }, 1000);
     const vis = () => { if (!document.hidden) load(); };
     document.addEventListener("visibilitychange", vis);
     return () => { clearInterval(t); clearInterval(tick); document.removeEventListener("visibilitychange", vis); };

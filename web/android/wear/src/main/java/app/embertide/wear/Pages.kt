@@ -66,7 +66,14 @@ fun WatchPages(m: BedModel, hrTick: Int, onHr: () -> Unit) {
     val flashOn = snap != null && WatchLogic.flashing(snap.me, snap.nowS, elapsed - m.fetchedAt)
     LaunchedEffect(flashOn, m.fetchedAt) {
         elapsed = SystemClock.elapsedRealtime()
-        while (true) { delay(if (flashOn) 1000 else 20_000); elapsed = SystemClock.elapsedRealtime() }
+        while (true) {
+            val wait = if (flashOn && snap != null) {
+                val left = WatchLogic.flashLeftMs(snap.me, snap.nowS, elapsed - m.fetchedAt)
+                if (left > 0) minOf(15_000L, ((left - 1L) % 60_000L) + 20L) else 20_000L
+            } else 20_000L
+            delay(wait)
+            elapsed = SystemClock.elapsedRealtime()
+        }
     }
     val since = if (snap == null) 0L else elapsed - m.fetchedAt
     val hasPartner = snap?.partner != null
