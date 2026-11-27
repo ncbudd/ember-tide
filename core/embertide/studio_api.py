@@ -28,7 +28,15 @@ PALETTE = {"target": "var(--acc)", "setpoint": "var(--faint)", "measured": "var(
            "location": "var(--pc-blue)", "calendar": "var(--pc-violet)", "light": "var(--warn)", "other": "var(--mute)"}
 
 
-HA_ENTITY = re.compile(r"[a-z0-9_]+\.[a-z0-9_]+")
+_HA_CHARS = frozenset("abcdefghijklmnopqrstuvwxyz0123456789_")
+
+
+def ha_entity_ok(eid: str) -> bool:
+    """domain.object_id in Home Assistant's own characters (checked without a regex: a long input stays cheap)."""
+    if not eid or len(eid) > 255 or eid.count(".") != 1:
+        return False
+    domain, obj = eid.split(".")
+    return bool(domain) and bool(obj) and set(domain) <= _HA_CHARS and set(obj) <= _HA_CHARS
 
 
 def ha_url_ok(url: str) -> bool:
@@ -409,7 +417,7 @@ def build_studio_router(state) -> APIRouter:
 
     @r.post("/sources/test-ha")
     async def test_ha(b: HaTest):
-        if not HA_ENTITY.fullmatch(b.entity_id or ""):
+        if not ha_entity_ok(b.entity_id or ""):
             return {"ok": False, "error": "That doesn't look like an entity ID. It looks like sensor.bedroom_temperature."}
         if not ha_url_ok(b.url):
             return {"ok": False, "error": "The address should look like http://homeassistant.local:8123"}
