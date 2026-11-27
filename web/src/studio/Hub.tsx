@@ -5,6 +5,7 @@ import { CareSection, LightGuide, useCare } from "../components/Care";
 import { LightControl, QuietFanControl, useHubState } from "../components/HubControls";
 import { useApp } from "../ctx";
 import { sideWord } from "./deviceKinds";
+import BedConnection from "./BedConnection";
 
 /**
  * Studio → Bed hub: how the bed's control unit is doing, its light and fan, and the two maintenance actions.
@@ -100,6 +101,8 @@ export default function Hub() {
           </div>
         </div>
       </div>
+
+      <BedConnection snap={snap} />
 
       <CareSection owner />
 
