@@ -52,7 +52,7 @@ secret scan knows they are fake (`.gitleaks.toml`).
 
 ## Using AI tools
 
-AI coding and writing tools are welcome here; the project itself is built with their help. Just be open about it:
+AI coding and writing tools are welcome here; the project itself is built with their help (disclosed once at the top of the [README](README.md), which covers the maintainer's own commits and pull requests). Just be open about it:
 
 - **Say if you used AI, and which tool and model** (for example "Claude Code with Claude Opus 5.5", "GitHub Copilot with
   GPT-5", "ChatGPT (GPT-5) to tidy the wording"). The pull request template and the issue forms ask for it. "None" is a fine answer.
